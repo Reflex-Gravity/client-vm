@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/protocol" },
+    { "path": "packages/vfs" },
+    { "path": "packages/kernel" },
+    { "path": "packages/process" },
+    { "path": "packages/node-compat" },
+    { "path": "packages/clientvm" },
+    { "path": "packages/sandbox-host" }
+  ]
+}

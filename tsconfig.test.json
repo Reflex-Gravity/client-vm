@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"],
+    "customConditions": ["@clientvm/source"]
+  },
+  "include": [
+    "packages/*/src/**/*.test.ts",
+    "packages/*/src/**/*.fixture.ts",
+    "test/**/*.ts",
+    "*.config.ts",
+    "packages/sandbox-host/vite.config.ts"
+  ]
+}
