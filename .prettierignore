@@ -1,0 +1,9 @@
+dist
+dist-types
+node_modules
+pnpm-lock.yaml
+test-results
+playwright-report
+*.md
+LICENSE
+NOTICE
