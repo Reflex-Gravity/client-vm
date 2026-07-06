@@ -1,0 +1,21 @@
+{
+  "name": "@clientvm/vfs",
+  "version": "0.0.0",
+  "description": "Virtual filesystem for ClientVM (memory backend in v0).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@clientvm/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@clientvm/protocol": "workspace:*"
+  }
+}
