@@ -1,0 +1,21 @@
+{
+  "name": "@clientvm/process",
+  "version": "0.0.0",
+  "description": "ClientVM process worker bootstrap and stdio.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@clientvm/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@clientvm/protocol": "workspace:*"
+  }
+}
