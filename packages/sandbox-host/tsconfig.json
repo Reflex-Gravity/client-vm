@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist-types",
+    "emitDeclarationOnly": true
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../protocol" },
+    { "path": "../kernel" },
+    { "path": "../process" },
+    { "path": "../node-compat" }
+  ]
+}

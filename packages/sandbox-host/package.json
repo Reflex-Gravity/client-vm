@@ -1,0 +1,19 @@
+{
+  "name": "@clientvm/sandbox-host",
+  "version": "0.0.0",
+  "description": "Static sandbox page, kernel and process worker entries for ClientVM.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@clientvm/kernel": "workspace:*",
+    "@clientvm/node-compat": "workspace:*",
+    "@clientvm/process": "workspace:*",
+    "@clientvm/protocol": "workspace:*"
+  }
+}
