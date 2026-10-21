@@ -26,6 +26,7 @@ import {
   touch,
 } from './files.ts';
 import { find, xargs } from './find.ts';
+import { git } from './git.ts';
 import { grep } from './grep.ts';
 import {
   clear,
@@ -65,6 +66,7 @@ export const COMMANDS: Readonly<Record<string, CommandFn>> = {
   false: falseCmd,
   fgrep: grep,
   find,
+  git,
   grep,
   gunzip,
   gzip,

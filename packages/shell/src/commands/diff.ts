@@ -370,3 +370,11 @@ export async function diff(ctx: CommandContext): Promise<number> {
     2,
   );
 }
+
+/** The `@@` hunks of a unified diff between two texts (no file headers); '' when equal. */
+export function unifiedHunks(oldText: string, newText: string, context = 3): string {
+  const A = splitLines(oldText);
+  const B = splitLines(newText);
+  const hunks = hunksFrom(lcsPairs(A.lines, B.lines), A.lines.length, B.lines.length);
+  return hunks.length === 0 ? '' : unifiedDiff(A, B, hunks, context);
+}

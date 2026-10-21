@@ -36,7 +36,7 @@ export { createZlib } from './zlib.ts';
 export { cryptoModule } from './crypto.ts';
 export { NPM_VERSION, npmRuntime } from './npm.ts';
 export { ESBUILD_LAUNCHER, STANDIN_ROOT, esbuildRuntime } from './standins.ts';
-export { checkIntegrity } from './registry.ts';
+export { checkIntegrity, installTarball, unpackPackage } from './registry.ts';
 export { readTar, writeTar } from './tar.ts';
 export type { TarEntry, TarType } from './tar.ts';
 export { isLocalHost, virtualUrl } from './net.ts';
