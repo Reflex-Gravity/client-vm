@@ -27,6 +27,8 @@ function isolationHeaders(): Plugin {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       if (frameAncestors)
         res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+      // The service worker script lives under /__clientvm/ but controls the whole origin.
+      if (req.headers['service-worker'] === 'script') res.setHeader('Service-Worker-Allowed', '/');
     } else if (/[?&]coi=1(&|$)/.test(req.url ?? '')) {
       res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
       res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
@@ -47,8 +49,16 @@ export default defineConfig({
   worker: { format: 'es' },
   build: {
     target: 'es2023',
+    // Everything ClientVM serves lives under /__clientvm/, which the instance
+    // service worker never intercepts; all other paths belong to the app.
+    assetsDir: '__clientvm/assets',
     rollupOptions: {
-      input: { host: 'index.html', instance: '__clientvm/instance.html' },
+      input: { host: 'index.html', instance: '__clientvm/instance.html', sw: 'src/sw.ts' },
+      output: {
+        // The service worker needs a stable URL so updates replace it in place.
+        entryFileNames: (chunk) =>
+          chunk.name === 'sw' ? '__clientvm/sw.js' : '__clientvm/assets/[name]-[hash].js',
+      },
     },
   },
 });

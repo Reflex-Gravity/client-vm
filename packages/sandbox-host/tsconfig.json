@@ -3,7 +3,8 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist-types",
-    "emitDeclarationOnly": true
+    "emitDeclarationOnly": true,
+    "types": ["vite/client"]
   },
   "include": ["src"],
   "references": [

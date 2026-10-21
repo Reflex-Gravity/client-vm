@@ -167,6 +167,8 @@ class InstanceImpl implements Instance {
   private readonly createdAt = Date.now();
   private readonly processes = new Map<number, ProcessHandleImpl>();
   private readonly watchers = new Map<number, (e: FsEvent) => void>();
+  private readonly openPorts = new Map<number, string>();
+  private readonly portListeners = new Set<(port: number, url: string) => void>();
   private destroyed = false;
 
   constructor(
@@ -198,6 +200,12 @@ class InstanceImpl implements Instance {
         const cb = this.watchers.get(watchId);
         const parsed = v.fsEvents(events);
         if (cb && parsed) for (const e of parsed) cb(e);
+      },
+      portOpen: (port, primary) => {
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || this.openPorts.has(port)) return;
+        const url = primary === true ? `${this.origin}/` : `${this.origin}/__port/${port}/`;
+        this.openPorts.set(port, url);
+        for (const cb of this.portListeners) cb(port, url);
       },
     });
     this.fs = new InstanceFs(this);
@@ -248,8 +256,24 @@ class InstanceImpl implements Instance {
     return Promise.reject(new NotImplementedError('exec (needs the shell, Phase 3)'));
   }
 
-  onPortOpen(_cb: (port: number, url: string) => void): Disposable {
-    throw new NotImplementedError('onPortOpen (Phase 3)');
+  /**
+   * Calls `cb` for every virtual port that is open now and opens later, with
+   * the URL that reaches it. The first port is served at the origin root;
+   * others under `/__port/<port>/`. Load the URL in an iframe to preview it.
+   */
+  onPortOpen(cb: (port: number, url: string) => void): Disposable {
+    this.portListeners.add(cb);
+    for (const [port, url] of this.openPorts) cb(port, url);
+    return { dispose: () => void this.portListeners.delete(cb) };
+  }
+
+  /**
+   * @internal Serves a VFS directory on a virtual port. A stand-in until
+   * `http.createServer` exists (Phase 3); for tests and demos.
+   */
+  async debugServeStatic(port: number, dir: string): Promise<void> {
+    this.assertAlive();
+    await this.rpc.call('serveStatic', port, dir);
   }
 
   async snapshot(): Promise<SnapshotId> {
@@ -289,6 +313,7 @@ class InstanceImpl implements Instance {
     for (const proc of this.processes.values()) proc.deliverExit(137, 'SIGKILL');
     this.processes.clear();
     this.watchers.clear();
+    this.portListeners.clear();
     this.port.close();
     this.iframe.remove();
     this.controller.forget(this.id);

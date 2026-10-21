@@ -23,6 +23,11 @@ Instance page  https://<id>.<sandbox-domain>/__clientvm/instance.html
        └─ async: postMessage to the kernel for stdout / stderr / ready / exit
 ```
 
+Each instance origin also has a **service worker** (`/__clientvm/sw.js`, scope `/`). It forwards
+every request outside `/__clientvm/` (preview iframes, `fetch` from processes) over a MessagePort
+to the kernel's `HttpRouter`, which dispatches by virtual port. If the SW restarts and loses its
+port, it asks the instance page to reconnect.
+
 Each instance has its own origin, so the browser isolates instances' storage, channels and
 service workers from each other ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
 Forking into a new instance exports a filesystem image (`exportImage`), transfers it, and imports

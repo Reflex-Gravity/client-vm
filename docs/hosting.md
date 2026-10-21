@@ -26,6 +26,12 @@ instance origin `https://<id>.<sandbox-domain>/`. No server-side code runs.
    `frame-ancestors` should list the app origins allowed to embed instances. The handshake is
    already origin-checked; this is defense in depth.
 
+5. **For the service worker script** (`/__clientvm/sw.js`), also send
+   `Service-Worker-Allowed: /` so it can control the whole instance origin. Serve it with
+   `Cache-Control: no-cache` so updates are picked up.
+6. **Keep everything under `/__clientvm/`.** The instance service worker forwards every other path
+   on an instance origin to the instance's own virtual servers, which serve its previews.
+
 The development and preview servers (`packages/sandbox-host/vite.config.ts`) apply these headers
 to `*.localhost`. Set `CLIENTVM_FRAME_ANCESTORS` to add the CSP header.
 
@@ -40,3 +46,10 @@ const instance = await vm.createInstance({ fs: { from: { 'index.js': "console.lo
 
 Your app needs **no** special headers. If your app already uses COOP/COEP, instances still work
 (fallback mode).
+
+## Previews
+
+When a server inside an instance opens a port, `instance.onPortOpen((port, url) => ...)` reports
+a URL on the instance origin. Load it in an iframe to show the preview. The first port is served
+at the origin root; others are served under `/__port/<port>/`. Previews are private: they only
+resolve inside the browser tab that runs the instance.

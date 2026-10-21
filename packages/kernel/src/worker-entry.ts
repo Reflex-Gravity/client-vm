@@ -2,6 +2,7 @@
 import { RpcEndpoint, SystemError, decodeUtf8, encodeUtf8 } from '@clientvm/protocol';
 import type {
   FileKind,
+  HttpRpc,
   InstanceEvents,
   InstanceInit,
   InstanceRpc,
@@ -22,6 +23,7 @@ import {
   purgePersisted,
 } from '@clientvm/vfs';
 import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
+import { HttpRouter, staticHandler } from './http.ts';
 import { Kernel } from './kernel.ts';
 import type { KernelOptions, ProcessHandle } from './kernel.ts';
 
@@ -46,8 +48,16 @@ export interface KernelFlushMessage {
   t: 'clientvm:flush';
 }
 
+/** Sent by the instance page with a port whose other end belongs to the service worker. */
+export interface KernelHttpPortMessage {
+  t: 'clientvm:http-port';
+  port: MessagePort;
+}
+
 export interface ServedInstance {
   kernel: Kernel;
+  /** Serves HTTP requests from the service worker on `port`. */
+  attachHttpPort(port: MessagePort): void;
   /** Persists pending changes (no-op when not persistent). */
   flush(): Promise<void>;
 }
@@ -75,9 +85,18 @@ export function startKernelWorker(
 ): void {
   let served: Promise<ServedInstance> | null = null;
   scope.addEventListener('message', (event) => {
-    const msg = event.data as Partial<KernelBootMessage> | Partial<KernelFlushMessage> | null;
+    const msg = event.data as
+      | Partial<KernelBootMessage>
+      | Partial<KernelFlushMessage>
+      | Partial<KernelHttpPortMessage>
+      | null;
     if (msg?.t === 'clientvm:flush') {
       void served?.then((s) => s.flush()).catch(() => {});
+      return;
+    }
+    if (msg?.t === 'clientvm:http-port') {
+      const port = (msg as KernelHttpPortMessage).port;
+      if (port) void served?.then((s) => s.attachHttpPort(port)).catch(() => {});
       return;
     }
     if (served || msg?.t !== 'clientvm:kernel-boot' || !msg.init || !msg.port) return;
@@ -163,6 +182,19 @@ async function boot(
     : null;
   const flush = async () => {
     await persister?.flush();
+  };
+
+  // Ports are announced only once a service worker link exists, so a preview
+  // iframe opened in response always reaches the kernel.
+  let httpLinked = false;
+  const router = new HttpRouter((port, primary) => {
+    if (httpLinked) emit('portOpen', port, primary);
+  });
+  const attachHttpPort = (port: MessagePort) => {
+    new RpcEndpoint<HttpRpc, Record<string, never>>(port, { fetch: (req) => router.handle(req) });
+    if (httpLinked) return;
+    httpLinked = true;
+    for (const p of router.ports) emit('portOpen', p.port, p.primary);
   };
 
   const watches = new Map<number, () => void>();
@@ -266,6 +298,11 @@ async function boot(
         : null,
     }),
     flush,
+    serveStatic(port, dir) {
+      if (typeof dir !== 'string' || !dir.startsWith('/'))
+        throw new SystemError('EINVAL', 'listen');
+      router.listen(port, staticHandler(kernel.vfs, dir));
+    },
     async purge() {
       if (!persister || !store) return;
       persister.close();
@@ -283,7 +320,7 @@ async function boot(
     },
   };
 
-  return { methods, served: { kernel, flush } };
+  return { methods, served: { kernel, flush, attachHttpPort } };
 }
 
 function kindOf(mode: number): FileKind {

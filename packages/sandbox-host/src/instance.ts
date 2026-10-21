@@ -2,8 +2,15 @@
 // The instance page: runs on <id>.<sandbox-domain>, embedded by the controller.
 // It only performs the handshake and starts the kernel worker; the controller
 // then talks to the kernel directly over the transferred MessagePort.
-import type { KernelBootMessage, KernelFlushMessage } from '@clientvm/kernel';
-import type { HandshakeMessage } from '@clientvm/protocol';
+import type {
+  KernelBootMessage,
+  KernelFlushMessage,
+  KernelHttpPortMessage,
+} from '@clientvm/kernel';
+import type { HandshakeMessage, ServiceWorkerMessage } from '@clientvm/protocol';
+
+// Built to a stable path (see vite.config.ts); Vite serves the source in dev.
+const SW_URL = import.meta.env.DEV ? '/src/sw.ts' : '/__clientvm/sw.js';
 
 const parentOrigin = new URLSearchParams(location.search).get('parent');
 
@@ -27,6 +34,8 @@ function start(parent: string): void {
       if (chunk.buffer instanceof ArrayBuffer) buffers.add(chunk.buffer);
     }
     kernel.postMessage(boot, [port, ...buffers]);
+    void linkServiceWorker(kernel);
+
     // Best effort: the page may be gone before an async flush completes.
     // Instance.flush() is the durability point.
     const flush: KernelFlushMessage = { t: 'clientvm:flush' };
@@ -43,6 +52,36 @@ function start(parent: string): void {
   };
   // targetOrigin pins delivery to the claimed parent; a page lying about its origin never hears back.
   window.parent.postMessage(hello, parent);
+}
+
+/**
+ * Registers the instance service worker and gives it a MessagePort to the
+ * kernel. Repeated when the SW restarts (it asks via `sw-reconnect`) or a new
+ * SW version takes over (`controllerchange`).
+ */
+async function linkServiceWorker(kernel: Worker): Promise<void> {
+  if (!('serviceWorker' in navigator)) return;
+  const connect = async () => {
+    const registration = await navigator.serviceWorker.ready;
+    const sw = registration.active;
+    if (!sw) return;
+    const channel = new MessageChannel();
+    const toKernel: KernelHttpPortMessage = { t: 'clientvm:http-port', port: channel.port1 };
+    kernel.postMessage(toKernel, [channel.port1]);
+    const toSw: ServiceWorkerMessage = { t: 'clientvm:sw-connect' };
+    sw.postMessage(toSw, [channel.port2]);
+  };
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if ((event.data as Partial<ServiceWorkerMessage> | null)?.t === 'clientvm:sw-reconnect')
+      void connect();
+  });
+  navigator.serviceWorker.addEventListener('controllerchange', () => void connect());
+  await navigator.serviceWorker.register(SW_URL, {
+    scope: '/',
+    type: 'module',
+    updateViaCache: 'none',
+  });
+  await connect();
 }
 
 if (window.parent === window || !parentOrigin) {

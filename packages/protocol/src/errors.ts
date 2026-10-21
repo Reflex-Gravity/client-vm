@@ -23,6 +23,7 @@ export const Errno = {
   ENOSYS: 38,
   ENOTEMPTY: 39,
   ELOOP: 40,
+  EADDRINUSE: 98,
 } as const;
 
 export type ErrnoCode = keyof typeof Errno;
@@ -49,6 +50,7 @@ const DESCRIPTIONS: Record<ErrnoCode, string> = {
   ENOSYS: 'function not implemented',
   ENOTEMPTY: 'directory not empty',
   ELOOP: 'too many symbolic links encountered',
+  EADDRINUSE: 'address already in use',
 };
 
 const BY_NUMBER = new Map<number, ErrnoCode>(

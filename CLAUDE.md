@@ -187,7 +187,7 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 
 **Phase 1: Spike (done; see `docs/spike-results.md`).** Prove the foundation: a VFS (memory backend) plus one process worker that does a **synchronous `fs.readFileSync` via `SharedArrayBuffer` + `Atomics.wait`** against the kernel, running `node -e "console.log(require('fs').readdirSync('/'))"`. Verify under COOP/COEP in Chromium via Playwright. Measure per-syscall latency and report numbers. Do not build outward until this works and the numbers are acceptable.
 
-**Phase 2: Host kernel.** Full VFS (OPFS backend, symlinks, watchers, CoW snapshots/forks, quotas), instance manager, process table, sandbox-origin plumbing and service worker.
+**Phase 2: Host kernel (done; see docs/decisions/0003–0005).** Full VFS (OPFS backend, symlinks, watchers, CoW snapshots/forks, quotas), instance manager, process table, sandbox-origin plumbing and service worker.
 
 **Phase 3: JS tier.** Node-compat shims (`fs path buffer stream events crypto zlib http https net os child_process worker_threads url util assert timers` etc.), CJS and ESM resolution including `exports` maps, shell and commands, **run real npm** (`npm install` works), Vite dev server with HMR through the service worker, and a golden React+Vite template running end to end.
 

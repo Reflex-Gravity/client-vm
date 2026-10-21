@@ -32,3 +32,5 @@ export type {
   WireFsEvent,
   WireStat,
 } from './instance-rpc.ts';
+export { PORT_PATH_PREFIX, RESERVED_PATH_PREFIX } from './http-rpc.ts';
+export type { HttpRpc, ServiceWorkerMessage, WireRequest, WireResponse } from './http-rpc.ts';

@@ -90,6 +90,12 @@ export type InstanceRpc = {
   flush(): Promise<void>;
   /** Deletes the persisted store; the instance keeps running in memory only. */
   purge(): Promise<void>;
+  /**
+   * Serves `dir` as static files on a virtual port (the Phase 2 stand-in for
+   * `http.createServer`). The first port opened becomes the primary port,
+   * served at the instance origin's root.
+   */
+  serveStatic(port: number, dir: string): void;
   /** Kills all processes and flushes persisted state; the controller removes the iframe afterwards. */
   shutdown(): Promise<void>;
 };
@@ -108,6 +114,8 @@ export type InstanceEvents = {
   output(pid: number, fd: 1 | 2, data: Uint8Array): void;
   exit(pid: number, code: number, signal: Signal | null): void;
   fsEvents(watchId: number, events: WireFsEvent[]): void;
+  /** A virtual port is accepting requests through the service worker. */
+  portOpen(port: number, primary: boolean): void;
 };
 
 /** Messages exchanged between the controller and the instance page during the handshake. */

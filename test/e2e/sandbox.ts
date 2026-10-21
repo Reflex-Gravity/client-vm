@@ -33,6 +33,8 @@ interface HostWindow {
     fork(id: string): Promise<string>;
     destroy(id: string, purge?: boolean): Promise<void>;
     flush(id: string): Promise<void>;
+    serveStatic(id: string, port: number, dir: string): Promise<string>;
+    openPreview(url: string): Promise<void>;
     usage(id: string): Promise<{ persist: { generation: number; restored: boolean } | null }>;
     list(): string[];
   };

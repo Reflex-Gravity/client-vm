@@ -30,7 +30,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `stream` | none | | |
 | `crypto` | none | | |
 | `zlib` | none | | |
-| `http` / `https` | none | | |
+| `http` / `https` | none | | Virtual ports, the service-worker route and static serving exist (Phase 2); `http.createServer` is Phase 3 |
 | `net` | none | | |
 | `os` | none | | |
 | `child_process` | none | | |

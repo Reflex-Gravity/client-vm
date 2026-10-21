@@ -30,7 +30,7 @@ affect decisions, CLAUDE.md.
 | `Instance.fork()` | done: image export → new origin |
 | `Instance.destroy()` | done |
 | `Instance.exec` | Phase 3 (needs the shell) → `NotImplementedError` |
-| `Instance.onPortOpen` | Phase 3 → throws `NotImplementedError` |
+| `Instance.onPortOpen` | done (2d): fires for open and future virtual ports with a preview URL. Until `http.createServer` exists (Phase 3), ports are opened with the internal `serveStatic` |
 | `Instance.mailbox`, `Instance.grant` | Phase 4 → `NotImplementedError` |
 
 Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`,

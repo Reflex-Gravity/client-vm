@@ -25,6 +25,10 @@ export interface HostApi {
   fork(id: string): Promise<string>;
   destroy(id: string, purge?: boolean): Promise<void>;
   flush(id: string): Promise<void>;
+  /** Serves a directory on a port and resolves with the preview URL once it is routable. */
+  serveStatic(id: string, port: number, dir: string): Promise<string>;
+  /** Loads `url` in a visible preview iframe and resolves when it has loaded. */
+  openPreview(url: string): Promise<void>;
   usage(id: string): Promise<unknown>;
   list(): string[];
   watch(id: string, path: string): Promise<() => unknown[]>;
@@ -87,6 +91,29 @@ window.__clientvm = {
     instances.delete(id);
   },
   flush: (id) => get(id).flush(),
+  async serveStatic(id, port, dir) {
+    const instance = get(id) as Instance & {
+      debugServeStatic(p: number, d: string): Promise<void>;
+    };
+    const url = new Promise<string>((resolve) => {
+      const sub = instance.onPortOpen((p, u) => {
+        if (p !== port) return;
+        queueMicrotask(() => sub.dispose());
+        resolve(u);
+      });
+    });
+    await instance.debugServeStatic(port, dir);
+    return url;
+  },
+  openPreview(url) {
+    return new Promise((resolve) => {
+      const iframe = document.createElement('iframe');
+      iframe.className = 'preview';
+      iframe.src = url;
+      iframe.addEventListener('load', () => resolve(), { once: true });
+      document.body.append(iframe);
+    });
+  },
   usage: (id) =>
     (get(id) as Instance & { rpc: { call(m: 'usage'): Promise<unknown> } }).rpc.call('usage'),
   list: () => vm.listInstances().map((i) => i.id),

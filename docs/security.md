@@ -45,7 +45,9 @@ Instance iframe on <id>.<sandbox-domain> (one origin per instance)    ← bounda
 | Each process gets its own channel SAB, so processes cannot read each other's syscall traffic | **done** |
 | Capabilities for every cross-instance interaction, checked in the kernel | Phase 4 |
 | Resource limits per instance (processes, memory, FS quota, CPU time via kill on timeout) | Phase 2/5 |
-| Fuzzing of codec, channel, VFS, resolver, shell parser | Phase 5 |
+| The service worker never routes `/__clientvm/*` (ClientVM's own page, workers and SW script) to instance servers, so instance code cannot shadow them | **done** (2d), e2e-tested |
+| The service worker accepts a kernel link only from the instance page | **done** (2d) |
+| Fuzzing of codec, channel, VFS, resolver, shell parser | Phase 5 (VFS: seeded random-op differential done) |
 
 ## What a compromised instance can do
 
@@ -78,9 +80,11 @@ top-level site.
   Cookies with `Domain=<sandbox-domain>` would be shared, so the sandbox domain must never set
   cookies. Consider listing the sandbox domain on the Public Suffix List so each instance is its own
   site.
-- **Service worker hijack.** A process that can register or replace the instance's service worker
-  could intercept preview traffic. Phase 2 must ensure only the trusted sandbox page registers the
-  SW and that untrusted code cannot run on that origin's top-level document.
+- **Service worker hijack.** Preview documents and processes share the instance origin with the
+  SW, so they can register a replacement SW or read the instance's storage. The blast radius is
+  that one instance's previews and data, which that code already controls. A replacement SW
+  cannot affect other instances (different origins) or the host app. Preview documents should
+  not be treated as trustworthy by the host app; only read them through the controller.
 - **Kernel DoS.** A process can spin forever, flood stdout, or issue huge writes. Today
   `writeFile` accepts any size up to memory. Quotas and output caps are required before untrusted
   use.

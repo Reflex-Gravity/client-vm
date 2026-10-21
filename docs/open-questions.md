@@ -27,6 +27,13 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 
 ## Runtime design
 
+- **Port → URL mapping.** The primary port is served at the instance origin root; others under
+  `/__port/<n>/`. Apps that use absolute paths (`/assets/x.js`) only work on the primary port.
+  Options: a sub-origin per port (`<id>-<port>.<sandbox-domain>` bridged to the kernel), or
+  rewriting. Decide with a probe before Phase 3 servers (Vite, Express) depend on it.
+- **Request/response streaming.** The service worker currently buffers whole bodies. Vite HMR and
+  long-lived responses (SSE) will need streaming through the kernel link (Phase 3).
+
 - **`fs.rmSync` quirk:** on Node 24.11, `rmSync(path, { recursive: true })` reports success on a
   dangling symlink but does not remove it. `MemoryVfs.rmTree` removes it, as `rm -rf` and POSIX do.
   When `rmSync` lands in node-compat (Phase 3), decide whether to replicate the quirk.

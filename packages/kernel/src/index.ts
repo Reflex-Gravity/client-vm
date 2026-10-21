@@ -11,10 +11,13 @@ export type {
 export { createSyscallHandler } from './dispatcher.ts';
 export { DEFAULT_MAX_OPEN_FILES, FdTable } from './fd-table.ts';
 export type { OpenFile } from './fd-table.ts';
+export { HttpRouter, contentType, staticHandler } from './http.ts';
+export type { HttpHandler } from './http.ts';
 export { serveInstance, startKernelWorker } from './worker-entry.ts';
 export type {
   KernelBootMessage,
   KernelFlushMessage,
+  KernelHttpPortMessage,
   KernelWorkerOptions,
   ServedInstance,
 } from './worker-entry.ts';
