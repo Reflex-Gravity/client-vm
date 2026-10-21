@@ -91,7 +91,7 @@ clientvm/
 │  ├─ process/            # worker bootstrap, sync-syscall bridge (Atomics), stdio, signals
 │  ├─ node-compat/        # Node core module shims + CJS/ESM resolution
 │  ├─ shell/              # shell parser/interpreter + builtin commands
-│  ├─ net/                # virtual network switch, service-worker routing, mailbox
+│  ├─ (net/)              # not created: cross-instance routing lives in the controller (docs/phase4-plan.md)
 │  ├─ sandbox-host/       # static sandbox page, service worker, COOP/COEP setup
 │  ├─ agent-api/          # high-level API for agents (fs, exec, spawn-instance, observe)
 │  └─ clientvm/           # public entry point re-exporting a stable API
@@ -192,9 +192,9 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 
 **Phase 2: Host kernel (done; see docs/decisions/0003–0005).** Full VFS (OPFS backend, symlinks, watchers, CoW snapshots/forks, quotas), instance manager, process table, sandbox-origin plumbing and service worker.
 
-**Phase 3: JS tier.** Node-compat shims (`fs path buffer stream events crypto zlib http https net os child_process worker_threads url util assert timers` etc.), CJS and ESM resolution including `exports` maps, shell and commands, **run real npm** (`npm install` works), Vite dev server with HMR through the service worker, and a golden React+Vite template running end to end.
+**Phase 3: JS tier (done; see docs/phase3-plan.md, ADRs 0006–0013).** Node-compat shims (`fs path buffer stream events crypto zlib http https net os child_process worker_threads url util assert timers` etc.), CJS and ESM resolution including `exports` maps, shell and commands, **run real npm** (`npm install` works), Vite dev server with HMR through the service worker, and a golden React+Vite template running end to end.
 
-**Phase 4: Multi-instance and agent API.** Mailbox, virtual network between instances, capability grants, mounts, snapshot/fork, the agent-facing tool API, driveable preview.
+**Phase 4: Multi-instance and agent API (done; see docs/phase4-plan.md).** Mailbox, virtual network between instances, capability grants, mounts, snapshot/fork, the agent-facing tool API, driveable preview.
 
 **Phase 5: Hardening.** Conformance suites, fuzzing (VFS, resolver, shell parser), resource limits, performance work (consider Rust/WASM only where profiling proves need), pnpm support, docs and examples.
 

@@ -171,13 +171,15 @@ class Controller implements ClientVM {
     return instance;
   }
 
-  grant(to: InstanceId, cap: Capability): void {
-    if (!this.instances.has(to)) throw noInstance(to);
-    this.caps.grant(to, parseCapability(cap));
+  grant(to: InstanceId | string, cap: Capability): void {
+    const target = this.resolve(to);
+    if (!target) throw noInstance(to);
+    this.caps.grant(target.id, parseCapability(cap));
   }
 
-  revoke(to: InstanceId, cap: Capability): boolean {
-    return this.caps.revoke(to, parseCapability(cap));
+  revoke(to: InstanceId | string, cap: Capability): boolean {
+    const id = this.resolve(to)?.id ?? (to as InstanceId);
+    return this.caps.revoke(id, parseCapability(cap));
   }
 
   /** @internal An instance by id or name. */
@@ -513,6 +515,11 @@ class InstanceImpl implements Instance {
     return this.controller.createInstance({ ...childOpts, image } as CreateOptions);
   }
 
+  async createChild(opts: InstanceOptions = {}): Promise<Instance> {
+    this.assertAlive();
+    return this.controller.createInstance(this.childOptions(opts));
+  }
+
   /** @internal Checks `spawn-instance` and applies its limits to a child's options. */
   childOptions(opts: InstanceOptions): CreateOptions {
     const held = this.controller.caps.list(this.id).filter((c) => c.kind === 'spawn-instance');
@@ -646,10 +653,11 @@ class InstanceImpl implements Instance {
   async grant(to: InstanceId, cap: Capability): Promise<void> {
     this.assertAlive();
     const parsed = parseCapability(cap);
-    if (!this.controller.getInstance(to)) throw noInstance(to);
+    const target = this.controller.resolve(to);
+    if (!target) throw noInstance(to);
     if (!this.controller.caps.canGrant(this.id, parsed))
       throw noCapability(`${this.label} cannot grant this ${parsed.kind} capability`);
-    this.controller.caps.grant(to, parsed);
+    this.controller.caps.grant(target.id, parsed);
   }
 
   async revoke(to: InstanceId, cap: Capability): Promise<void> {
@@ -657,7 +665,7 @@ class InstanceImpl implements Instance {
     const parsed = parseCapability(cap);
     if (subjectOf(parsed) !== this.id)
       throw noCapability(`${this.label} can only revoke capabilities about itself`);
-    this.controller.caps.revoke(to, parsed);
+    this.controller.caps.revoke(this.controller.resolve(to)?.id ?? to, parsed);
   }
 
   capabilities(): Capability[] {

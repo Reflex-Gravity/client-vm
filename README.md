@@ -5,7 +5,7 @@ common Linux commands **entirely in the browser**, with no server-side compute. 
 app builders: each agent gets isolated instances with their own filesystem, processes, and
 network namespace.
 
-> **Status: early development (Phase 2 complete).** Not production-ready yet. See
+> **Status: early development (Phases 0–4 complete; hardening next).** Not production-ready yet. See
 > [CLAUDE.md](CLAUDE.md) for the roadmap and [docs/compatibility.md](docs/compatibility.md) for
 > exactly what works.
 
@@ -21,10 +21,22 @@ network namespace.
   id after a reload.
 - **Processes** making synchronous syscalls over `SharedArrayBuffer` + `Atomics.wait` at about
   10 µs per round trip, with streaming output, `kill`, and per-instance process limits.
-- **`node -e` / `node -p` / `node script.js`** with a Node 24 compat subset: most of sync `fs`,
-  `path`, `util.format` / `util.inspect`, `console`, `process`, and timers.
-- **Preview routing:** a per-instance service worker forwards requests to virtual ports
-  (static serving for now; `http.createServer` is Phase 3).
+- **Node 24 compatibility layer:** `fs` (sync, callback, and promises), streams, `http`/`net`
+  on virtual ports, `child_process`, `crypto` hashes, `zlib`, `readline`, CommonJS and native ESM
+  with `exports` maps. Unmodified Express and ws run as golden fixtures
+  ([compatibility matrix](docs/compatibility.md)).
+- **A POSIX shell with about 60 Linux commands** (`ls grep sed find xargs diff tar curl ...`),
+  checked against real bash and GNU tools.
+- **Real npm.** The unmodified npm 11 is fetched and verified on first use; it handles `install`,
+  `ci`, `run` and `npx`, and runs lifecycle scripts.
+- **Vite + React with HMR.** A stock project runs its dev server and production build. esbuild and
+  rollup run as their official WebAssembly builds.
+- **Previews:** each port gets its own origin, with WebSockets and HMR. A driveable preview
+  provides DOM outlines, clicks, typing, screenshots, and console capture.
+- **Multiple instances:** capabilities, a mailbox, HTTP between instances
+  (`http://<name>.internal:<port>/`), and read-only mounts.
+- **Agent tools:** `@clientvm/agent-api` exposes all of this as LLM tool definitions
+  ([agent API](docs/agent-api.md)).
 
 ## Development
 
@@ -50,9 +62,11 @@ pnpm --filter @clientvm/sandbox-host dev   # test host page; see packages/sandbo
 | `@clientvm/process` | Process worker bootstrap, stdio, built-in bench |
 | `@clientvm/node-compat` | Node core module shims and the `node` command |
 | `@clientvm/sandbox-host` | Static instance page, service worker, worker entries, and a test host page |
-| `@clientvm/clientvm` | Public API: the controller (`createClientVM`) and types |
+| `@clientvm/shell` | The shell and Linux commands |
+| `@clientvm/clientvm` | Public API: the controller (`createClientVM`), capabilities, previews, and types |
+| `@clientvm/agent-api` | Tool definitions for LLM agents |
 
-Docs: [architecture](docs/architecture.md) · [interfaces](docs/interfaces.md) · [hosting](docs/hosting.md) ·
+Docs: [architecture](docs/architecture.md) · [interfaces](docs/interfaces.md) · [agent API](docs/agent-api.md) · [hosting](docs/hosting.md) ·
 [security](docs/security.md) · [open questions](docs/open-questions.md) · [decisions](docs/decisions/)
 
 ## License

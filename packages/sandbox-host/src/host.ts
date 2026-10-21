@@ -2,6 +2,8 @@
 // Example host app and e2e test harness. It runs on the plain app origin
 // (http://localhost:<port>) and is NOT cross-origin isolated; each instance
 // lives on http://<id>.localhost:<port>.
+import { createAgentTools } from '@clientvm/agent-api';
+import type { AgentTools, ToolResult } from '@clientvm/agent-api';
 import { createClientVM } from '@clientvm/clientvm';
 import type {
   Capability,
@@ -65,6 +67,9 @@ export interface HostApi {
   /** Calls a Preview method; Uint8Array results come back as `{ png: base64 }`. */
   previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
   networkLog(id: string, since?: number): Promise<unknown[]>;
+  /** Agent tools for an instance (`@clientvm/agent-api`); resolves with a handle. */
+  agent(id: string): number;
+  agentCall(handle: number, tool: string, input: unknown): Promise<ToolResult>;
   destroy(id: string, purge?: boolean): Promise<void>;
   flush(id: string): Promise<void>;
   /** Serves a directory on a port and resolves with the preview URL once it is routable. */
@@ -112,6 +117,7 @@ async function drain(
 
 const mailLogs = new Map<string, { from: string; message: unknown }[]>();
 const previews = new Map<number, Preview>();
+const agents = new Map<number, AgentTools>();
 let nextPreview = 1;
 
 window.__clientvm = {
@@ -209,6 +215,12 @@ window.__clientvm = {
     }
   },
   networkLog: (id, since) => get(id).networkLog(since),
+  agent(id) {
+    const handle = nextPreview++;
+    agents.set(handle, createAgentTools({ instance: get(id), onSpawn: (child) => keep(child) }));
+    return handle;
+  },
+  agentCall: (handle, tool, input) => agents.get(handle)!.call(tool, input),
   async destroy(id, purge) {
     await get(id).destroy(purge ? { purge } : {});
     instances.delete(id);

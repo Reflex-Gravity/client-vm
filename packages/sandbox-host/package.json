@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clientvm/agent-api": "workspace:*",
     "@clientvm/clientvm": "workspace:*",
     "@clientvm/kernel": "workspace:*",
     "@clientvm/node-compat": "workspace:*",

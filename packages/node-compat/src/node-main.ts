@@ -14,6 +14,7 @@ import { createProcessObject } from './process-object.ts';
 import { createModuleSystem, requireOf } from './module/cjs-loader.ts';
 import { EsmResolver } from './module/esm-resolve.ts';
 import { installEsmRuntime } from './module/esm-runtime.ts';
+import { analyzeEsm, tokenize } from './module/lexer.ts';
 import type { EsmRuntime } from './module/esm-runtime.ts';
 import type { ResolverFs } from './module/resolve.ts';
 import type { NodeFs } from './fs.ts';
@@ -24,7 +25,7 @@ import { deprecationHook } from './util.ts';
 
 type Invocation =
   | { kind: 'eval'; code: string; print: boolean; rest: string[] }
-  | { kind: 'script'; script: string; rest: string[] }
+  | { kind: 'script'; script: string; rest: string[]; check?: boolean }
   | { kind: 'error'; message: string };
 
 /** fetch() that reaches this instance's own servers for `http://localhost:<port>` URLs. */
@@ -49,12 +50,17 @@ const BAD_OPTION_EXIT_CODE = 9;
 
 export function parseNodeArgs(args: readonly string[]): Invocation {
   let print = false;
+  let check = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--') {
       const script = args[i + 1];
       if (script === undefined) return { kind: 'error', message: 'node: REPL is not supported' };
-      return { kind: 'script', script, rest: args.slice(i + 2) };
+      return { kind: 'script', script, rest: args.slice(i + 2), ...(check ? { check } : {}) };
+    }
+    if (arg === '-c' || arg === '--check') {
+      check = true;
+      continue;
     }
     if (arg === '-p' || arg === '--print') {
       print = true;
@@ -81,8 +87,9 @@ export function parseNodeArgs(args: readonly string[]): Invocation {
       };
     }
     if (arg.startsWith('-')) return { kind: 'error', message: `node: bad option: ${arg}` };
-    return { kind: 'script', script: arg, rest: args.slice(i + 1) };
+    return { kind: 'script', script: arg, rest: args.slice(i + 1), ...(check ? { check } : {}) };
   }
+  if (check) return { kind: 'error', message: 'node: --check needs a script file' };
   return { kind: 'error', message: 'node: REPL is not supported' };
 }
 
@@ -237,6 +244,17 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
       const code = esmRuntime.rewriteDynamicImports(invocation.code);
       const result: unknown = (0, eval)(`${code}\n//# sourceURL=[eval]`);
       if (invocation.print) console.log(result);
+    } else if (invocation.check) {
+      // `node --check`: parse without running.
+      const file = Module._resolveFilename(scriptPath!, null, true);
+      const source = resolverFs.readFile(file) ?? '';
+      const format = esm.format(file, () => source);
+      const error = await syntaxCheck(source, format === 'module');
+      if (error) {
+        ctx.stderr.write(`${file}\n${error.name}: ${error.message}\n\nNode.js ${NODE_VERSION}\n`);
+        return finish(1);
+      }
+      return finish(0);
     } else {
       // Node resolves the entry with CommonJS rules, then picks the loader by format.
       mainFile = Module._resolveFilename(scriptPath!, null, true);
@@ -266,6 +284,45 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     return loop.drain();
   });
   return Promise.race([drained.then(() => finish(0)), fatal]);
+}
+
+/**
+ * Returns the syntax error in `source`, if any, without running it. Modules
+ * are linked as a blob with their static imports blanked out and a `throw`
+ * first, so nothing executes.
+ */
+async function syntaxCheck(source: string, isModule: boolean): Promise<Error | null> {
+  const body = source.startsWith('#!') ? `//${source.slice(2)}` : source;
+  if (!isModule) {
+    try {
+      new Function('exports', 'require', 'module', '__filename', '__dirname', body);
+      return null;
+    } catch (err) {
+      return err instanceof SyntaxError ? err : null;
+    }
+  }
+  let code = body;
+  try {
+    const imports = analyzeEsm(body, tokenize(body)).imports;
+    // Re-exports (`export ... from`) would load their modules too.
+    for (const imp of [...imports].reverse()) {
+      code =
+        code.slice(0, imp.statementStart) +
+        code.slice(imp.statementStart, imp.statementEnd).replace(/[^\n]/g, ' ') +
+        code.slice(imp.statementEnd);
+    }
+  } catch {
+    // The lexer could not tokenize it; let the engine report the error.
+  }
+  const url = URL.createObjectURL(new Blob([`throw 0;\n${code}`], { type: 'text/javascript' }));
+  try {
+    await import(/* @vite-ignore */ url);
+    return null;
+  } catch (err) {
+    return err instanceof SyntaxError ? err : null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function reportUncaught(ctx: ProcessContext, err: unknown): void {

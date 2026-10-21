@@ -86,9 +86,9 @@ export interface ClientVM {
   getInstance(id: InstanceId): Instance | undefined;
   listInstances(): InstanceInfo[];
   /** Grants `cap` to instance `to` with the host's authority (any capability). */
-  grant(to: InstanceId, cap: Capability): void;
+  grant(to: InstanceId | InstanceName, cap: Capability): void;
   /** Removes a capability from `to`. Returns whether it held one. */
-  revoke(to: InstanceId, cap: Capability): boolean;
+  revoke(to: InstanceId | InstanceName, cap: Capability): boolean;
 }
 
 export interface SpawnOptions {
@@ -136,12 +136,17 @@ export interface Instance {
   snapshot(): Promise<SnapshotId>;
   fork(opts?: InstanceOptions): Promise<Instance>;
   /**
+   * Creates a child instance (fresh filesystem, or `opts.fs.from`). Like
+   * `fork`, it needs a `spawn-instance` capability, which bounds its limits.
+   */
+  createChild(opts?: InstanceOptions): Promise<Instance>;
+  /**
    * Grants `cap` to another instance. Allowed when `cap` is about this
    * instance (its `peer`/`from`), or this instance holds it (delegation).
    */
-  grant(to: InstanceId, cap: Capability): Promise<void>;
+  grant(to: InstanceId | InstanceName, cap: Capability): Promise<void>;
   /** Revokes a capability about this instance from `to`. */
-  revoke(to: InstanceId, cap: Capability): Promise<void>;
+  revoke(to: InstanceId | InstanceName, cap: Capability): Promise<void>;
   /** The capabilities this instance holds. */
   capabilities(): Capability[];
   /** Persists pending filesystem changes. Resolves immediately for non-persistent instances. */

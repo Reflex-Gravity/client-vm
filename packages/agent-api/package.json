@@ -1,0 +1,21 @@
+{
+  "name": "@clientvm/agent-api",
+  "version": "0.0.0",
+  "description": "Tool definitions that let an LLM agent work inside a ClientVM instance.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@clientvm/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@clientvm/clientvm": "workspace:*"
+  }
+}

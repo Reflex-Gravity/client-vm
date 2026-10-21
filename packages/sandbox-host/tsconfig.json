@@ -25,6 +25,9 @@
     },
     {
       "path": "../clientvm"
+    },
+    {
+      "path": "../agent-api"
     }
   ]
 }

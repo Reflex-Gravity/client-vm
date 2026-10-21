@@ -61,6 +61,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 |---|---|---|
 | `node -e/-p/--eval/--print <code>` | partial | Runs in global scope with `require`, `module`, `exports` |
 | `node <script.js>` | partial | CommonJS and ESM entry points (`.mjs`, `"type": "module"`, detected ESM syntax) |
+| `node --check` / `-c` | partial | Parses without running. Errors show the file and the message; the source line and caret are not shown |
 | `node` (REPL) | none | |
 | `sh` / `bash` | partial | See [Shell](#shell) |
 | Linux commands | partial | See [Commands](#commands) |

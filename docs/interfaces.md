@@ -27,6 +27,8 @@ affect decisions, CLAUDE.md.
 | `Instance.fs.mount`/`unmount` | done (4c): read-only mirrors of another instance's directory (kept in step from its watch events) or of a snapshot; needs a `mount` capability; writes under a mount fail with `EROFS`, including through symlinks; writable mounts reject with `ERR_NOT_SUPPORTED` |
 | `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `kill`, `exit` | done. `stdin` writes reject until node-compat reads stdin. Output is buffered without bound until read |
 | `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
+| `Instance.createChild(opts)` | done (4e): a child instance with a fresh filesystem; needs `spawn-instance` like `fork` |
+| `@clientvm/agent-api` `createAgentTools({ instance })` | done (4e): LLM tool definitions and a dispatcher ([agent-api.md](agent-api.md)) |
 | `Instance.fork()` | done: image export → new origin. Since 4a it needs a `spawn-instance` capability, whose limits bound the child's |
 | `Instance.destroy()` | done |
 | `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started) |

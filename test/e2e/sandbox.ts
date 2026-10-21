@@ -71,6 +71,15 @@ interface HostWindow {
     mail(id: string): { from: string; message: unknown }[];
     drive(id: string, port: number, path?: string): Promise<number>;
     previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
+    agent(id: string): number;
+    agentCall(
+      handle: number,
+      tool: string,
+      input: unknown,
+    ): Promise<{
+      content: { type: string; text?: string; source?: { data: string } }[];
+      is_error?: boolean;
+    }>;
     networkLog(
       id: string,
       since?: number,
