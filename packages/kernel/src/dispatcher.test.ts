@@ -3,10 +3,11 @@ import { Op, decode, decodeStat, encode } from '@clientvm/protocol';
 import { MemoryVfs } from '@clientvm/vfs';
 import { describe, expect, it } from 'vitest';
 import { createSyscallHandler } from './dispatcher.ts';
+import { FdTable } from './fd-table.ts';
 
 describe('syscall dispatcher', () => {
   const vfs = new MemoryVfs();
-  const handle = createSyscallHandler(vfs);
+  const handle = createSyscallHandler(vfs, new FdTable(vfs));
   const call = (op: number, args: Parameters<typeof encode>[0]) =>
     handle(op, encode(args)) as Uint8Array;
 
@@ -24,5 +25,29 @@ describe('syscall dispatcher', () => {
     expect(() => call(Op.STAT, [42])).toThrow(/EINVAL/);
     expect(() => call(Op.STAT, 'not-an-array')).toThrow(/EINVAL/);
     expect(() => call(999, [])).toThrow(/ENOSYS/);
+  });
+
+  it('keeps per-process descriptors with offsets', () => {
+    const own = new MemoryVfs();
+    const fds = new FdTable(own, 4);
+    const h = createSyscallHandler(own, fds);
+    const c = (op: number, args: Parameters<typeof encode>[0]) => h(op, encode(args)) as Uint8Array;
+    const enc = new TextEncoder();
+    const fd = decode(c(Op.OPEN, ['/f', 0o102, 0o644])) as number; // O_RDWR | O_CREAT
+    expect(fd).toBe(3);
+    c(Op.WRITE, [fd, enc.encode('abc'), null]);
+    c(Op.WRITE, [fd, enc.encode('def'), null]);
+    expect(new TextDecoder().decode(c(Op.READ, [fd, 10, 0]))).toBe('abcdef');
+    expect(decodeStat(c(Op.FSTAT, [fd])).size).toBe(6);
+    c(Op.CLOSE, [fd]);
+    expect(() => c(Op.READ, [fd, 1, null])).toThrow(/EBADF/);
+    const ro = decode(c(Op.OPEN, ['/f', 0, 0])) as number;
+    expect(() => c(Op.WRITE, [ro, enc.encode('x'), null])).toThrow(/EBADF/);
+    c(Op.OPEN, ['/f', 0, 0]);
+    c(Op.OPEN, ['/f', 0, 0]);
+    c(Op.OPEN, ['/f', 0, 0]);
+    expect(() => c(Op.OPEN, ['/f', 0, 0])).toThrow(/EMFILE/);
+    fds.closeAll();
+    expect(() => c(Op.CLOSE, [ro])).toThrow(/EBADF/);
   });
 });

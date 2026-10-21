@@ -16,7 +16,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 
 | Module | Status | Tested by | Known gaps |
 |---|---|---|---|
-| `fs` (sync) | partial | e2e spike, fs differential | Only `readFileSync`, `writeFileSync`, `readdirSync`, `statSync`, `lstatSync`, `existsSync`, `mkdirSync`. Returns `Uint8Array`, not `Buffer`. Only `utf8` encoding. No fds, symlinks, `rm`, `rename`, or watchers |
+| `fs` (sync) | partial | e2e fs differential vs real Node, fs differential + seeded random-op fuzz vs `node:fs` | Paths: `readFileSync writeFileSync appendFileSync readdirSync statSync lstatSync existsSync mkdirSync rmdirSync unlinkSync rmSync renameSync linkSync symlinkSync readlinkSync realpathSync(.native) accessSync chmodSync utimesSync truncateSync copyFileSync`. Fds: `openSync closeSync readSync writeSync fstatSync ftruncateSync`. Returns `Uint8Array`, not `Buffer`; only `utf8`; no `opendirSync`, `cpSync`, `watch` (VFS watchers exist, not yet exposed), `fchmod`/`futimes`, `fsync` |
 | `fs` (callback / promises) | none | | |
 | `path` | partial (posix full) | path differential vs `node:path.posix` | `win32` not provided |
 | `util` | partial | inspect differential vs `node:util` | Only `format` and `inspect`. No `showHidden` (`%o`), colors, custom inspect symbol, Proxy detection, or getters option |
@@ -48,6 +48,12 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `npm` / `npx` / `pnpm` | none | Phase 3 (real npm, unmodified) |
 
 ## Filesystem semantics
+
+- Linux semantics are the reference (CI runs the differentials on Linux; a few macOS-divergent cases are skipped locally).
+- Symlinks are followed with a 40-hop limit (`ELOOP`); `..` is resolved physically, as the kernel does.
+- Hard links, unlinked-but-open files, `O_APPEND`/`O_EXCL`/`O_TRUNC`, and zero-filled holes behave as on Linux.
+- No access time updates on reads (`noatime`). Every process runs as root: only execute permission is checked (`access(X_OK)`).
+- Per-instance quotas (`quotaBytes`, `maxInodes`) fail with `ENOSPC`; per-process open files are capped at 1024 (`EMFILE`).
 
 - `readdir` returns entries in sorted order (code-unit order). Linux ext4 returns hash order, so
   don't rely on order in tests.

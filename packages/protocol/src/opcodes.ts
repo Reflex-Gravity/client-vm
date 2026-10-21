@@ -9,6 +9,26 @@ export const Op = {
   READ_FILE: 4,
   WRITE_FILE: 5,
   MKDIR: 6,
+  RMDIR: 7,
+  UNLINK: 8,
+  RM_TREE: 9,
+  RENAME: 10,
+  SYMLINK: 11,
+  READLINK: 12,
+  LINK: 13,
+  REALPATH: 14,
+  ACCESS: 15,
+  CHMOD: 16,
+  UTIMES: 17,
+  TRUNCATE: 18,
+  COPY_FILE: 19,
+  // File descriptors (per-process tables live in the kernel).
+  OPEN: 20,
+  CLOSE: 21,
+  READ: 22,
+  WRITE: 23,
+  FSTAT: 24,
+  FTRUNCATE: 25,
 } as const;
 
 export type Op = (typeof Op)[keyof typeof Op];

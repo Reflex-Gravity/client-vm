@@ -24,6 +24,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 
 ## Runtime design
 
+- **`fs.rmSync` quirk:** on Node 24.11, `rmSync(path, { recursive: true })` reports success on a
+  dangling symlink but does not remove it. `MemoryVfs.rmTree` removes it, as `rm -rf` and POSIX do.
+  When `rmSync` lands in node-compat (Phase 3), decide whether to replicate the quirk.
+
 - Should the kernel enforce per-process CPU budgets by terminating workers, and how does a process
   get a `SIGINT`-style signal while it is blocked in `Atomics.wait`? A signal slot in the channel
   header is one option.

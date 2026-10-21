@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-import { SyscallServer, createChannelBuffer, DEFAULT_PAYLOAD_BYTES } from '@clientvm/protocol';
-import type {
-  KernelToProcess,
-  ProcessToKernel,
-  SyscallHandler,
-  SyscallMode,
+import {
+  DEFAULT_PAYLOAD_BYTES,
+  SyscallServer,
+  SystemError,
+  createChannelBuffer,
 } from '@clientvm/protocol';
+import type { KernelToProcess, ProcessToKernel, SyscallMode } from '@clientvm/protocol';
 import { MemoryVfs } from '@clientvm/vfs';
+import type { VfsLimits } from '@clientvm/vfs';
 import { createSyscallHandler } from './dispatcher.ts';
+import { FdTable } from './fd-table.ts';
 
 /** The subset of `Worker` the kernel needs; lets tests substitute Node worker_threads. */
 export interface ProcessWorkerLike {
@@ -23,6 +25,10 @@ export interface KernelOptions {
   payloadBytes?: number;
   /** Directories created at boot. */
   seedDirs?: readonly string[];
+  /** Filesystem limits (ENOSPC when exceeded). */
+  fsLimits?: VfsLimits;
+  /** Maximum concurrently running processes (spawn fails with EAGAIN beyond it). */
+  maxProcesses?: number;
 }
 
 export interface SpawnOptions {
@@ -62,24 +68,28 @@ export const DEFAULT_SEED_DIRS = [
 const KILLED_EXIT_CODE = 137;
 
 export class Kernel {
-  readonly vfs = new MemoryVfs();
+  readonly vfs: MemoryVfs;
   private readonly options: KernelOptions;
-  private readonly handler: SyscallHandler;
   private nextPid = 1;
   private readonly processes = new Map<number, ProcessHandle>();
 
   constructor(options: KernelOptions) {
     this.options = options;
-    this.handler = createSyscallHandler(this.vfs);
+    this.vfs = new MemoryVfs(options.fsLimits);
     for (const dir of options.seedDirs ?? DEFAULT_SEED_DIRS)
       this.vfs.mkdir(dir, { recursive: true });
   }
 
   spawn(argv: string[], options: SpawnOptions = {}): ProcessHandle {
+    const { maxProcesses } = this.options;
+    if (maxProcesses !== undefined && this.processes.size >= maxProcesses) {
+      throw new SystemError('EAGAIN', 'spawn');
+    }
     const pid = this.nextPid++;
     const syscallMode = options.syscallMode ?? 'waitAsync';
     const channel = createChannelBuffer(this.options.payloadBytes ?? DEFAULT_PAYLOAD_BYTES);
-    const server = new SyscallServer(channel, this.handler);
+    const fds = new FdTable(this.vfs);
+    const server = new SyscallServer(channel, createSyscallHandler(this.vfs, fds));
     const timing: ProcessTiming = { spawnedAt: performance.now() };
     const worker = this.options.createProcessWorker();
 
@@ -90,6 +100,7 @@ export class Kernel {
         timing.exitedAt = performance.now();
         server.close();
         worker.terminate();
+        fds.closeAll();
         this.processes.delete(pid);
         resolve(code);
       };
