@@ -4,11 +4,10 @@
 // through their shebang interpreter, so PATH lookup, node_modules/.bin
 // symlinks, `#!/usr/bin/env node` and exec permissions behave as on Linux.
 
-import { SystemError } from '@clientvm/protocol';
+import { BUILTIN_MARKER, SystemError } from '@clientvm/protocol';
 import type { MemoryVfs } from '@clientvm/vfs';
 import { S_IFDIR, S_IFMT } from '@clientvm/vfs';
 
-export const BUILTIN_MARKER = '#!/clientvm/builtin ';
 export const DEFAULT_PATH = '/usr/local/bin:/usr/bin:/bin';
 const BIN_DIR = '/usr/local/bin';
 const MAX_INTERPRETER_DEPTH = 4;
@@ -24,15 +23,27 @@ export const DEFAULT_ENV: Readonly<Record<string, string>> = {
   LANG: 'C.UTF-8',
 };
 
-/** Writes (or refreshes) a marker file for each built-in runtime. */
+/** Well-known paths scripts hard-code (`#!/bin/sh`, `#!/bin/bash`, `/usr/bin/env`). */
+const WELL_KNOWN_PATHS: Readonly<Record<string, string>> = {
+  sh: '/bin/sh',
+  bash: '/bin/bash',
+  env: '/usr/bin/env',
+};
+
+/**
+ * Writes (or refreshes) a marker file for each built-in runtime in
+ * /usr/local/bin, plus /bin/sh, /bin/bash and /usr/bin/env when those exist.
+ */
 export function installBuiltinCommands(vfs: MemoryVfs, names: readonly string[]): void {
   vfs.mkdir(BIN_DIR, { recursive: true });
   for (const name of names) {
-    vfs.writeFile(
-      `${BIN_DIR}/${name}`,
-      new TextEncoder().encode(`${BUILTIN_MARKER}${name}\n`),
-      0o755,
-    );
+    const marker = new TextEncoder().encode(`${BUILTIN_MARKER}${name}\n`);
+    vfs.writeFile(`${BIN_DIR}/${name}`, marker, 0o755);
+    const alias = WELL_KNOWN_PATHS[name];
+    if (alias) {
+      vfs.mkdir(alias.slice(0, alias.lastIndexOf('/')), { recursive: true });
+      vfs.writeFile(alias, marker, 0o755);
+    }
   }
 }
 

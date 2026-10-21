@@ -97,6 +97,21 @@ importers:
       '@clientvm/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@clientvm/shell':
+        specifier: workspace:*
+        version: link:../shell
+
+  packages/shell:
+    dependencies:
+      '@clientvm/node-compat':
+        specifier: workspace:*
+        version: link:../node-compat
+      '@clientvm/process':
+        specifier: workspace:*
+        version: link:../process
+      '@clientvm/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
   packages/vfs:
     dependencies:
@@ -106,12 +121,21 @@ importers:
 
   test/conformance:
     dependencies:
+      '@clientvm/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
       '@clientvm/node-compat':
         specifier: workspace:*
         version: link:../../packages/node-compat
+      '@clientvm/process':
+        specifier: workspace:*
+        version: link:../../packages/process
       '@clientvm/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@clientvm/shell':
+        specifier: workspace:*
+        version: link:../../packages/shell
       '@clientvm/vfs':
         specifier: workspace:*
         version: link:../../packages/vfs

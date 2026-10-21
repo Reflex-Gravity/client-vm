@@ -79,3 +79,20 @@ describe('resolveCommand', () => {
     );
   });
 });
+
+describe('installBuiltinCommands', () => {
+  it('adds /bin/sh, /bin/bash and /usr/bin/env when those runtimes exist', () => {
+    const vfs = new MemoryVfs();
+    installBuiltinCommands(vfs, ['sh', 'bash', 'env', 'ls']);
+    const head = (p: string) => new TextDecoder().decode(vfs.readFile(p));
+    expect(head('/bin/sh')).toBe('#!/clientvm/builtin sh\n');
+    expect(head('/bin/bash')).toBe('#!/clientvm/builtin bash\n');
+    expect(head('/usr/bin/env')).toBe('#!/clientvm/builtin env\n');
+    expect(() => vfs.stat('/bin/ls')).toThrow();
+    expect(resolveCommand(vfs, ['/bin/sh', '-c', 'x'], DEFAULT_ENV, '/')).toEqual([
+      'sh',
+      '-c',
+      'x',
+    ]);
+  });
+});

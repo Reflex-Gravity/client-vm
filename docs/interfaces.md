@@ -29,7 +29,7 @@ affect decisions, CLAUDE.md.
 | `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
 | `Instance.fork()` | done: image export → new origin |
 | `Instance.destroy()` | done |
-| `Instance.exec` | Phase 3 (needs the shell) → `NotImplementedError` |
+| `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started) |
 | `Instance.onPortOpen` | done (2d): fires for open and future virtual ports with a preview URL. Until `http.createServer` exists (Phase 3), ports are opened with the internal `serveStatic` |
 | `Instance.mailbox`, `Instance.grant` | Phase 4 → `NotImplementedError` |
 

@@ -36,11 +36,13 @@ const SIGNALS: Record<string, Signal> = {
   SIGKILL: 'SIGKILL',
   SIGINT: 'SIGINT',
   SIGHUP: 'SIGHUP',
+  SIGPIPE: 'SIGPIPE',
 };
 const SIGNAL_BY_NUMBER: Record<number, Signal> = {
   1: 'SIGHUP',
   2: 'SIGINT',
   9: 'SIGKILL',
+  13: 'SIGPIPE',
   15: 'SIGTERM',
 };
 

@@ -3,7 +3,7 @@
 // (http://localhost:<port>) and is NOT cross-origin isolated; each instance
 // lives on http://<id>.localhost:<port>.
 import { createClientVM } from '@clientvm/clientvm';
-import type { Instance, InstanceOptions } from '@clientvm/clientvm';
+import type { ExecOptions, ExecResult, Instance, InstanceOptions } from '@clientvm/clientvm';
 import type { RunResult, SpawnRequest } from '@clientvm/protocol';
 
 /** Test/automation surface on `window.__clientvm`. Ids cross the page boundary, objects don't. */
@@ -11,6 +11,8 @@ export interface HostApi {
   hostCrossOriginIsolated: boolean;
   createInstance(options?: InstanceOptions): Promise<string>;
   run(id: string, request: SpawnRequest): Promise<RunResult>;
+  /** `Instance.exec`: a command line through the shell. */
+  exec(id: string, commandLine: string, opts?: ExecOptions): Promise<ExecResult>;
   /** Spawns via the public API and collects streamed output until exit. */
   spawnAndCollect(
     id: string,
@@ -69,6 +71,7 @@ window.__clientvm = {
   createInstance: async (options) => keep(await vm.createInstance(options)),
   run: (id, request) =>
     (get(id) as Instance & { debugRun(r: SpawnRequest): Promise<RunResult> }).debugRun(request),
+  exec: (id, commandLine, opts) => get(id).exec(commandLine, opts),
   async spawnAndCollect(id, cmd, args, killAfterMs) {
     const proc = await get(id).spawn(cmd, args);
     const stdout: string[] = [];

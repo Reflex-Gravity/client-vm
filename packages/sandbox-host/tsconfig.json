@@ -21,6 +21,9 @@
       "path": "../node-compat"
     },
     {
+      "path": "../shell"
+    },
+    {
       "path": "../clientvm"
     }
   ]

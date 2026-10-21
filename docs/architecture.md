@@ -37,7 +37,14 @@ Commands are files. Built-in runtimes are marker files in `/usr/local/bin`
 (`#!/clientvm/builtin node`), and the kernel resolves `argv[0]` like `execve`: `PATH` lookup, exec
 bits, shebang interpreters. So `node_modules/.bin` symlinks and `#!/usr/bin/env node` scripts
 just work. Child processes started by a process are routed through the kernel. `spawnSync` is a
-syscall that blocks the caller until the child exits.
+syscall that blocks the caller until the child exits. Killing a process also kills its children,
+like a signal to a process group.
+
+The shell (`@clientvm/shell`) is the `sh`/`bash` runtime. Its builtins and Linux commands run
+inside the shell's worker when `PATH` resolves to their marker file. Everything else (`node`,
+scripts, `.bin` shims) is spawned through the kernel, and output the shell does not redirect is
+inherited ([ADR 0011](decisions/0011-in-process-shell-commands.md)). Each command is also its own
+runtime, so programs can spawn `ls` or `grep` directly.
 
 Each instance has its own origin, so the browser isolates instances' storage, channels and
 service workers from each other ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).

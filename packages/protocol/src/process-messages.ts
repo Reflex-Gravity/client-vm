@@ -8,6 +8,13 @@ import type { Signal, WireFsEvent } from './instance-rpc.ts';
  */
 export type SyscallMode = 'waitAsync' | 'postMessage';
 
+/**
+ * First line of a command file that names a built-in runtime
+ * (`#!/clientvm/builtin node`). The kernel resolves these on exec; the shell
+ * runs the ones it implements in-process.
+ */
+export const BUILTIN_MARKER = '#!/clientvm/builtin ';
+
 /** Where a child's stdio stream goes. */
 export type StdioMode = 'pipe' | 'inherit' | 'ignore';
 

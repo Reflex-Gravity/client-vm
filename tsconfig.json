@@ -6,6 +6,7 @@
     { "path": "packages/kernel" },
     { "path": "packages/process" },
     { "path": "packages/node-compat" },
+    { "path": "packages/shell" },
     { "path": "packages/clientvm" },
     { "path": "packages/sandbox-host" }
   ]

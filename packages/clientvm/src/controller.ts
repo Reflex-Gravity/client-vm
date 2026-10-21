@@ -252,8 +252,27 @@ class InstanceImpl implements Instance {
     return this.rpc.call('run', request);
   }
 
-  exec(_commandLine: string, _opts?: ExecOptions): Promise<ExecResult> {
-    return Promise.reject(new NotImplementedError('exec (needs the shell, Phase 3)'));
+  /**
+   * Runs a command line through `sh -c` to completion and returns its output.
+   * `timeoutMs` sends SIGTERM to the shell and everything it started.
+   */
+  async exec(commandLine: string, opts: ExecOptions = {}): Promise<ExecResult> {
+    this.assertAlive();
+    if (typeof commandLine !== 'string') throw new TypeError('commandLine must be a string');
+    const request: SpawnRequest = {
+      argv: ['sh', '-c', commandLine],
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.stdin === undefined ? {} : { stdin: opts.stdin }),
+      ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
+    };
+    const r = v.runResult(await this.rpc.call('run', request));
+    return {
+      code: r.code,
+      ...(r.signal ? { signal: r.signal } : {}),
+      stdout: r.stdout,
+      stderr: r.stderr,
+    };
   }
 
   /**
@@ -405,7 +424,7 @@ class InstanceFs implements FileSystem {
 }
 
 function isSignal(s: unknown): s is Signal {
-  return s === 'SIGTERM' || s === 'SIGKILL' || s === 'SIGINT' || s === 'SIGHUP';
+  return s === 'SIGTERM' || s === 'SIGKILL' || s === 'SIGINT' || s === 'SIGHUP' || s === 'SIGPIPE';
 }
 
 function flattenTree(tree: FileTree, prefix = ''): Record<string, string | Uint8Array> {

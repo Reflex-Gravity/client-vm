@@ -16,7 +16,7 @@ export interface Disposable {
   dispose(): void;
 }
 
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
+export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE';
 
 /** Process tiers. Only `js` and `builtin` exist in v1; the others are reserved. */
 export type ProcessType = 'js' | 'builtin' | 'wasi' | 'vm';

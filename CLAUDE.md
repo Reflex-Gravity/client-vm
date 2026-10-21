@@ -30,6 +30,7 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | Sync syscall wake | Kernel parks on each channel with `Atomics.waitAsync`; postMessage doorbell kept as fallback (ADR 0002, measured in `docs/spike-results.md`) |
 | Instance isolation | **One kernel per instance, on the instance's own origin** (hidden iframe). The controller on the host page brokers cross-instance work (ADR 0003). Instance pages use **Document-Isolation-Policy**, so host apps need no COOP/COEP (ADR 0005) |
 | VFS storage | **Memory-first VFS**; OPFS is write-behind persistence only (ADR 0004) |
+| Shell commands | Builtins and Linux commands run **in-process in the shell's worker** when `PATH` resolves to their marker file; anything else is spawned. Every command is also a standalone runtime. One interpreter for `sh`/`bash`, diffed against real bash (ADR 0011) |
 
 ## 3. Non-goals for v1
 

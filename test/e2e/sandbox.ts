@@ -20,6 +20,16 @@ interface HostWindow {
     hostCrossOriginIsolated: boolean;
     createInstance(options?: unknown): Promise<string>;
     run(id: string, request: { argv: string[]; syscallMode?: SyscallMode }): Promise<RunResult>;
+    exec(
+      id: string,
+      commandLine: string,
+      opts?: {
+        cwd?: string;
+        env?: Record<string, string>;
+        stdin?: string;
+        timeoutMs?: number;
+      },
+    ): Promise<{ code: number; signal?: string; stdout: string; stderr: string }>;
     spawnAndCollect(
       id: string,
       cmd: string,
@@ -35,7 +45,10 @@ interface HostWindow {
     flush(id: string): Promise<void>;
     serveStatic(id: string, port: number, dir: string): Promise<string>;
     openPreview(url: string): Promise<void>;
-    usage(id: string): Promise<{ persist: { generation: number; restored: boolean } | null }>;
+    usage(id: string): Promise<{
+      processes: number;
+      persist: { generation: number; restored: boolean } | null;
+    }>;
     list(): string[];
   };
 }

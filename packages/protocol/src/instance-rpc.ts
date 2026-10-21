@@ -42,7 +42,7 @@ export type WireFsEvent =
   | { type: 'create' | 'modify' | 'delete'; path: string }
   | { type: 'rename'; from: string; to: string };
 
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
+export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE';
 
 export interface SpawnRequest {
   argv: string[];
@@ -51,6 +51,8 @@ export interface SpawnRequest {
   syscallMode?: SyscallMode;
   /** For `run`: bytes written to stdin before it is closed. `spawn` keeps stdin open. */
   stdin?: string | Uint8Array;
+  /** For `run`: send SIGTERM to the process (and its children) after this many milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface RunResult {
@@ -131,5 +133,6 @@ export const SIGNAL_NUMBERS: Record<Signal, number> = {
   SIGHUP: 1,
   SIGINT: 2,
   SIGKILL: 9,
+  SIGPIPE: 13,
   SIGTERM: 15,
 };

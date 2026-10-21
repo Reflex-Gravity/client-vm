@@ -16,6 +16,7 @@ export { RpcEndpoint, RpcError } from './rpc.ts';
 export type { Methods, PortLike } from './rpc.ts';
 export { StatLayout, encodeStat, decodeStat } from './stat.ts';
 export type { StatData } from './stat.ts';
+export { BUILTIN_MARKER } from './process-messages.ts';
 export type {
   ChildSpawnRequest,
   KernelToProcess,

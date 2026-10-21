@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Guards for values received from an instance. The instance origin runs
 // hostile code, so nothing it sends is trusted, even replies to our requests.
-import type { FileKind, WireDirEntry, WireFsEvent, WireStat } from '@clientvm/protocol';
+import type {
+  FileKind,
+  RunResult,
+  Signal,
+  WireDirEntry,
+  WireFsEvent,
+  WireStat,
+} from '@clientvm/protocol';
 import { ClientVMError } from './errors.ts';
 
 const KINDS = new Set<unknown>(['file', 'dir', 'symlink']);
@@ -25,6 +32,28 @@ export function bytes(v: unknown, what: string): Uint8Array {
 export function int(v: unknown, what: string): number {
   return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : bad(what);
 }
+
+export function runResult(v: unknown): {
+  code: number;
+  signal: Signal | null;
+  stdout: string;
+  stderr: string;
+} {
+  const r = v as Partial<RunResult> | null;
+  if (
+    typeof r !== 'object' ||
+    r === null ||
+    typeof r.code !== 'number' ||
+    typeof r.stdout !== 'string' ||
+    typeof r.stderr !== 'string' ||
+    !(r.signal === null || SIGNALS.has(r.signal))
+  ) {
+    bad('run result');
+  }
+  return { code: r.code, signal: r.signal ?? null, stdout: r.stdout, stderr: r.stderr };
+}
+
+const SIGNALS = new Set<unknown>(['SIGHUP', 'SIGINT', 'SIGKILL', 'SIGPIPE', 'SIGTERM']);
 
 export function chunks(v: unknown): Uint8Array[] {
   return Array.isArray(v) && v.every(isUint8Array) ? v : bad('filesystem image');

@@ -47,3 +47,11 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   Node's handle tracking.
 - Multi-process kernel contention: does a single kernel worker remain fast with dozens of
   processes (e.g. `npm install`)? Needs a benchmark in Phase 2.
+- **Shell background jobs** (`cmd &` of in-process commands) live in the shell's worker and end
+  when the shell exits; bash leaves them running. Do agents need detached in-process jobs, or is
+  `Instance.spawn` enough?
+- **Stdin flow control to spawned children.** The shell feeds a child's stdin without
+  acknowledgements, so a fast producer (`yes | node slow.js`) can queue unbounded data in the
+  kernel. A credit-based `child-stdin` protocol would bound it.
+- **Shell arrays** (`a=(...)`, `"${a[@]}"`) are not implemented. Add them if agent scripts need
+  them (common in hand-written bash, rare in generated build scripts).

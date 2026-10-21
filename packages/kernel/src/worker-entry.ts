@@ -297,7 +297,13 @@ async function boot(
         );
         proc.writeStdin(null);
       }
+      const timeout = request.timeoutMs;
+      const timer =
+        typeof timeout === 'number' && Number.isFinite(timeout) && timeout > 0
+          ? setTimeout(() => proc.kill('SIGTERM'), timeout)
+          : undefined;
       const { code, signal } = await proc.exit;
+      if (timer !== undefined) clearTimeout(timer);
       const { spawnedAt, readyAt, exitedAt } = proc.timing;
       return {
         code,

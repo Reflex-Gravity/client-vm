@@ -163,6 +163,8 @@ export class Kernel {
     const channel = createChannelBuffer(this.options.payloadBytes ?? DEFAULT_PAYLOAD_BYTES);
     const fds = new FdTable(this.vfs);
     const children = new Map<number, ProcessHandle>();
+    /** Every live child (spawn and spawnSync), killed with this process like a process group. */
+    const descendants = new Set<ProcessHandle>();
     const watches = new Map<number, () => void>();
     const timing: ProcessTiming = { spawnedAt: performance.now() };
     const worker = this.options.createProcessWorker();
@@ -172,7 +174,7 @@ export class Kernel {
     const server = new SyscallServer(
       channel,
       createSyscallHandler(this.vfs, fds, {
-        spawnSync: (request) => this.spawnSync(request, options),
+        spawnSync: (request) => this.spawnSync(request, options, descendants),
       }),
     );
 
@@ -209,7 +211,7 @@ export class Kernel {
           settle(msg.code);
           break;
         case 'spawn':
-          this.spawnChild(msg.id, msg.request, children, post, options);
+          this.spawnChild(msg.id, msg.request, children, descendants, post, options);
           break;
         case 'child-stdin':
           children.get(msg.id)?.writeStdin(msg.data);
@@ -260,7 +262,12 @@ export class Kernel {
       pid,
       exit,
       timing,
-      kill: (signal = 'SIGTERM') => settle(128 + SIGNAL_NUMBERS[signal], signal),
+      kill: (signal = 'SIGTERM') => {
+        if (timing.exitedAt !== undefined) return;
+        settle(128 + SIGNAL_NUMBERS[signal], signal);
+        // Like a signal to the process group: children (e.g. a shell's pipeline) go too.
+        for (const d of [...descendants]) d.kill(signal);
+      },
       writeStdin: (data) => {
         if (stdinClosed) return;
         if (data === null) stdinClosed = true;
@@ -276,6 +283,7 @@ export class Kernel {
     id: number,
     request: ChildSpawnRequest,
     children: Map<number, ProcessHandle>,
+    descendants: Set<ProcessHandle>,
     post: (msg: KernelToProcess) => void,
     parent: SpawnOptions,
   ): void {
@@ -303,9 +311,11 @@ export class Kernel {
       return;
     }
     children.set(id, child);
+    descendants.add(child);
     post({ t: 'child-spawned', id, pid: child.pid });
     void child.exit.then(({ code, signal }) => {
       children.delete(id);
+      descendants.delete(child);
       post({ t: 'child-exit', id, code: signal ? null : code, signal });
     });
   }
@@ -314,7 +324,11 @@ export class Kernel {
    * SPAWN_SYNC: runs a child to completion while the calling process blocks
    * in its syscall. `inherit` streams go straight to the caller's outputs.
    */
-  private async spawnSync(request: Uint8Array, parent: SpawnOptions): Promise<Uint8Array> {
+  private async spawnSync(
+    request: Uint8Array,
+    parent: SpawnOptions,
+    descendants: Set<ProcessHandle>,
+  ): Promise<Uint8Array> {
     const args = decode(request) as {
       argv: string[];
       env: Record<string, string>;
@@ -360,6 +374,8 @@ export class Kernel {
         },
       });
     }
+    descendants.add(child);
+    void child.exit.then(() => descendants.delete(child));
     if (args.input) child.writeStdin(args.input);
     child.writeStdin(null);
     let timedOut = false;

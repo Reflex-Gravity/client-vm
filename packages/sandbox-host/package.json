@@ -15,6 +15,7 @@
     "@clientvm/kernel": "workspace:*",
     "@clientvm/node-compat": "workspace:*",
     "@clientvm/process": "workspace:*",
-    "@clientvm/protocol": "workspace:*"
+    "@clientvm/protocol": "workspace:*",
+    "@clientvm/shell": "workspace:*"
   }
 }

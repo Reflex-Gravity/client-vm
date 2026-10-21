@@ -47,7 +47,8 @@ Instance iframe on <id>.<sandbox-domain> (one origin per instance)    ← bounda
 | Resource limits per instance (processes, memory, FS quota, CPU time via kill on timeout) | Phase 2/5 |
 | The service worker never routes `/__clientvm/*` (ClientVM's own page, workers and SW script) to instance servers, so instance code cannot shadow them | **done** (2d), e2e-tested |
 | The service worker accepts a kernel link only from the instance page | **done** (2d) |
-| Fuzzing of codec, channel, VFS, resolver, shell parser | Phase 5 (VFS: seeded random-op differential done) |
+| Fuzzing of codec, channel, VFS, resolver, shell parser | Phase 5 (VFS: seeded random-op differential done; shell parser: seeded random-input test done) |
+| Agent-supplied regexes (`grep`, `sed`, `find -regex`, `[[ =~ ]]`) run on the JS regex engine and can backtrack catastrophically. They run in the instance's own worker, so a bad pattern only stalls that process; `Instance.exec` `timeoutMs` stops it | **documented** |
 
 ## What a compromised instance can do
 
