@@ -184,8 +184,15 @@ export interface FileSystem {
   rename(from: string, to: string): Promise<void>;
   symlink(target: string, path: string): Promise<void>;
   watch(path: string, cb: (e: FsEvent) => void): Disposable;
-  /** Requires a matching `mount` capability. */
+  /**
+   * Mounts another instance's directory (or a snapshot) read-only at `path`,
+   * which must be absent or an empty directory. Requires a matching `mount`
+   * capability. The mount is a mirror: changes in the source appear within
+   * milliseconds; writes fail with EROFS. Writable mounts are not supported.
+   */
   mount(path: string, source: MountSource): Promise<void>;
+  /** Removes a mount, leaving an empty directory. */
+  unmount(path: string): Promise<void>;
 }
 
 /**

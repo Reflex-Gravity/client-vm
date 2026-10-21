@@ -61,7 +61,11 @@ interface HostWindow {
     fork(id: string, options?: unknown): Promise<string>;
     grant(to: string, cap: Capability): void;
     /** `op` is grant/revoke (to, cap), send (to, message) or fork (options). */
-    as(id: string, op: 'grant' | 'revoke' | 'send' | 'fork', ...args: unknown[]): Promise<Outcome>;
+    as(
+      id: string,
+      op: 'grant' | 'revoke' | 'send' | 'fork' | 'mount' | 'unmount',
+      ...args: unknown[]
+    ): Promise<Outcome>;
     capabilities(id: string): Capability[];
     recordMail(id: string): void;
     mail(id: string): { from: string; message: unknown }[];

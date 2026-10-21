@@ -116,6 +116,7 @@ The controller keeps a table: for each holder instance, a set of the `Capability
 | Slice | Status |
 |---|---|
 | 4a | done: capability table, grant/revoke/delegation, `spawn-instance` gating forks, mailbox (host API and `http://mailbox.internal/`), instance names. Also `/dev/null` and friends |
+| 4c | done: read-only mirrored mounts (initial copy, then batched updates from the source's watch events, about 20 ms), snapshot mounts, `unmount`, `EROFS` enforced in the syscall layer through symlinks; revocation stops the sync |
 | 4b | done: `http://<name>.internal:<port>/` through the controller with streamed responses; 403 without a `net` capability, refused connections for closed ports and unknown instances |
 
 ## Slices

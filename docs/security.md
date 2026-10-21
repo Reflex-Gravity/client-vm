@@ -46,7 +46,7 @@ Port origins <id>-p<port>.<sandbox-domain> (one per open port, ADR 0008)
 | Kernel decodes every syscall defensively (type-checked args, `EINVAL` on malformed input, `ENOSYS` on unknown ops) | **done** (spike) |
 | Process workers get no direct VFS access, only the syscall channel | **done** |
 | Each process gets its own channel SAB, so processes cannot read each other's syscall traffic | **done** |
-| Capabilities for every cross-instance interaction, checked in the **controller** (kernels run hostile code and never see the table) | **done** (4a/4b) for mailbox, `.internal` HTTP and `spawn-instance`, e2e-tested; mounts in 4c |
+| Capabilities for every cross-instance interaction, checked in the **controller** (kernels run hostile code and never see the table) | **done** (4a–4c) for mailbox, `.internal` HTTP, mounts and `spawn-instance`, e2e-tested. Revoking a mount capability stops its sync |
 | Requests a kernel makes of the controller (`mailboxSend`, `netFetch`) are validated and run with that instance's capabilities only; mailbox messages are re-serialized as JSON so instances never share objects | **done** (4a/4b) |
 | Resource limits per instance (processes, memory, FS quota, CPU time via kill on timeout) | Phase 2/5 |
 | The service worker never routes `/__clientvm/*` (ClientVM's own page, workers and SW script) to instance servers, so instance code cannot shadow them | **done** (2d), e2e-tested |

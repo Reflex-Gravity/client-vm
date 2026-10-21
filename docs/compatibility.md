@@ -119,6 +119,7 @@ tools.
 
 ## Filesystem semantics
 
+- Read-only mounts (`Instance.fs.mount`) fail mutations with `EROFS`; `rm -rf` of a directory containing a mount fails rather than skipping it.
 - `/dev/null`, `/dev/zero`, `/dev/random` and `/dev/urandom` are character devices (by path; `ls /dev` lists them). Reading a whole infinite device with `readFile` returns nothing rather than looping.
 - Linux semantics are the reference (CI runs the differentials on Linux; a few macOS-divergent cases are skipped locally).
 - Symlinks are followed with a 40-hop limit (`ELOOP`); `..` is resolved physically, as the kernel does.

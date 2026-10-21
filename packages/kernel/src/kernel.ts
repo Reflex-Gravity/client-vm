@@ -21,6 +21,7 @@ import { MemoryVfs, importImage } from '@clientvm/vfs';
 import type { Snapshot, VfsLimits } from '@clientvm/vfs';
 import { installBuiltinCommands, resolveCommand } from './commands.ts';
 import { installDevices } from './devices.ts';
+import { ReadOnlyMounts } from './mounts.ts';
 import { createSyscallHandler } from './dispatcher.ts';
 import { FdTable } from './fd-table.ts';
 import type { NetStack } from './net.ts';
@@ -102,6 +103,8 @@ const SPAWN_SYNC_MAX_BUFFER = 1024 * 1024 * 64;
 
 export class Kernel {
   readonly vfs: MemoryVfs;
+  /** Read-only mirrored mounts (mutations under them fail with EROFS). */
+  readonly mounts: ReadOnlyMounts;
   private readonly options: KernelOptions;
   private nextPid = 1;
   private readonly processes = new Map<number, ProcessHandle>();
@@ -122,6 +125,7 @@ export class Kernel {
     // Refreshed on every boot: restored filesystems may predate a runtime.
     installBuiltinCommands(this.vfs, options.commands ?? []);
     installDevices(this.vfs);
+    this.mounts = new ReadOnlyMounts(this.vfs);
   }
 
   get processCount(): number {
@@ -180,6 +184,7 @@ export class Kernel {
       channel,
       createSyscallHandler(this.vfs, fds, {
         spawnSync: (request) => this.spawnSync(request, options, descendants),
+        readOnly: this.mounts,
       }),
     );
 

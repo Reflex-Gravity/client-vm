@@ -45,6 +45,16 @@ export type WireFsEvent =
   | { type: 'create' | 'modify' | 'delete'; path: string }
   | { type: 'rename'; from: string; to: string };
 
+/** One node of an exported subtree; `rel` is relative to the export root ('' is the root). */
+export type TreeEntry =
+  | { rel: string; type: 'dir'; mode: number }
+  | { rel: string; type: 'file'; mode: number; data: Uint8Array }
+  | { rel: string; type: 'symlink'; target: string };
+
+/** An update to a mirrored mount: replace the subtree at `at`, or delete it. */
+export type MirrorOp =
+  { op: 'put'; at: string; entries: TreeEntry[] } | { op: 'delete'; at: string };
+
 export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE';
 
 export interface SpawnRequest {
@@ -116,6 +126,14 @@ export type InstanceRpc = {
   mailboxDeliver(from: string, fromName: string | null, message: unknown): void;
   /** Serves a request from another instance (`http://<this>.internal:<port>/`) on a virtual port. */
   fetchPort(request: WireRequest): Promise<WireResponse>;
+  /** Copies the subtree at `path` (of a snapshot, or the live tree when null) for a mount. */
+  exportTree(path: string, snapshot: number | null): TreeEntry[];
+  /** Creates a read-only mirrored mount at `path` (absent or an empty directory). */
+  mountMirror(path: string, entries: TreeEntry[]): void;
+  /** Applies source changes to a mirrored mount. */
+  mirrorUpdate(path: string, ops: MirrorOp[]): void;
+  /** Removes a mount, leaving an empty directory. */
+  unmount(path: string): void;
 };
 
 /**

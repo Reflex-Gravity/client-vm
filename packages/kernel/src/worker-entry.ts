@@ -23,6 +23,7 @@ import type {
   WireStat,
 } from '@clientvm/protocol';
 import {
+  MemoryVfs,
   OpfsBackend,
   Persister,
   S_IFDIR,
@@ -36,6 +37,7 @@ import {
 import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
 import { HttpRouter, staticHandler } from './http.ts';
 import { Inbox, mailboxHandler } from './mailbox.ts';
+import { exportTree } from './mounts.ts';
 import { NetStack } from './net.ts';
 import { ModuleServer } from './module-server.ts';
 import { DEFAULT_ENV } from './commands.ts';
@@ -424,6 +426,26 @@ async function boot(
       const req: WireRequest = { ...request };
       delete req.peer;
       return transferBody(await router.handle(req));
+    },
+    exportTree(path, snapshot) {
+      if (typeof path !== 'string' || !path.startsWith('/'))
+        throw new SystemError('EINVAL', 'export');
+      const vfs =
+        snapshot === null ? kernel.vfs : MemoryVfs.fromSnapshot(kernel.getSnapshot(snapshot));
+      return exportTree(vfs, path);
+    },
+    mountMirror(path, entries) {
+      if (typeof path !== 'string' || !path.startsWith('/') || !Array.isArray(entries))
+        throw new SystemError('EINVAL', 'mount');
+      kernel.mounts.mount(path, entries);
+    },
+    mirrorUpdate(path, ops) {
+      if (typeof path !== 'string' || !Array.isArray(ops)) throw new SystemError('EINVAL', 'mount');
+      kernel.mounts.update(path, ops);
+    },
+    unmount(path) {
+      if (typeof path !== 'string') throw new SystemError('EINVAL', 'umount');
+      kernel.mounts.unmount(path);
     },
     async shutdown() {
       kernel.killAll('SIGKILL');

@@ -12,13 +12,15 @@ import type {
   InstanceInit,
   InstanceRpc,
   RunResult,
+  MirrorOp,
   SpawnRequest,
+  TreeEntry,
   WireRequest,
   WireResponse,
 } from '@clientvm/protocol';
 import { CapabilityTable, parseCapability, subjectOf } from './capabilities.ts';
 import { connectInstance, connectPortBridge } from './connect.ts';
-import { ClientVMError, NotImplementedError } from './errors.ts';
+import { ClientVMError } from './errors.ts';
 import { ProcessHandleImpl } from './process.ts';
 import type {
   Capability,
@@ -264,6 +266,8 @@ class InstanceImpl implements Instance {
   private readonly portListeners = new Set<(port: number, url: string) => void>();
   private readonly portCloseListeners = new Set<(port: number) => void>();
   private readonly mailListeners = new Set<(from: InstanceId, msg: unknown) => void>();
+  /** Mounts by path: stops the source watch. */
+  private readonly mounts = new Map<string, () => void>();
   /** Bridge iframe per port origin (null while linking). */
   private readonly portBridges = new Map<number, HTMLIFrameElement | null>();
   private destroyed = false;
@@ -501,6 +505,105 @@ class InstanceImpl implements Instance {
     };
   }
 
+  /** @internal See {@link FileSystem.mount}. */
+  async mountFrom(path: string, source: MountSource): Promise<void> {
+    this.assertAlive();
+    if (typeof path !== 'string' || !path.startsWith('/'))
+      throw new ClientVMError('mount path must be absolute', 'ERR_INVALID_PATH');
+    const root = normalizePath(path);
+    if (this.mounts.has(root)) throw new ClientVMError(`${root} is already a mount`, 'ERR_EXISTS');
+    let src: InstanceImpl | undefined;
+    let srcPath = '/';
+    let snapshot: number | null = null;
+    if (source?.kind === 'instance') {
+      if (source.readOnly !== true)
+        throw new ClientVMError('only read-only mounts are supported', 'ERR_NOT_SUPPORTED');
+      src = this.controller.resolve(source.from);
+      srcPath = source.path;
+    } else if (source?.kind === 'snapshot') {
+      const id = String(source.snapshot);
+      const sep = id.lastIndexOf(':');
+      src = this.controller.resolve(id.slice(0, sep));
+      snapshot = Number(id.slice(sep + 1));
+      if (sep < 0 || !Number.isSafeInteger(snapshot))
+        throw new ClientVMError(`unknown snapshot ${id}`, 'ERR_NO_SNAPSHOT');
+    } else {
+      throw new ClientVMError('invalid mount source', 'ERR_INVALID_MOUNT');
+    }
+    if (!src) throw noInstance(source.kind === 'instance' ? source.from : String(source.snapshot));
+    const cap = parseCapability({ kind: 'mount', from: src.id, path: srcPath, readOnly: true });
+    const from = (cap as { path: string }).path;
+    if (!this.controller.caps.has(this.id, cap))
+      throw noCapability(`${this.label} has no mount capability for ${src.label}:${from}`);
+    const entries = await src.rpc.call('exportTree', from, snapshot);
+    if (!Array.isArray(entries))
+      throw new ClientVMError('instance sent a malformed tree', 'ERR_INSTANCE_PROTOCOL');
+    await this.rpc.call('mountMirror', root, entries as TreeEntry[]);
+    if (snapshot !== null) {
+      this.mounts.set(root, () => {});
+      return;
+    }
+    this.mounts.set(root, this.mirror(src, from, root, cap));
+  }
+
+  /** Keeps a mount in step with its source; returns a function that stops it. */
+  private mirror(src: InstanceImpl, srcRoot: string, root: string, cap: Capability): () => void {
+    const changed = new Set<string>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let chain = Promise.resolve();
+    let stopped = false;
+    const inside = (p: string) => srcRoot === '/' || p === srcRoot || p.startsWith(`${srcRoot}/`);
+    const relOf = (p: string) =>
+      p === srcRoot ? '' : p.slice(srcRoot === '/' ? 1 : srcRoot.length + 1);
+    const flush = async () => {
+      if (stopped || this.destroyed) return;
+      // A revoked capability (or a vanished source) ends the sync; the copy stays.
+      if (!this.controller.caps.has(this.id, cap)) return stop();
+      const paths = [...changed].sort();
+      changed.clear();
+      const ops: MirrorOp[] = [];
+      for (const p of paths) {
+        if (!inside(p) || paths.some((q) => q !== p && p.startsWith(`${q}/`))) continue;
+        try {
+          const entries = await src.rpc.call('exportTree', p, null);
+          if (Array.isArray(entries)) ops.push({ op: 'put', at: relOf(p), entries });
+        } catch {
+          ops.push({ op: 'delete', at: relOf(p) });
+        }
+      }
+      if (ops.length > 0) await this.rpc.call('mirrorUpdate', root, ops).catch(() => {});
+    };
+    const sub = src.fs.watch(srcRoot, (e) => {
+      if (e.type === 'rename') {
+        changed.add(e.from);
+        changed.add(e.to);
+      } else {
+        changed.add(e.path);
+      }
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        chain = chain.then(flush, flush);
+      }, 20);
+    });
+    const stop = () => {
+      stopped = true;
+      clearTimeout(timer);
+      sub.dispose();
+    };
+    return stop;
+  }
+
+  /** @internal See {@link FileSystem.unmount}. */
+  async unmountAt(path: string): Promise<void> {
+    this.assertAlive();
+    const root = normalizePath(String(path));
+    const stop = this.mounts.get(root);
+    if (!stop) throw new ClientVMError(`${root} is not a mount`, 'ERR_INVALID_PATH');
+    stop();
+    this.mounts.delete(root);
+    await this.rpc.call('unmount', root);
+  }
+
   async grant(to: InstanceId, cap: Capability): Promise<void> {
     this.assertAlive();
     const parsed = parseCapability(cap);
@@ -546,6 +649,8 @@ class InstanceImpl implements Instance {
     this.portListeners.clear();
     this.portCloseListeners.clear();
     this.mailListeners.clear();
+    for (const stop of this.mounts.values()) stop();
+    this.mounts.clear();
     for (const bridge of this.portBridges.values()) bridge?.remove();
     this.portBridges.clear();
     this.port.close();
@@ -633,8 +738,12 @@ class InstanceFs implements FileSystem {
     };
   }
 
-  mount(_path: string, _source: MountSource): Promise<void> {
-    return Promise.reject(new NotImplementedError('mounts (Phase 4)'));
+  mount(path: string, source: MountSource): Promise<void> {
+    return this.instance.mountFrom(path, source);
+  }
+
+  unmount(path: string): Promise<void> {
+    return this.instance.unmountAt(path);
   }
 }
 
@@ -680,4 +789,14 @@ function noCapability(message: string): ClientVMError {
 
 function noInstance(nameOrId: string): ClientVMError {
   return new ClientVMError(`no instance named ${nameOrId}`, 'ERR_NO_INSTANCE');
+}
+
+function normalizePath(path: string): string {
+  const parts: string[] = [];
+  for (const p of path.split('/')) {
+    if (p === '' || p === '.') continue;
+    if (p === '..') parts.pop();
+    else parts.push(p);
+  }
+  return `/${parts.join('/')}`;
 }

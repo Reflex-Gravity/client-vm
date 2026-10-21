@@ -204,3 +204,105 @@ test.describe('HTTP between instances', () => {
     await host(page, 'kill', api, pid);
   });
 });
+
+test.describe('mounts', () => {
+  test.setTimeout(60_000);
+
+  test('read-only mirrors of another instance, kept in step; snapshot mounts', async ({ page }) => {
+    await openHost(page);
+    const lib = await host(page, 'createInstance', {
+      name: 'lib',
+      fs: {
+        from: {
+          shared: { 'util.js': 'module.exports = 1;\n', docs: { 'a.md': '# A\n' } },
+          secret: { 'key.txt': 'k' },
+        },
+      },
+    });
+    const app = await host(page, 'createInstance');
+    const source = { kind: 'instance', from: lib, path: '/shared', readOnly: true };
+
+    expect(await host(page, 'as', app, 'mount', '/mnt/lib', source)).toMatchObject({
+      ok: false,
+      code: 'ERR_NO_CAPABILITY',
+    });
+    await host(page, 'as', lib, 'grant', app, {
+      kind: 'mount',
+      from: lib,
+      path: '/shared',
+      readOnly: true,
+    });
+    // The capability covers /shared, not the rest of lib.
+    expect(
+      await host(page, 'as', app, 'mount', '/mnt/secret', { ...source, path: '/secret' }),
+    ).toMatchObject({ ok: false, code: 'ERR_NO_CAPABILITY' });
+    expect(
+      await host(page, 'as', app, 'mount', '/mnt/rw', { ...source, readOnly: false }),
+    ).toMatchObject({ ok: false, code: 'ERR_NOT_SUPPORTED' });
+    expect(await host(page, 'as', app, 'mount', '/mnt/lib', source)).toEqual({ ok: true });
+
+    const sh = async (cmd: string) => host(page, 'exec', app, cmd);
+    expect((await sh('find /mnt/lib | sort; node -p "require(\'/mnt/lib/util.js\')"')).stdout).toBe(
+      '/mnt/lib\n/mnt/lib/docs\n/mnt/lib/docs/a.md\n/mnt/lib/util.js\n1\n',
+    );
+    // Writes fail with EROFS, including through a symlink into the mount.
+    const ro = await sh(
+      "echo x > /mnt/lib/new.txt; rm /mnt/lib/util.js; mkdir /mnt/lib/d; ln -s /mnt/lib /tmp/l; echo y > /tmp/l/z; rm -rf /mnt; node -e \"require('fs').writeFileSync('/mnt/lib/n', '1')\" 2>&1 | grep -o \"EROFS[^,]*\" | head -1; ls /mnt/lib",
+    );
+    expect(ro.stdout).toBe('EROFS: read-only file system\ndocs\nutil.js\n');
+    expect(ro.stderr).toContain('/mnt/lib/new.txt: Read-only file system');
+    expect(ro.stderr).toContain('/tmp/l/z: Read-only file system');
+    expect(ro.stderr).toContain("rm: cannot remove '/mnt': Read-only file system");
+    expect(ro.stderr).toContain("cannot remove '/mnt/lib/util.js': Read-only file system");
+
+    // Changes in the source show up in the mirror.
+    await host(
+      page,
+      'exec',
+      lib,
+      'cd /shared && echo "module.exports = 2;" > util.js && mkdir -p new/deep && echo n > new/deep/n.txt && rm -r docs && ln -s util.js link.js',
+    );
+    await expect
+      .poll(
+        async () =>
+          (await sh('cd /mnt/lib && find . | sort && cat util.js && readlink link.js')).stdout,
+      )
+      .toBe(
+        '.\n./link.js\n./new\n./new/deep\n./new/deep/n.txt\n./util.js\nmodule.exports = 2;\nutil.js\n',
+      );
+    await host(page, 'exec', lib, 'mv /shared/new /shared/moved');
+    await expect
+      .poll(async () => (await sh('ls /mnt/lib')).stdout)
+      .toBe('link.js\nmoved\nutil.js\n');
+
+    // Revoking the capability stops the sync; the copy stays.
+    await host(page, 'as', lib, 'revoke', app, {
+      kind: 'mount',
+      from: lib,
+      path: '/shared',
+      readOnly: true,
+    });
+    await host(page, 'exec', lib, 'echo late > /shared/late.txt');
+    await page.waitForTimeout(300);
+    expect((await sh('ls /mnt/lib')).stdout).toBe('link.js\nmoved\nutil.js\n');
+    expect(await host(page, 'as', app, 'unmount', '/mnt/lib')).toEqual({ ok: true });
+    expect((await sh('ls -A /mnt/lib; echo hi > /mnt/lib/w && cat /mnt/lib/w')).stdout).toBe(
+      'hi\n',
+    );
+
+    // Snapshot mounts copy a point in time and never change.
+    const snap = await host(page, 'snapshot', lib);
+    await host(page, 'exec', lib, 'echo after > /shared/util.js');
+    await host(page, 'grant', app, { kind: 'mount', from: lib, path: '/', readOnly: true });
+    expect(
+      await host(page, 'as', app, 'mount', '/snap', {
+        kind: 'snapshot',
+        snapshot: snap,
+        readOnly: true,
+      }),
+    ).toEqual({ ok: true });
+    expect((await sh('cat /snap/shared/util.js /snap/secret/key.txt')).stdout).toBe(
+      'module.exports = 2;\nk',
+    );
+  });
+});

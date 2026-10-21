@@ -24,7 +24,7 @@ affect decisions, CLAUDE.md.
 | `InstanceOptions.fs.persist`, `Instance.flush()`, `destroy({ purge })` | done (2c): write-behind OPFS persistence, one tab per persistent instance (`EBUSY` otherwise) |
 | `InstanceOptions.fs.from` (`FileTree` or `SnapshotId`), `fs.quotaBytes`, `limits.maxProcesses` | done |
 | `Instance.fs`: `readFile writeFile readdir stat mkdir rm rename symlink watch` | done (`watch` is recursive) |
-| `Instance.fs.mount` | Phase 4 → `NotImplementedError` |
+| `Instance.fs.mount`/`unmount` | done (4c): read-only mirrors of another instance's directory (kept in step from its watch events) or of a snapshot; needs a `mount` capability; writes under a mount fail with `EROFS`, including through symlinks; writable mounts reject with `ERR_NOT_SUPPORTED` |
 | `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `kill`, `exit` | done. `stdin` writes reject until node-compat reads stdin. Output is buffered without bound until read |
 | `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
 | `Instance.fork()` | done: image export → new origin. Since 4a it needs a `spawn-instance` capability, whose limits bound the child's |

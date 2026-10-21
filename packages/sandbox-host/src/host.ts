@@ -10,6 +10,7 @@ import type {
   Instance,
   InstanceId,
   InstanceOptions,
+  MountSource,
 } from '@clientvm/clientvm';
 import type { RunResult, SpawnRequest } from '@clientvm/protocol';
 
@@ -52,6 +53,8 @@ export interface HostApi {
   as(id: string, op: 'grant' | 'revoke', to: string, cap: Capability): Promise<Outcome>;
   as(id: string, op: 'send', to: string, message: unknown): Promise<Outcome>;
   as(id: string, op: 'fork', options?: InstanceOptions): Promise<Outcome>;
+  as(id: string, op: 'mount', path: string, source: MountSource): Promise<Outcome>;
+  as(id: string, op: 'unmount', path: string): Promise<Outcome>;
   capabilities(id: string): Capability[];
   /** Starts recording mailbox deliveries to `id` (host listener). */
   recordMail(id: string): void;
@@ -159,6 +162,8 @@ window.__clientvm = {
       if (op === 'grant') await instance.grant(a as InstanceId, b as Capability);
       else if (op === 'revoke') await instance.revoke(a as InstanceId, b as Capability);
       else if (op === 'send') await instance.mailbox.send(a as string, b);
+      else if (op === 'mount') await instance.fs.mount(a as string, b as MountSource);
+      else if (op === 'unmount') await instance.fs.unmount(a as string);
       else if (op === 'fork')
         return { ok: true, value: keep(await instance.fork(a as InstanceOptions)) };
       return { ok: true };

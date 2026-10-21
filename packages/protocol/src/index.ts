@@ -34,6 +34,8 @@ export type {
   InstanceInit,
   InstanceRpc,
   ControllerRpc,
+  TreeEntry,
+  MirrorOp,
   PersistInfo,
   RunResult,
   Signal,

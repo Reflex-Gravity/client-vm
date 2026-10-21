@@ -2,8 +2,10 @@
 import { Op, SystemError, decode, encode, encodeStat } from '@clientvm/protocol';
 import type { SyscallHandler, Value } from '@clientvm/protocol';
 import type { MemoryVfs } from '@clientvm/vfs';
+import { O_ACCMODE, O_APPEND, O_CREAT, O_TRUNC } from '@clientvm/vfs';
 import type { FdTable } from './fd-table.ts';
 import { deviceAt, deviceStat } from './devices.ts';
+import type { ReadOnlyMounts } from './mounts.ts';
 
 const EMPTY = new Uint8Array(0);
 
@@ -14,7 +16,11 @@ const EMPTY = new Uint8Array(0);
 export interface SyscallHooks {
   /** Runs a child to completion (Op.SPAWN_SYNC); resolves with the encoded result. */
   spawnSync?: (request: Uint8Array) => Promise<Uint8Array>;
+  /** Read-only mounts: mutations under them fail with EROFS. */
+  readOnly?: ReadOnlyMounts;
 }
+
+const WRITE_FLAGS = O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND;
 
 export function createSyscallHandler(
   vfs: MemoryVfs,
@@ -44,6 +50,8 @@ export function createSyscallHandler(
       if (op === Op.READ_FILE) return device.read(0);
       return EMPTY;
     }
+    const ro = hooks.readOnly;
+    if (ro && ro.size > 0) checkReadOnly(ro, op, a);
     switch (op) {
       case Op.STAT:
         return encodeStat(vfs.stat(a.str(0)));
@@ -169,5 +177,37 @@ class Args {
     const v = this.values[i];
     if (!(v instanceof Uint8Array)) throw new SystemError('EINVAL', 'syscall');
     return v;
+  }
+}
+
+/** EROFS for any mutation that would land under a read-only mount. */
+function checkReadOnly(ro: ReadOnlyMounts, op: number, a: Args): void {
+  switch (op) {
+    case Op.WRITE_FILE:
+    case Op.MKDIR:
+    case Op.UNLINK:
+    case Op.CHMOD:
+    case Op.UTIMES:
+    case Op.TRUNCATE:
+      ro.check(a.str(0), 'write');
+      return;
+    case Op.RMDIR:
+    case Op.RM_TREE:
+      ro.checkTree(a.str(0), 'rm');
+      return;
+    case Op.RENAME:
+      ro.checkTree(a.str(0), 'rename');
+      ro.checkTree(a.str(1), 'rename');
+      return;
+    case Op.SYMLINK:
+      ro.check(a.str(1), 'symlink');
+      return;
+    case Op.LINK:
+    case Op.COPY_FILE:
+      ro.check(a.str(1), 'link');
+      return;
+    case Op.OPEN:
+      if ((a.int(1) & WRITE_FLAGS) !== 0) ro.check(a.str(0), 'open');
+      return;
   }
 }
