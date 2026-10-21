@@ -8,8 +8,8 @@ works, how it is tested, and the known gaps.
   Verified on Chromium 156. Instance pages rely on `Document-Isolation-Policy` (host apps need no
   COOP/COEP), `Atomics.waitAsync`, and nested module workers. The exact minimum version is still to
   be pinned by testing older Chromium builds (see open-questions.md).
-- **Required frameworks (v1 goal):** Vite + React dev server with HMR, Express. Both are not yet
-  working.
+- **Required frameworks (v1 goal):** Vite + React dev server with HMR, Express. Express 4 works
+  (golden fixture); Vite is slice 3f.
 
 Status legend: **none** = not implemented · **partial** = subset, see gaps · **full** = matches Node for all tested behavior.
 
@@ -19,7 +19,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 |---|---|---|---|
 | `fs` (sync) | partial | e2e fs differential vs real Node, fs differential + seeded random-op fuzz vs `node:fs` | Paths: `readFileSync writeFileSync appendFileSync readdirSync statSync lstatSync existsSync mkdirSync rmdirSync unlinkSync rmSync renameSync linkSync symlinkSync readlinkSync realpathSync(.native) accessSync chmodSync utimesSync truncateSync copyFileSync`. Fds: `openSync closeSync readSync writeSync fstatSync ftruncateSync`. Returns `Buffer`; all Buffer encodings; fds accepted by `readFileSync`/`writeFileSync`; no `opendirSync`, `cpSync`, `watch` (VFS watchers exist, not yet exposed), `fchmod`/`futimes`, `fsync` |
 | `fs` (callback / promises) | partial | e2e diffed against real Node | Callback and `fs.promises` APIs for every sync API, `FileHandle`, `Dir`/`opendir`, `mkdtemp`, `cp`, recursive `readdir`, `createReadStream`/`createWriteStream` (ranges, `fd`, events). Operations run synchronously and complete on a later tick. `watch`, `watchFile`, `fs.promises.watch` via kernel VFS watchers. Not yet: `glob`; `statfs` returns fixed values |
-| `path` | partial (posix full) | path differential vs `node:path.posix` | `win32` not provided |
+| `path` | full (tested surface) | path differential vs `node:path.posix` and `node:path.win32` | `path.win32` and `path/win32` follow Node's algorithms, including the CVE-2024-36139 drive-letter guard |
 | `util` | partial | inspect + events + modules differentials vs `node:util`, e2e | `format`, `inspect` (custom inspect, depth), `types`, `promisify`/`callbackify`, `inherits`, `deprecate`, `isDeepStrictEqual`, `parseArgs` (common cases), `debuglog`, legacy `isX`. No `showHidden` (`%o`), colors, Proxy detection, `MIMEType`, `TextEncoder` streaming options |
 | `console` | partial | e2e spike | `table` prints like `log`. No `Console` class |
 | `process` | partial | e2e | EventEmitter with `exit`, `beforeExit`, `uncaughtException`, `unhandledRejection`, `warning`; `stdin` is a Readable over the kernel pipe, `stdout`/`stderr` are Writables (not TTYs); liveness follows referenced handles (timers, children, stdin while read, watchers, in-flight `fetch`) with `ref`/`unref`. No signals delivered to the process. `arch` reports `x64` |
@@ -43,7 +43,10 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `vm` | partial | | Runs in the process's own realm; `runInNewContext` uses `with` over the sandbox object (no separate globals) |
 | `tty`, `perf_hooks`, `sys` | partial | | `isatty()` is always false |
 | `child_process` | partial | e2e diffed against real Node | `spawn`, `exec`, `execFile` (+ promisified), `spawnSync`, `execSync`, `execFileSync`; stdio `pipe`/`inherit`/`ignore`, `input`, `cwd`, `env`, `timeout`, `killSignal`, `signal`, `maxBuffer`; Node's `exit`/`close` ordering and spawn errors (`ENOENT`, `EACCES`, `ENOEXEC`). Commands resolve like `execve`: `PATH`, exec bits, shebangs incl. `/usr/bin/env -S`, `node_modules/.bin` symlinks. `shell: true` and `exec` run through `/bin/sh`. Not yet: `fork` and IPC, `detached`, signals other than TERM/KILL/INT/HUP |
-| `worker_threads` | none | | |
+| `worker_threads` | partial | | Main-thread view only: `isMainThread`, `threadId` 0, `MessageChannel`, environment data. `new Worker()` throws `ERR_CLIENTVM_UNSUPPORTED` |
+| `readline` / `readline/promises` | partial | e2e (npm) | `createInterface` over any readable: `line`/`close` events, `question` (callback and promise), `prompt`, async iteration, `\r\n` handling; cursor helpers write ANSI codes. No line editing, history or completion (stdio is never a TTY) |
+| `http2` | partial | | `constants` only (header, method and status names). `connect`/`createServer` throw `ERR_CLIENTVM_UNSUPPORTED` |
+| `v8` | partial | | `getHeapStatistics` from Chromium's `performance.memory`; `serialize`/`deserialize` use JSON, not V8's wire format; no heap snapshots |
 | `url` | partial | url differential vs `node:url` | WHATWG `URL` (browser), legacy `parse`/`format`/`resolve`, `fileURLToPath`/`pathToFileURL`, `urlToHttpOptions`. `domainToUnicode` is identity |
 | `assert` | partial | assert differential vs `node:assert` | All common assertions, strict mode, `AssertionError` shape. Diff-style messages for objects are simplified |
 
@@ -56,7 +59,8 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `node` (REPL) | none | |
 | `sh` / `bash` | partial | See [Shell](#shell) |
 | Linux commands | partial | See [Commands](#commands) |
-| `npm` / `npx` / `pnpm` | none | Phase 3 (real npm, unmodified) |
+| `npm` / `npx` | partial | npm 11.6.1, unmodified, fetched and integrity-checked on first use (ADR 0012). Tested in e2e: `init`, `pkg`, `install` from the public registry (110-package tree), `ci`, `ls`, `run`, lifecycle scripts, bin links, `npx`. Registry traffic is CORS `fetch` (the registry allows it). Not yet tested: git dependencies, private registries with auth, `npm publish` |
+| `pnpm` | none | Phase 5 |
 
 ## Shell
 
@@ -103,7 +107,10 @@ tools.
 | `xargs` | `-n -L -I -0 -d -r -t`. Runs invocations one at a time (`-P` is accepted and ignored) |
 | `diff` | Normal and unified (`-u`, `-U N`) output, `-q -r -N -i -w -b -B -s --label`. Timestamps in headers are UTC |
 | `env printenv which sleep date uname whoami hostname nproc id true false pwd echo printf test [ clear` | `date` formats in UTC only (`%Z` is `UTC`) |
-| `tar gzip gunzip curl git` | none yet |
+| `tar` | `-c -x -t -z -v -f -C -O -k -a --strip-components --exclude`, old-style bundles (`tar xzf a.tgz`). Reads ustar, pax and GNU long names; writes ustar with pax headers. gzip is detected on extract. Members containing `..` are skipped, as in GNU tar. Archives are built in memory |
+| `gzip gunzip zcat` | `-c -d -k -f -t -q`; levels are accepted and ignored |
+| `curl` | Uses the browser's `fetch`: `localhost`/`127.0.0.1` reach virtual ports, other origins need CORS. `-s -S -f -i -I -o -O -X -H -d --data-* --json -G -u -A -e -w -m -T -v`. Redirects are always followed (`-L` is implied). A refused local port exits 7, as curl does |
+| `git` | none yet (isomorphic-git planned, see open-questions.md) |
 
 ## Filesystem semantics
 

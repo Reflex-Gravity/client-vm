@@ -57,3 +57,14 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **Shell arrays** (`a=(...)`, `"${a[@]}"`) are not implemented. Add them if agent scripts need
   them (common in hand-written bash, rare in generated build scripts).
 - **Brotli** is absent from `zlib`. Add a decoder if a package needs it (most feature-detect).
+- **git.** CLAUDE.md §7 lists `git` via isomorphic-git or equivalent. That would be a runtime
+  dependency (MIT) of about 300 KB. Options: bundle it, or fetch it on first use as npm is
+  (ADR 0012). Remote operations need a CORS proxy for most hosts, which conflicts with "no
+  server-side component", so only local operations (`init add commit status log diff branch
+  checkout`) would work out of the box.
+- **npm without network.** npm is fetched on first use (ADR 0012). Offline or air-gapped hosts
+  need `CLIENTVM_NPM_TARBALL` pointing at a copy they serve. Should the sandbox host offer a
+  same-origin copy as an optional asset?
+- **npm swallowed an uncaught error once.** While minipass recursed infinitely (since fixed),
+  `npm install` exited 1 with no message, though `node -e` reports the same error. Find out why
+  npm's exit handler printed nothing.

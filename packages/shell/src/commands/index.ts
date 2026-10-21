@@ -3,6 +3,8 @@
 // resolves it, and is also a standalone runtime (`child_process.spawn('ls')`).
 
 import type { CommandFn } from '../types.ts';
+import { gunzip, gzip, tar, zcat } from './archive.ts';
+import { curl } from './curl.ts';
 import { diff } from './diff.ts';
 import { echo, printf } from './echo-printf.ts';
 import {
@@ -52,6 +54,7 @@ export const COMMANDS: Readonly<Record<string, CommandFn>> = {
   chmod,
   clear,
   cp,
+  curl,
   cut,
   date,
   diff,
@@ -63,6 +66,8 @@ export const COMMANDS: Readonly<Record<string, CommandFn>> = {
   fgrep: grep,
   find,
   grep,
+  gunzip,
+  gzip,
   head,
   hostname,
   id,
@@ -86,6 +91,7 @@ export const COMMANDS: Readonly<Record<string, CommandFn>> = {
   sort,
   stat,
   tail,
+  tar,
   tee,
   test,
   touch,
@@ -98,4 +104,5 @@ export const COMMANDS: Readonly<Record<string, CommandFn>> = {
   whoami,
   xargs,
   yes,
+  zcat,
 };

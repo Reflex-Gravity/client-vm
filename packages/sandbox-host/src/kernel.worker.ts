@@ -5,7 +5,7 @@ import { SHELL_COMMAND_NAMES } from '@clientvm/shell';
 
 startKernelWorker(self, {
   // Must match the runtime table in process.worker.ts.
-  commands: ['node', 'clientvm-bench', ...SHELL_COMMAND_NAMES],
+  commands: ['node', 'npm', 'npx', 'clientvm-bench', ...SHELL_COMMAND_NAMES],
   createProcessWorker: () =>
     new Worker(new URL('./process.worker.ts', import.meta.url), {
       type: 'module',

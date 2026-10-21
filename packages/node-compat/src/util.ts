@@ -283,15 +283,14 @@ function styleText(_format: string | string[], text: string): string {
 }
 
 function debuglog(section: string) {
-  const enabled = new RegExp(
-    `^(${(globalThis as { process?: { env?: Record<string, string> } }).process?.env?.['NODE_DEBUG'] ?? ''}`
-      .split(/[\s,]+/)
-      .filter(Boolean)
-      .map((s) => s.replace(/[|\\{}()[\]^$+?.]/g, '\\$&').replace(/\*/g, '.*'))
-      .join('|') + ')$',
-    'i',
-  );
-  const on = enabled.source !== '^()$' && enabled.test(section);
+  const patterns = (
+    (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.['NODE_DEBUG'] ??
+    ''
+  )
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((s) => s.replace(/[|\\{}()[\]^$+?.]/g, '\\$&').replace(/\*/g, '.*'));
+  const on = patterns.length > 0 && new RegExp(`^(${patterns.join('|')})$`, 'i').test(section);
   const log = (...args: unknown[]) => {
     if (on) console.error('%s %d: %s', section.toUpperCase(), 0, format(...args));
   };

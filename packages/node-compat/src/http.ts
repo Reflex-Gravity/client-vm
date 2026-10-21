@@ -5,6 +5,7 @@
 // fetch: requests to localhost reach this instance's ports, anything else is
 // a cross-origin fetch subject to CORS (docs/compatibility.md).
 
+import { NO_LISTENER_HEADER } from '@clientvm/protocol';
 import type { NetToProcess } from '@clientvm/protocol';
 import { Buffer } from './buffer.ts';
 import type { Handle } from './event-loop.ts';
@@ -648,6 +649,13 @@ export function createHttp(deps: HttpDeps, protocol: 'http:' | 'https:'): Record
         return;
       }
       if (timer) clearTimeout(timer);
+      if (local && response.headers.has(NO_LISTENER_HEADER)) {
+        this._handle.close();
+        if (this.aborted || this.destroyed) return;
+        this.emit('error', netError('ECONNREFUSED', 'connect', '127.0.0.1', this.port));
+        this.emit('close');
+        return;
+      }
       const res = new IncomingMessage(this.socket);
       res.statusCode = response.status;
       res.statusMessage = response.statusText || STATUS_CODES[response.status] || '';

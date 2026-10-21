@@ -446,6 +446,28 @@ const COMMAND_CASES: Record<string, Case> = {
     script:
       'date -d @0 +%Y-%m-%d; date -u -d @86400 "+%H:%M:%S %j %a %b"; date -d "2024-02-29" +%F',
   },
+  // archives (contents compared, not bytes: headers carry user names and times)
+  'tar create list extract': {
+    script:
+      'tar cf t.tar dir a.txt && tar tf t.tar && mkdir out && tar xf t.tar -C out && cat out/dir/x.js out/a.txt && ls -R out',
+  },
+  'tar gzip, verbose, strip, member': {
+    script:
+      'tar czf t.tgz dir && tar tzf t.tgz | sort && mkdir o && tar -xzvf t.tgz -C o --strip-components=1 | sort && ls o o/sub && tar xOf t.tgz dir/y.ts && tar -tzf t.tgz dir/sub',
+  },
+  'tar old-style, symlink, exclude': {
+    script:
+      'tar cvf t.tar --exclude=*.ts dir link; mkdir o && cd o && tar xf ../t.tar && readlink link && ls dir',
+  },
+  'tar errors': {
+    script:
+      'tar cf; echo $?; tar xf missing.tar; echo $?; echo junk > j.tar; tar tf j.tar 2>/dev/null; echo $?; tar cf t.tar a.txt; tar xf t.tar nope; echo $?',
+    stderr: false,
+  },
+  'gzip gunzip zcat': {
+    script:
+      'gzip -k a.txt && ls a.txt* && zcat a.txt.gz && gunzip -c a.txt.gz | wc -l && rm a.txt && gunzip a.txt.gz && cat a.txt && echo hi | gzip | gunzip && gzip -d b.txt; echo $?',
+  },
 };
 
 const PROJECT: FileTree = {

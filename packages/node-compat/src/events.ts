@@ -351,6 +351,14 @@ for (const key of Reflect.ownKeys(EventEmitterImpl)) {
   if (key === 'prototype' || key === 'length' || key === 'name') continue;
   Object.defineProperty(EventEmitter, key, Object.getOwnPropertyDescriptor(EventEmitterImpl, key)!);
 }
+// Node's aliases are the same function objects; subclasses (minipass) rely on
+// that when they override one name and call super with the other.
+Object.defineProperty(EventEmitterImpl.prototype, 'on', {
+  ...Object.getOwnPropertyDescriptor(EventEmitterImpl.prototype, 'addListener')!,
+});
+Object.defineProperty(EventEmitterImpl.prototype, 'off', {
+  ...Object.getOwnPropertyDescriptor(EventEmitterImpl.prototype, 'removeListener')!,
+});
 // Instance properties Node puts on the prototype, so subclasses that never call super still work.
 Object.assign(EventEmitter.prototype, {
   _events: undefined,

@@ -175,8 +175,8 @@ test.describe('http and WebSocket servers', () => {
       page,
       'exec',
       id,
-      'node -e "fetch(\'http://localhost:4100/\').then(r => console.log(r.status))"',
+      'node -e "fetch(\'http://localhost:4100/\').then(r => console.log(r.status), e => console.log(e.cause.code))"',
     );
-    expect(status.stdout).toBe('502\n');
+    expect(status.stdout).toBe('ECONNREFUSED\n');
   });
 });

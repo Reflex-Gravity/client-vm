@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-import { SystemError } from '@clientvm/protocol';
+import { NO_LISTENER_HEADER, SystemError } from '@clientvm/protocol';
 import { ExitSignal } from '@clientvm/process';
 import type { ProcessContext } from '@clientvm/process';
 import { createConsole } from './console.ts';
-import { virtualUrl } from './net.ts';
+import { netError, virtualUrl } from './net.ts';
 import { NODE_EXEC_PATH, NODE_VERSION } from './constants.ts';
 import { createEventLoop } from './event-loop.ts';
 import { createFs } from './fs.ts';
@@ -32,7 +32,14 @@ function localFetch(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
     const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
     const local = virtualUrl(url);
     if (!local) return fetch(input, init);
-    return fetch(input instanceof Request ? new Request(local, input) : local, init);
+    return fetch(input instanceof Request ? new Request(local, input) : local, init).then((res) => {
+      if (!res.headers.has(NO_LISTENER_HEADER)) return res;
+      // As undici reports a refused connection.
+      const port = new URL(url).port || '80';
+      throw new TypeError('fetch failed', {
+        cause: netError('ECONNREFUSED', 'connect', '127.0.0.1', Number(port)),
+      });
+    });
   };
 }
 
@@ -151,6 +158,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     path,
     cwd: () => state.cwd,
     mainFile: () => mainFile,
+    hold: () => loop.handle(),
   });
 
   // One process per worker, so the worker's globals are this process's globals.

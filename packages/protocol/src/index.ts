@@ -46,6 +46,7 @@ export {
   PORT_PATH_PREFIX,
   RESERVED_PATH_PREFIX,
   WS_SHIM_PATH,
+  NO_LISTENER_HEADER,
   portLabel,
 } from './http-rpc.ts';
 export type {

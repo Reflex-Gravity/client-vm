@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createV8, createWorkerThreads } from './v8.ts';
+import { createHttp2 } from './http2.ts';
+import { createReadline } from './readline.ts';
 import { assertModule } from './assert.ts';
 import { bufferModule } from './buffer.ts';
 import type { createConsole } from './console.ts';
@@ -134,6 +137,7 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     os: createOs(deps.env),
     path,
     'path/posix': path,
+    'path/win32': path.win32,
     process,
     querystring: querystringModule,
     string_decoder: stringDecoderModule,
@@ -189,6 +193,15 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   lazy('dns', () => (dns ??= createDns()));
   lazy('dns/promises', () => (dns ??= createDns())['promises']);
   lazy('tls', () => (tls ??= createTls(loadNet())));
+  let readline: ReturnType<typeof createReadline> | undefined;
+  lazy('readline', () => (readline ??= createReadline()).readline);
+  lazy('readline/promises', () => (readline ??= createReadline()).promises);
+  let v8: Record<string, unknown> | undefined;
+  let workerThreads: Record<string, unknown> | undefined;
+  lazy('v8', () => (v8 ??= createV8()));
+  lazy('worker_threads', () => (workerThreads ??= createWorkerThreads()));
+  let http2: Record<string, unknown> | undefined;
+  lazy('http2', () => (http2 ??= createHttp2()));
   let zlib: Record<string, unknown> | undefined;
   lazy('zlib', () => (zlib ??= createZlib(loadStream as never)));
   lazy(

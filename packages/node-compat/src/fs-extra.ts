@@ -719,14 +719,21 @@ export function extendFs(deps: FsExtraDeps): NodeFs & Record<string, unknown> {
 
   out['createReadStream'] = (p: string, o?: object) => createReadStream(String(p), o);
   out['createWriteStream'] = (p: string, o?: object) => createWriteStream(String(p), o);
-  Object.defineProperty(out, 'ReadStream', {
-    get: () => deps.stream()['Readable'],
-    enumerable: true,
-  });
-  Object.defineProperty(out, 'WriteStream', {
-    get: () => deps.stream()['Writable'],
-    enumerable: true,
-  });
+  // Accessors like Node's: graceful-fs redefines them on its clone of fs.
+  for (const [name, base] of [
+    ['ReadStream', 'Readable'],
+    ['WriteStream', 'Writable'],
+    ['FileReadStream', 'Readable'],
+    ['FileWriteStream', 'Writable'],
+  ] as const) {
+    let override: unknown;
+    Object.defineProperty(out, name, {
+      get: () => override ?? deps.stream()[base],
+      set: (v: unknown) => (override = v),
+      enumerable: true,
+      configurable: true,
+    });
+  }
 
   return out;
 }

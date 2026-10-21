@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { SystemError } from '@clientvm/protocol';
+import { NO_LISTENER_HEADER, SystemError } from '@clientvm/protocol';
 import type { WireRequest, WireResponse } from '@clientvm/protocol';
 import type { MemoryVfs } from '@clientvm/vfs';
 
@@ -146,13 +146,15 @@ export class HttpRouter {
   async handle(request: WireRequest): Promise<WireResponse> {
     const { port, server } = this.resolve(request);
     if (!server) {
-      return text(
+      const res = text(
         502,
         'Bad Gateway',
         port === null
           ? 'No server is listening in this instance.'
           : `Nothing is listening on port ${port}.`,
       );
+      res.headers.push([NO_LISTENER_HEADER, '1']);
+      return res;
     }
     try {
       return await server.fetch(request);

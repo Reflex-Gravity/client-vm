@@ -2,6 +2,8 @@
 
 /** POSIX `path` module. Follows Node's algorithms so results match byte for byte. */
 
+import { createWin32Path } from './path-win32.ts';
+
 /** Resolves `.` and `..` segments; `allowAboveRoot` keeps leading `..` for relative paths. */
 function normalizeString(path: string, allowAboveRoot: boolean): string {
   let res = '';
@@ -263,9 +265,14 @@ export function createPosixPath(cwd: () => string) {
     format,
     toNamespacedPath: (p: string) => p,
     posix: undefined as unknown,
-    win32: null,
+    win32: undefined as unknown,
   };
-  posix.posix = posix;
+  const win32 = createWin32Path(
+    cwd,
+    () => (globalThis as { process?: { env?: Record<string, string> } }).process?.env ?? {},
+  );
+  posix.posix = win32.posix = posix;
+  posix.win32 = win32.win32 = win32;
   return posix;
 }
 

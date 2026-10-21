@@ -34,3 +34,7 @@ export { NODE_BUILTINS, isBuiltin } from './module/builtin-names.ts';
 export { createConsumers, loadStreamModule } from './stream.ts';
 export { createZlib } from './zlib.ts';
 export { cryptoModule } from './crypto.ts';
+export { NPM_VERSION, npmRuntime } from './npm.ts';
+export { readTar, writeTar } from './tar.ts';
+export type { TarEntry, TarType } from './tar.ts';
+export { isLocalHost, virtualUrl } from './net.ts';

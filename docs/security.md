@@ -98,6 +98,11 @@ top-level site.
   boundary is the worker and origin, not the JS realm.
 - **Outbound network.** Process code can `fetch` any CORS-enabled endpoint from the user's
   browser. Document this for integrators. A capability gate on outbound fetch is an open question.
+- **npm supply chain.** npm itself is pinned by SHA-512 (ADR 0012), so a compromised registry
+  or mirror cannot swap the npm CLI. Packages that npm installs are checked against their lockfile
+  integrity, as npm normally does, but their code and lifecycle scripts are untrusted and run with
+  the instance's full authority. Running `npm install --ignore-scripts` reduces what runs during
+  install, not what runs at `require` time.
 
 ## Not in scope
 

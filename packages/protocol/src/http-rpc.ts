@@ -66,6 +66,12 @@ export const RESERVED_PATH_PREFIX = '/__clientvm/';
 export const PORT_PATH_PREFIX = '/__port/';
 /** Script injected into HTML previews: routes same-origin WebSockets through the SW. */
 export const WS_SHIM_PATH = '/__clientvm/ws-shim.js';
+
+/**
+ * Set on the kernel's 502 for a port nothing listens on, so in-instance
+ * clients (fetch, http, curl) report ECONNREFUSED as Node and curl would.
+ */
+export const NO_LISTENER_HEADER = 'x-clientvm-no-listener';
 /** The bridge page on a port origin. */
 export const PORT_BRIDGE_PATH = '/__clientvm/port.html';
 

@@ -184,3 +184,24 @@ describe('events differential: node-compat vs node:events', () => {
     });
   }
 });
+
+describe('EventEmitter aliases', () => {
+  it('on/addListener and off/removeListener are the same functions', () => {
+    expect(OURS.prototype.on).toBe(OURS.prototype.addListener);
+    expect(OURS.prototype.off).toBe(OURS.prototype.removeListener);
+    // A subclass overriding one alias and calling super with the other (minipass).
+    class Sub extends OURS {
+      override removeListener(t: string, l: (...a: unknown[]) => void) {
+        return this.off(t, l);
+      }
+      override off(t: string, l: (...a: unknown[]) => void) {
+        return super.off(t, l);
+      }
+    }
+    const s = new Sub();
+    const fn = () => {};
+    s.on('x', fn);
+    s.removeListener('x', fn);
+    expect(s.listenerCount('x')).toBe(0);
+  });
+});
