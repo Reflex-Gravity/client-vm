@@ -36,7 +36,11 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2))
 
-  packages/clientvm: {}
+  packages/clientvm:
+    dependencies:
+      '@clientvm/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
   packages/kernel:
     dependencies:
@@ -66,6 +70,9 @@ importers:
 
   packages/sandbox-host:
     dependencies:
+      '@clientvm/clientvm':
+        specifier: workspace:*
+        version: link:../clientvm
       '@clientvm/kernel':
         specifier: workspace:*
         version: link:../kernel

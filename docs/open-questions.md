@@ -20,7 +20,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   COOP/COEP or can embed a cross-origin-isolated iframe (`allow="cross-origin-isolated"`), and how
   that interacts with third-party embeds.
 - **Process/site isolation** for same-site subdomains (see security.md).
-- **Minimum Chromium version** to support (`Atomics.waitAsync`, nested module workers).
+- **Minimum Chromium version:** test which release first supports `Document-Isolation-Policy`
+  well enough for instance pages, and pin it in compatibility.md.
+- ~~Cross-origin isolation for iframes on wildcard subdomains~~: resolved with
+  Document-Isolation-Policy (ADR 0005, docs/phase2-probes.md).
 
 ## Runtime design
 

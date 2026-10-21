@@ -42,6 +42,11 @@ export type Capability =
   | { kind: 'spawn-instance'; limits?: Limits };
 
 export interface InstanceOptions {
+  /**
+   * Instance id (a DNS label). Defaults to a random 16-character id. Pass an
+   * existing id to reattach to a persisted instance's storage.
+   */
+  id?: string;
   name?: InstanceName;
   parent?: InstanceId;
   fs?: { from?: SnapshotId | FileTree; quotaBytes?: number; persist?: boolean };

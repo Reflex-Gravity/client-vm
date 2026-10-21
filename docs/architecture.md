@@ -3,26 +3,30 @@
 The target architecture is in [CLAUDE.md §4](../CLAUDE.md#4-architecture). This page records what
 is built and how a syscall travels today.
 
-## Thread layout (as of the Phase 1 spike)
+## Thread layout
 
 ```
-Sandbox page (main thread, COOP: same-origin, COEP: require-corp)
-  │  RpcEndpoint over Worker.postMessage   (@clientvm/protocol rpc)
-  ▼
-Kernel worker (dedicated)                  (@clientvm/kernel)
-  ├─ MemoryVfs                             (@clientvm/vfs)
-  ├─ process table: pid → { channel SAB, SyscallServer, Worker }
-  │
-  │  new Worker()  (nested dedicated worker, one per process)
-  ▼
-Process worker                             (@clientvm/process + runtime)
-  ├─ runtime chosen by argv[0]: node → @clientvm/node-compat, clientvm-bench → builtin
-  ├─ sync syscalls: SyscallClient over the channel SAB (Atomics.wait)
-  └─ async: postMessage to the kernel for stdout / stderr / ready / exit
+Host app page (any origin, not cross-origin isolated)
+  └─ controller (@clientvm/clientvm): trusted broker, validates everything it receives
+       │ hidden iframe + handshake (exact window and origin checks), then a MessagePort
+       ▼
+Instance page  https://<id>.<sandbox-domain>/__clientvm/instance.html
+  (Document-Isolation-Policy → cross-origin isolated)       (@clientvm/sandbox-host)
+  └─ kernel worker: one instance                              (@clientvm/kernel)
+       ├─ MemoryVfs (CoW snapshots, quotas, watchers)         (@clientvm/vfs)
+       ├─ process table: pid → { channel SAB, SyscallServer, FdTable, Worker }
+       │  serves InstanceRpc to the controller over the port  (@clientvm/protocol)
+       ▼
+     process workers (nested dedicated workers, one per process)
+       ├─ runtime chosen by argv[0]: node → @clientvm/node-compat, clientvm-bench → builtin
+       ├─ sync syscalls: SyscallClient over the channel SAB (Atomics.wait)
+       └─ async: postMessage to the kernel for stdout / stderr / ready / exit
 ```
 
-Phase 2 inserts the controller → sandbox-origin iframe hop and per-instance subdomain origins
-above the kernel worker.
+Each instance has its own origin, so the browser isolates instances' storage, channels and
+service workers from each other ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
+Forking into a new instance exports a filesystem image (`exportImage`), transfers it, and imports
+it on the other side.
 
 ## Sync syscall path
 
@@ -62,7 +66,7 @@ protocol ◄── vfs ◄── kernel
    ▲                   
    ├──── process ◄── node-compat
    └──── (all)  ◄── sandbox-host (composes kernel + process + node-compat into worker entries)
-clientvm: public types only (no runtime code yet)
+clientvm (controller) ── protocol  (types + RpcEndpoint only; never bundles kernel code)
 ```
 
 The process package does not depend on node-compat. Runtimes are injected as a `RuntimeTable` by

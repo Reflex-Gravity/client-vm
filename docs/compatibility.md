@@ -5,8 +5,9 @@ works, how it is tested, and the known gaps.
 
 - **Node target:** Node.js **24 LTS** (`process.version` = `v24.11.0`). See [ADR 0001](decisions/0001-node-24-target.md).
 - **Browser:** Chromium only, cross-origin isolated (COOP `same-origin` + COEP `require-corp`).
-  Verified on Chromium 156. Minimum version: TBD in Phase 2 (needs `Atomics.waitAsync`,
-  module workers, nested workers, OPFS sync access handles).
+  Verified on Chromium 156. Instance pages rely on `Document-Isolation-Policy` (host apps need no
+  COOP/COEP), `Atomics.waitAsync`, and nested module workers. The exact minimum version is still to
+  be pinned by testing older Chromium builds (see open-questions.md).
 - **Required frameworks (v1 goal):** Vite + React dev server with HMR, Express. Both are not yet
   working.
 

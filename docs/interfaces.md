@@ -1,7 +1,7 @@
 # Interfaces
 
 The public API is declared in [`packages/clientvm/src/types.ts`](../packages/clientvm/src/types.ts)
-(types only until Phases 2–4 implement it). Changes to that file must update this page and, if they
+and implemented by `createClientVM()` in [`controller.ts`](../packages/clientvm/src/controller.ts). Changes to that file must update this page and, if they
 affect decisions, CLAUDE.md.
 
 ## Refinements over the CLAUDE.md §6 sketch
@@ -15,6 +15,27 @@ affect decisions, CLAUDE.md.
 | `ExecOptions.timeoutMs`, `ExecOptions.stdin` | Agents need bounded, non-interactive exec |
 | `MountSource` is a union of instance-dir and snapshot mounts | Mounting needs a source and a read-only flag that a capability can check |
 
+## Implementation status (Phase 2b)
+
+| API | Status |
+|---|---|
+| `createClientVM({ sandboxOrigin, instancePath?, container?, bootTimeoutMs? })` | done |
+| `createInstance`, `getInstance`, `listInstances` | done. `id?` is accepted (reattaching to persisted storage arrives in 2c) |
+| `InstanceOptions.fs.from` (`FileTree` or `SnapshotId`), `fs.quotaBytes`, `limits.maxProcesses` | done |
+| `Instance.fs`: `readFile writeFile readdir stat mkdir rm rename symlink watch` | done (`watch` is recursive) |
+| `Instance.fs.mount` | Phase 4 → `NotImplementedError` |
+| `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `kill`, `exit` | done. `stdin` writes reject until node-compat reads stdin. Output is buffered without bound until read |
+| `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
+| `Instance.fork()` | done: image export → new origin |
+| `Instance.destroy()` | done |
+| `Instance.exec` | Phase 3 (needs the shell) → `NotImplementedError` |
+| `Instance.onPortOpen` | Phase 3 → throws `NotImplementedError` |
+| `Instance.mailbox`, `Instance.grant` | Phase 4 → `NotImplementedError` |
+
+Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`,
+`ERR_BOOT_TIMEOUT`, `ERR_INSTANCE_PROTOCOL`, `ERR_DESTROYED`, ...). Errors from inside an instance
+keep the system error `code` (`ENOENT`, `EAGAIN`, ...).
+
 ## Internal interfaces (not public API)
 
 - **Syscall channel** (`@clientvm/protocol`): `SyscallClient.call(op, bytes) → bytes` and
@@ -22,5 +43,5 @@ affect decisions, CLAUDE.md.
   profiling demands.
 - **Process runtime** (`@clientvm/process`): `type Runtime = (ctx: ProcessContext) => number | void
   | Promise<…>`. `ctx` provides `argv`, `env`, `cwd`, `syscall`, `stdout`, and `stderr`.
-- **Kernel worker RPC** (`@clientvm/kernel` `KernelRpc`): `ping`, `run`, `writeFile`, `readFile`,
-  `mkdir`. This is the spike surface. It becomes the instance API in Phase 2.
+- **Instance RPC** (`@clientvm/protocol` `InstanceRpc` / `InstanceEvents`): what an instance kernel
+  serves to the controller over its MessagePort, plus the handshake messages.

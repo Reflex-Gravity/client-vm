@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   DEFAULT_PAYLOAD_BYTES,
+  SIGNAL_NUMBERS,
   SyscallServer,
   SystemError,
   createChannelBuffer,
 } from '@clientvm/protocol';
-import type { KernelToProcess, ProcessToKernel, SyscallMode } from '@clientvm/protocol';
-import { MemoryVfs } from '@clientvm/vfs';
-import type { VfsLimits } from '@clientvm/vfs';
+import type { KernelToProcess, ProcessToKernel, Signal, SyscallMode } from '@clientvm/protocol';
+import { MemoryVfs, importImage } from '@clientvm/vfs';
+import type { Snapshot, VfsLimits } from '@clientvm/vfs';
 import { createSyscallHandler } from './dispatcher.ts';
 import { FdTable } from './fd-table.ts';
 
@@ -29,6 +30,8 @@ export interface KernelOptions {
   fsLimits?: VfsLimits;
   /** Maximum concurrently running processes (spawn fails with EAGAIN beyond it). */
   maxProcesses?: number;
+  /** Boot from a filesystem image (see `exportImage`) instead of seeding directories. */
+  image?: readonly Uint8Array[];
 }
 
 export interface SpawnOptions {
@@ -47,11 +50,18 @@ export interface ProcessTiming {
   exitedAt?: number;
 }
 
+export interface ProcessExit {
+  code: number;
+  /** Set when the process was killed by a signal. */
+  signal: Signal | null;
+}
+
 export interface ProcessHandle {
   readonly pid: number;
-  readonly exit: Promise<number>;
+  readonly exit: Promise<ProcessExit>;
   readonly timing: ProcessTiming;
-  kill(): void;
+  /** Terminates the process worker immediately; exit code is 128 + signal number. */
+  kill(signal?: Signal): void;
 }
 
 export const DEFAULT_SEED_DIRS = [
@@ -64,20 +74,50 @@ export const DEFAULT_SEED_DIRS = [
   '/usr/bin',
 ];
 
-/** Exit code reported when a process dies without calling exit (128 + SIGKILL). */
-const KILLED_EXIT_CODE = 137;
-
 export class Kernel {
   readonly vfs: MemoryVfs;
   private readonly options: KernelOptions;
   private nextPid = 1;
   private readonly processes = new Map<number, ProcessHandle>();
+  private readonly snapshots = new Map<number, Snapshot>();
+  private nextSnapshot = 1;
 
   constructor(options: KernelOptions) {
     this.options = options;
+    if (options.image) {
+      this.vfs = MemoryVfs.fromSnapshot(importImage(options.image), options.fsLimits);
+      return;
+    }
     this.vfs = new MemoryVfs(options.fsLimits);
-    for (const dir of options.seedDirs ?? DEFAULT_SEED_DIRS)
+    for (const dir of options.seedDirs ?? DEFAULT_SEED_DIRS) {
       this.vfs.mkdir(dir, { recursive: true });
+    }
+  }
+
+  get processCount(): number {
+    return this.processes.size;
+  }
+
+  /** Takes a copy-on-write snapshot held by this kernel. */
+  snapshot(): number {
+    const id = this.nextSnapshot++;
+    this.snapshots.set(id, this.vfs.snapshot());
+    return id;
+  }
+
+  getSnapshot(id: number): Snapshot {
+    const snap = this.snapshots.get(id);
+    if (!snap) throw new SystemError('ENOENT', 'snapshot', String(id));
+    return snap;
+  }
+
+  dropSnapshot(id: number): void {
+    this.snapshots.delete(id);
+  }
+
+  /** Kills every process (instance shutdown). */
+  killAll(signal: Signal = 'SIGKILL'): void {
+    for (const proc of [...this.processes.values()]) proc.kill(signal);
   }
 
   spawn(argv: string[], options: SpawnOptions = {}): ProcessHandle {
@@ -93,16 +133,16 @@ export class Kernel {
     const timing: ProcessTiming = { spawnedAt: performance.now() };
     const worker = this.options.createProcessWorker();
 
-    let settle!: (code: number) => void;
-    const exit = new Promise<number>((resolve) => {
-      settle = (code) => {
+    let settle!: (code: number, signal?: Signal) => void;
+    const exit = new Promise<ProcessExit>((resolve) => {
+      settle = (code, signal) => {
         if (timing.exitedAt !== undefined) return;
         timing.exitedAt = performance.now();
         server.close();
         worker.terminate();
         fds.closeAll();
         this.processes.delete(pid);
-        resolve(code);
+        resolve({ code, signal: signal ?? null });
       };
     });
 
@@ -143,7 +183,12 @@ export class Kernel {
       cwd: options.cwd ?? '/home/user',
     });
 
-    const handle: ProcessHandle = { pid, exit, timing, kill: () => settle(KILLED_EXIT_CODE) };
+    const handle: ProcessHandle = {
+      pid,
+      exit,
+      timing,
+      kill: (signal = 'SIGTERM') => settle(128 + SIGNAL_NUMBERS[signal], signal),
+    };
     this.processes.set(pid, handle);
     return handle;
   }

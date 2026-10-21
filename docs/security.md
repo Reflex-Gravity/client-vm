@@ -21,30 +21,40 @@ updates it.
 ## Trust boundaries
 
 ```
-Host app (trusted, own origin)
-  ║ postMessage only, origin-checked                       ← boundary 1
-Sandbox origin iframe (static page, no credentials)
-  ║ same-origin dedicated worker
-Kernel worker (trusted code, enforces capabilities)
-  ║ SAB channel + postMessage, kernel validates every request ← boundary 2
-Process workers (untrusted code)
-Preview iframe + service worker on <instance-id>.<sandbox-domain> ← boundary 3 (per instance)
+Host app + controller (trusted, app origin, never runs instance code)
+  ║ handshake via postMessage: exact source window + origin checks; then a MessagePort.
+  ║ The controller validates every value an instance sends.          ← boundary 1
+Instance iframe on <id>.<sandbox-domain> (one origin per instance)    ← boundary 2 (browser origin model)
+  └─ kernel worker (our code, but shares the origin with hostile code)
+       ║ SAB channel + postMessage; kernel validates every request   ← boundary 3
+       └─ process workers (untrusted code)
+  └─ (2d) service worker + preview iframes, same origin as the kernel
 ```
 
 ## Mitigations (planned and status)
 
 | Mitigation | Status |
 |---|---|
-| Runtime executes on a separate sandbox origin, never the host app's origin | Phase 2 |
-| Per-instance subdomain origins (`<instance-id>.<sandbox-domain>`) to isolate storage and SW between instances | Phase 2 |
-| Sandbox origin serves static files only, sets no cookies, and has no authenticated endpoints | Phase 2 (hosting guidance) |
-| Host ↔ sandbox `postMessage` checks `origin` on both sides and uses a typed protocol | Phase 2 |
+| Runtime executes on a separate sandbox origin, never the host app's origin | **done** (2b) |
+| One origin and one kernel per instance, isolating storage, BroadcastChannel and SW between instances ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)) | **done** (2b), e2e-tested |
+| Sandbox origin serves static files only, sets no cookies, and has no authenticated endpoints | **documented** ([hosting.md](hosting.md)) |
+| Host ↔ instance handshake checks the source window and exact origin on both sides; the controller validates all instance replies and events | **done** (2b) |
+| `frame-ancestors` CSP restricts who can embed instance pages | **supported** (hosting config) |
 | Kernel decodes every syscall defensively (type-checked args, `EINVAL` on malformed input, `ENOSYS` on unknown ops) | **done** (spike) |
 | Process workers get no direct VFS access, only the syscall channel | **done** |
 | Each process gets its own channel SAB, so processes cannot read each other's syscall traffic | **done** |
 | Capabilities for every cross-instance interaction, checked in the kernel | Phase 4 |
 | Resource limits per instance (processes, memory, FS quota, CPU time via kill on timeout) | Phase 2/5 |
 | Fuzzing of codec, channel, VFS, resolver, shell parser | Phase 5 |
+
+## What a compromised instance can do
+
+Code in an instance can do anything its own origin can do. It can rewrite its own kernel's memory
+(the kernel shares the agent cluster), read and write its own filesystem and OPFS, register a
+service worker for its own origin, and send arbitrary messages to the controller. It cannot reach
+other instances' storage or channels, or the host app's origin. Everything it sends the controller
+is validated before use. A hostile instance can lie about its own files and process output, but
+it cannot affect the controller or other instances.
 
 ## Known risks and open issues
 
@@ -53,6 +63,10 @@ Preview iframe + service worker on <instance-id>.<sandbox-domain> ← boundary 3
   can still time other code in the same agent cluster. Per-instance origins limit what shares that
   cluster. Verify how Chromium assigns site isolation and processes for subdomains of one
   registrable domain: same-site subdomains may share a renderer process.
+- **Embedding by third parties.** Anyone can embed an instance page. They cannot connect to it
+  unless they are its parent at the claimed origin. Storage partitioning keys an embedded
+  instance's OPFS by the top-level site, so other sites cannot read your users' persisted
+  instances. `frame-ancestors` adds defense in depth.
 - **Same-site subdomains.** `<id>.<sandbox-domain>` origins are same-site with each other.
   Cookies with `Domain=<sandbox-domain>` would be shared, so the sandbox domain must never set
   cookies. Consider listing the sandbox domain on the Public Suffix List so each instance is its own

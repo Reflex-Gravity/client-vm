@@ -28,6 +28,8 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | Databases | Out of scope for the runtime. SQL (one chosen lib, e.g. SQLite-WASM or PGlite) is the app's concern, not the runtime's |
 | Tooling | pnpm 10 via Corepack (`packageManager` pinned), TypeScript 6, Vitest, Playwright, GitHub Actions CI |
 | Sync syscall wake | Kernel parks on each channel with `Atomics.waitAsync`; postMessage doorbell kept as fallback (ADR 0002, measured in `docs/spike-results.md`) |
+| Instance isolation | **One kernel per instance, on the instance's own origin** (hidden iframe). The controller on the host page brokers cross-instance work (ADR 0003). Instance pages use **Document-Isolation-Policy**, so host apps need no COOP/COEP (ADR 0005) |
+| VFS storage | **Memory-first VFS**; OPFS is write-behind persistence only (ADR 0004) |
 
 ## 3. Non-goals for v1
 
@@ -41,17 +43,18 @@ The library must be **production-ready and battle-tested**. That is earned throu
 ## 4. Architecture
 
 ```
-Controller (main thread, host app)
-   └─ Sandbox origin iframe (static page, wildcard subdomain)
-        └─ Host kernel (dedicated worker)
-             ├─ Instance A: own VFS, own net namespace, own resource budget
-             │     ├─ process: js        (Node-compat, one Worker per process)
-             │     ├─ process: builtin   (shell + commands in TS)
-             │     └─ process: wasi      (optional later: WASM commands)
-             ├─ Instance B: ...
-             └─ Shared services: virtual network switch, mailbox bus,
-                snapshot store, permission/capability manager
+Controller (host app page; trusted broker, validates all instance messages)
+   ├─ Instance A: hidden iframe on <a-id>.<sandbox-domain> (Document-Isolation-Policy)
+   │     └─ Kernel worker (own VFS, process table, fd tables, limits)
+   │           ├─ process: js        (Node-compat, one Worker per process)
+   │           ├─ process: builtin   (shell + commands in TS)
+   │           └─ process: wasi      (optional later: WASM commands)
+   ├─ Instance B: same, on <b-id>.<sandbox-domain>
+   └─ Cross-instance services, brokered by the controller (Phase 4): mailbox,
+      virtual network, capabilities, image transfer for forks
 ```
+
+(Revised in Phase 2 from a single host kernel; see docs/decisions/0003-kernel-per-instance-origin.md.)
 
 ### Key concepts
 
@@ -205,7 +208,7 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 
 ## 10. Known constraints to design around
 
-- Cross-origin isolation (COOP/COEP) is required for synchronous syscalls and limits embedding of third-party iframes; document this for integrators.
+- Cross-origin isolation is required for synchronous syscalls. Instance pages get it from Document-Isolation-Policy, so the host app doesn't need COOP/COEP (docs/hosting.md).
 - Per-tab memory limits; budget memory per instance and enforce limits.
 - No `fork()`; process spawn means creating a worker (slower), so keep worker startup lean.
 - Service worker lifecycle edge cases (restarts, updates) must be handled and tested.

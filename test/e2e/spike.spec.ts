@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { expect, test } from '@playwright/test';
-import { isCrossOriginIsolated, openSandbox, run, writeFile } from './sandbox.ts';
+import { openSandbox, run, writeFile } from './sandbox.ts';
 
 for (const mode of ['waitAsync', 'postMessage'] as const) {
   test.describe(`sync syscalls (${mode})`, () => {
     test.beforeEach(async ({ page }) => {
       await openSandbox(page);
-    });
-
-    test('page is cross-origin isolated', async ({ page }) => {
-      expect(await isCrossOriginIsolated(page)).toBe(true);
     });
 
     test('node -e readdirSync("/") prints the root listing', async ({ page }) => {

@@ -7,9 +7,20 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../protocol" },
-    { "path": "../kernel" },
-    { "path": "../process" },
-    { "path": "../node-compat" }
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../process"
+    },
+    {
+      "path": "../node-compat"
+    },
+    {
+      "path": "../clientvm"
+    }
   ]
 }

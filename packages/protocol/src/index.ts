@@ -17,3 +17,17 @@ export type { Methods, PortLike } from './rpc.ts';
 export { StatLayout, encodeStat, decodeStat } from './stat.ts';
 export type { StatData } from './stat.ts';
 export type { ProcessToKernel, KernelToProcess, SyscallMode } from './process-messages.ts';
+export { SIGNAL_NUMBERS } from './instance-rpc.ts';
+export type {
+  FileKind,
+  HandshakeMessage,
+  InstanceEvents,
+  InstanceInit,
+  InstanceRpc,
+  RunResult,
+  Signal,
+  SpawnRequest,
+  WireDirEntry,
+  WireFsEvent,
+  WireStat,
+} from './instance-rpc.ts';

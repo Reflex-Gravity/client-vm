@@ -2,11 +2,14 @@
 export { DEFAULT_SEED_DIRS, Kernel } from './kernel.ts';
 export type {
   KernelOptions,
+  ProcessExit,
   ProcessHandle,
   ProcessTiming,
   ProcessWorkerLike,
   SpawnOptions,
 } from './kernel.ts';
 export { createSyscallHandler } from './dispatcher.ts';
-export { startKernelWorker } from './worker-entry.ts';
-export type { KernelRpc, RunOptions, RunResult } from './worker-entry.ts';
+export { DEFAULT_MAX_OPEN_FILES, FdTable } from './fd-table.ts';
+export type { OpenFile } from './fd-table.ts';
+export { serveInstance, startKernelWorker } from './worker-entry.ts';
+export type { KernelBootMessage, KernelWorkerOptions } from './worker-entry.ts';

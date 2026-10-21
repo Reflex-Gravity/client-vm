@@ -8,6 +8,8 @@
 export interface PortLike {
   postMessage(message: unknown): void;
   addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+  /** MessagePorts only deliver to addEventListener listeners after start(). */
+  start?(): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,6 +57,7 @@ export class RpcEndpoint<Local extends Methods, Remote extends Methods> {
     this.port = port;
     this.handlers = handlers;
     port.addEventListener('message', (event) => this.onMessage(event.data));
+    port.start?.();
   }
 
   call<K extends keyof Remote & string>(

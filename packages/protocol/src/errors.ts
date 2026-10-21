@@ -4,6 +4,7 @@
 export const Errno = {
   EPERM: 1,
   ENOENT: 2,
+  ESRCH: 3,
   EIO: 5,
   E2BIG: 7,
   EBADF: 9,
@@ -29,6 +30,7 @@ export type ErrnoCode = keyof typeof Errno;
 const DESCRIPTIONS: Record<ErrnoCode, string> = {
   EPERM: 'operation not permitted',
   ENOENT: 'no such file or directory',
+  ESRCH: 'no such process',
   EIO: 'i/o error',
   E2BIG: 'argument list too long',
   EBADF: 'bad file descriptor',
