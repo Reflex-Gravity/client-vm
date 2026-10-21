@@ -32,6 +32,8 @@ export interface KernelOptions {
   maxProcesses?: number;
   /** Boot from a filesystem image (see `exportImage`) instead of seeding directories. */
   image?: readonly Uint8Array[];
+  /** Boot from a snapshot (e.g. restored from persistent storage). Takes precedence over `image`. */
+  snapshot?: Snapshot;
 }
 
 export interface SpawnOptions {
@@ -84,6 +86,10 @@ export class Kernel {
 
   constructor(options: KernelOptions) {
     this.options = options;
+    if (options.snapshot) {
+      this.vfs = MemoryVfs.fromSnapshot(options.snapshot, options.fsLimits);
+      return;
+    }
     if (options.image) {
       this.vfs = MemoryVfs.fromSnapshot(importImage(options.image), options.fsLimits);
       return;

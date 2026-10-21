@@ -24,6 +24,7 @@ export type {
   InstanceEvents,
   InstanceInit,
   InstanceRpc,
+  PersistInfo,
   RunResult,
   Signal,
   SpawnRequest,

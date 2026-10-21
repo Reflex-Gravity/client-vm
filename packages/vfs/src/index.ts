@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 export { MemoryVfs } from './memory-vfs.ts';
 export type { Snapshot, VfsLimits } from './memory-vfs.ts';
-export { exportImage, importImage } from './image.ts';
+export { decodeInodes, encodeInodes, exportImage, importImage } from './image.ts';
+export { MemoryBackend, Persister, loadPersisted, purgePersisted } from './persistence.ts';
+export type { PersistStats, PersistenceBackend, PersisterOptions } from './persistence.ts';
+export { OpfsBackend, acquireStoreLock } from './opfs-backend.ts';
 export {
   O_ACCMODE,
   O_APPEND,

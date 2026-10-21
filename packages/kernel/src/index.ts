@@ -12,4 +12,9 @@ export { createSyscallHandler } from './dispatcher.ts';
 export { DEFAULT_MAX_OPEN_FILES, FdTable } from './fd-table.ts';
 export type { OpenFile } from './fd-table.ts';
 export { serveInstance, startKernelWorker } from './worker-entry.ts';
-export type { KernelBootMessage, KernelWorkerOptions } from './worker-entry.ts';
+export type {
+  KernelBootMessage,
+  KernelFlushMessage,
+  KernelWorkerOptions,
+  ServedInstance,
+} from './worker-entry.ts';

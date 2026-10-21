@@ -20,7 +20,8 @@ affect decisions, CLAUDE.md.
 | API | Status |
 |---|---|
 | `createClientVM({ sandboxOrigin, instancePath?, container?, bootTimeoutMs? })` | done |
-| `createInstance`, `getInstance`, `listInstances` | done. `id?` is accepted (reattaching to persisted storage arrives in 2c) |
+| `createInstance`, `getInstance`, `listInstances` | done. `id` + `fs.persist` reattach to persisted storage |
+| `InstanceOptions.fs.persist`, `Instance.flush()`, `destroy({ purge })` | done (2c): write-behind OPFS persistence, one tab per persistent instance (`EBUSY` otherwise) |
 | `InstanceOptions.fs.from` (`FileTree` or `SnapshotId`), `fs.quotaBytes`, `limits.maxProcesses` | done |
 | `Instance.fs`: `readFile writeFile readdir stat mkdir rm rename symlink watch` | done (`watch` is recursive) |
 | `Instance.fs.mount` | Phase 4 → `NotImplementedError` |

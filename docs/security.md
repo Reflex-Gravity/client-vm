@@ -56,6 +56,13 @@ other instances' storage or channels, or the host app's origin. Everything it se
 is validated before use. A hostile instance can lie about its own files and process output, but
 it cannot affect the controller or other instances.
 
+## Persisted data
+
+A persistent instance's store lives in its own origin's OPFS (`clientvm/v1/`). Processes in that
+instance can read and tamper with it, which only affects that instance. Loading validates the
+structure and fails closed on corruption. Storage partitioning keys it by the host app's
+top-level site.
+
 ## Known risks and open issues
 
 - **Spectre / high-resolution timers.** Cross-origin isolation re-enables SAB and precise timers.

@@ -31,7 +31,9 @@ interface HostWindow {
     readdir(id: string, path: string): Promise<string[]>;
     snapshot(id: string): Promise<string>;
     fork(id: string): Promise<string>;
-    destroy(id: string): Promise<void>;
+    destroy(id: string, purge?: boolean): Promise<void>;
+    flush(id: string): Promise<void>;
+    usage(id: string): Promise<{ persist: { generation: number; restored: boolean } | null }>;
     list(): string[];
   };
 }

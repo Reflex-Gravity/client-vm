@@ -94,6 +94,7 @@ class Controller implements ClientVM {
         : { maxProcesses: opts.limits.maxProcesses }),
     };
     if (Object.keys(limits).length > 0) init.limits = limits;
+    if (opts.fs?.persist) init.persist = true;
     if (opts.image) {
       init.image = opts.image;
     } else if (typeof opts.fs?.from === 'string') {
@@ -267,10 +268,19 @@ class InstanceImpl implements Instance {
     return Promise.reject(new NotImplementedError('capability grants (Phase 4)'));
   }
 
-  async destroy(): Promise<void> {
+  async flush(): Promise<void> {
+    this.assertAlive();
+    await this.rpc.call('flush');
+  }
+
+  async destroy(opts: { purge?: boolean } = {}): Promise<void> {
     if (this.destroyed) return;
-    await withTimeout(this.rpc.call('shutdown'), 2000, 'shutdown').catch(() => {});
-    this.teardown();
+    try {
+      if (opts.purge) await this.rpc.call('purge');
+      await withTimeout(this.rpc.call('shutdown'), 10_000, 'shutdown');
+    } finally {
+      this.teardown();
+    }
   }
 
   /** @internal Removes the iframe and settles anything still pending. */

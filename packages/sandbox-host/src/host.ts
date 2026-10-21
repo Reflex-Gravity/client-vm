@@ -23,7 +23,9 @@ export interface HostApi {
   readdir(id: string, path: string): Promise<string[]>;
   snapshot(id: string): Promise<string>;
   fork(id: string): Promise<string>;
-  destroy(id: string): Promise<void>;
+  destroy(id: string, purge?: boolean): Promise<void>;
+  flush(id: string): Promise<void>;
+  usage(id: string): Promise<unknown>;
   list(): string[];
   watch(id: string, path: string): Promise<() => unknown[]>;
 }
@@ -80,10 +82,13 @@ window.__clientvm = {
   readdir: async (id, path) => (await get(id).fs.readdir(path)).map((e) => e.name),
   snapshot: (id) => get(id).snapshot(),
   fork: async (id) => keep(await get(id).fork()),
-  async destroy(id) {
-    await get(id).destroy();
+  async destroy(id, purge) {
+    await get(id).destroy(purge ? { purge } : {});
     instances.delete(id);
   },
+  flush: (id) => get(id).flush(),
+  usage: (id) =>
+    (get(id) as Instance & { rpc: { call(m: 'usage'): Promise<unknown> } }).rpc.call('usage'),
   list: () => vm.listInstances().map((i) => i.id),
   async watch(id, path) {
     const events: unknown[] = [];

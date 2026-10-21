@@ -70,6 +70,7 @@ export class MemoryVfs {
   private readonly openRefs = new Map<number, number>();
   private readonly limits: VfsLimits;
   private readonly watchers = new Watchers();
+  private mutateListener: (() => void) | null = null;
 
   constructor(limits: VfsLimits = {}, from?: Snapshot) {
     this.limits = limits;
@@ -105,6 +106,11 @@ export class MemoryVfs {
     };
     this.epoch++;
     return snap;
+  }
+
+  /** Registers a callback invoked synchronously on every mutation (used by write-behind persistence). */
+  onMutate(listener: (() => void) | null): void {
+    this.mutateListener = listener;
   }
 
   /** Bytes charged against the quota by the live tree. */
@@ -501,6 +507,7 @@ export class MemoryVfs {
 
   /** Returns a mutable inode, cloning it first if a snapshot may reference it. */
   private mut(ino: number): Inode {
+    this.mutateListener?.();
     const node = this.get(ino);
     if (node.epoch === this.epoch) return node;
     let clone: Inode;
@@ -522,6 +529,7 @@ export class MemoryVfs {
   private alloc<T extends Inode>(
     fields: Omit<T, 'ino' | 'nlink' | 'atimeMs' | 'mtimeMs' | 'ctimeMs' | 'birthtimeMs' | 'epoch'>,
   ): T {
+    this.mutateListener?.();
     const now = Date.now();
     const node = {
       ...fields,
@@ -539,6 +547,7 @@ export class MemoryVfs {
   }
 
   private free(ino: number): void {
+    this.mutateListener?.();
     const node = this.inodes.get(ino);
     if (!node) return;
     this.usedBytes -= inodeBytes(node);

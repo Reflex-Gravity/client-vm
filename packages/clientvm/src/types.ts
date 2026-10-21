@@ -49,7 +49,17 @@ export interface InstanceOptions {
   id?: string;
   name?: InstanceName;
   parent?: InstanceId;
-  fs?: { from?: SnapshotId | FileTree; quotaBytes?: number; persist?: boolean };
+  fs?: {
+    from?: SnapshotId | FileTree;
+    quotaBytes?: number;
+    /**
+     * Persist the filesystem in the instance origin's OPFS (write-behind) and
+     * restore it when an instance with the same `id` is created again. Writes
+     * after the last flush may be lost on a crash; `Instance.flush()` is the
+     * durability point. One tab at a time may open a persistent instance.
+     */
+    persist?: boolean;
+  };
   limits?: Omit<Limits, 'quotaBytes'>;
   capabilities?: Capability[];
 }
@@ -101,7 +111,13 @@ export interface Instance {
   snapshot(): Promise<SnapshotId>;
   fork(opts?: InstanceOptions): Promise<Instance>;
   grant(to: InstanceId, cap: Capability): Promise<void>;
-  destroy(): Promise<void>;
+  /** Persists pending filesystem changes. Resolves immediately for non-persistent instances. */
+  flush(): Promise<void>;
+  /**
+   * Stops all processes and removes the instance. Persistent instances flush
+   * first and keep their stored data unless `purge` is set.
+   */
+  destroy(opts?: { purge?: boolean }): Promise<void>;
 }
 
 export interface Process {

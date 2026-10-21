@@ -10,7 +10,18 @@ import type {
   StatData,
   WireStat,
 } from '@clientvm/protocol';
-import { S_IFDIR, S_IFLNK, S_IFMT, exportImage } from '@clientvm/vfs';
+import {
+  OpfsBackend,
+  Persister,
+  S_IFDIR,
+  S_IFLNK,
+  S_IFMT,
+  acquireStoreLock,
+  exportImage,
+  loadPersisted,
+  purgePersisted,
+} from '@clientvm/vfs';
+import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
 import { Kernel } from './kernel.ts';
 import type { KernelOptions, ProcessHandle } from './kernel.ts';
 
@@ -22,7 +33,37 @@ export interface KernelBootMessage {
   port: MessagePort;
 }
 
-export type KernelWorkerOptions = Pick<KernelOptions, 'createProcessWorker' | 'payloadBytes'>;
+export type KernelWorkerOptions = Pick<KernelOptions, 'createProcessWorker' | 'payloadBytes'> & {
+  /**
+   * Opens the persistent store for `init.persist`. Defaults to the instance
+   * origin's OPFS, guarded by a Web Lock so only one tab owns it.
+   */
+  openPersistence?: () => Promise<{ backend: PersistenceBackend; release(): void }>;
+};
+
+/** Sent by the instance page when it is being hidden or unloaded. */
+export interface KernelFlushMessage {
+  t: 'clientvm:flush';
+}
+
+export interface ServedInstance {
+  kernel: Kernel;
+  /** Persists pending changes (no-op when not persistent). */
+  flush(): Promise<void>;
+}
+
+async function openOpfs(): Promise<{ backend: PersistenceBackend; release(): void }> {
+  const release = await acquireStoreLock();
+  if (!release) {
+    throw new SystemError('EBUSY', 'persist', 'instance is open in another tab or window');
+  }
+  try {
+    return { backend: await OpfsBackend.open(), release };
+  } catch (err) {
+    release();
+    throw err;
+  }
+}
 
 /**
  * Entry point for an instance's kernel worker: waits for the boot message,
@@ -32,36 +73,97 @@ export function startKernelWorker(
   scope: { addEventListener(type: 'message', listener: (event: MessageEvent) => void): void },
   options: KernelWorkerOptions,
 ): void {
-  let booted = false;
+  let served: Promise<ServedInstance> | null = null;
   scope.addEventListener('message', (event) => {
-    const msg = event.data as Partial<KernelBootMessage> | null;
-    if (booted || msg?.t !== 'clientvm:kernel-boot' || !msg.init || !msg.port) return;
-    booted = true;
-    serveInstance(msg.port, msg.init, options);
+    const msg = event.data as Partial<KernelBootMessage> | Partial<KernelFlushMessage> | null;
+    if (msg?.t === 'clientvm:flush') {
+      void served?.then((s) => s.flush()).catch(() => {});
+      return;
+    }
+    if (served || msg?.t !== 'clientvm:kernel-boot' || !msg.init || !msg.port) return;
+    served = serveInstance(msg.port, msg.init, options);
+    // Boot failures are reported to the controller through the RPC channel.
+    served.catch(() => {});
   });
 }
 
-/** Boots a kernel for `init` and serves it on `port`. Exported for tests. */
+/**
+ * Serves {@link InstanceRpc} on `port` for a kernel booted from `init`.
+ * Requests that arrive during boot wait for it; if boot fails (e.g. a locked
+ * or corrupt store), every request fails with that error.
+ */
 export function serveInstance(
   port: PortLike,
   init: InstanceInit,
   options: KernelWorkerOptions,
-): Kernel {
+): Promise<ServedInstance> {
+  let methods: InstanceRpc | undefined;
+  // eslint-disable-next-line prefer-const -- assigned after the endpoint that boot() emits through
+  let rpc: RpcEndpoint<InstanceRpc, InstanceEvents>;
+  const ready = boot(init, options, (event, ...args) => rpc.emit(event, ...args)).then((booted) => {
+    methods = booted.methods;
+    return booted.served;
+  });
+  const gated = new Proxy({} as InstanceRpc, {
+    get:
+      (_target, name: string) =>
+      async (...args: unknown[]) => {
+        await ready;
+        const method = (methods as unknown as Record<string, (...a: unknown[]) => unknown>)[name];
+        if (!method) throw new SystemError('ENOSYS', name);
+        return method(...args);
+      },
+  });
+  rpc = new RpcEndpoint<InstanceRpc, InstanceEvents>(port, gated);
+  return ready;
+}
+
+type Emit = <K extends keyof InstanceEvents>(
+  event: K,
+  ...args: Parameters<InstanceEvents[K]>
+) => void;
+
+async function boot(
+  init: InstanceInit,
+  options: KernelWorkerOptions,
+  emit: Emit,
+): Promise<{ methods: InstanceRpc; served: ServedInstance }> {
+  let store: { backend: PersistenceBackend; release(): void } | null = null;
+  let restored: { snapshot: Snapshot; generation: number } | null = null;
+  if (init.persist) {
+    store = await (options.openPersistence ?? openOpfs)();
+    try {
+      restored = await loadPersisted(store.backend);
+    } catch (err) {
+      store.release();
+      throw err;
+    }
+  }
+
   const { quotaBytes, maxInodes, maxProcesses } = init.limits ?? {};
   const kernel = new Kernel({
-    ...options,
+    createProcessWorker: options.createProcessWorker,
+    ...(options.payloadBytes === undefined ? {} : { payloadBytes: options.payloadBytes }),
     fsLimits: {
       ...(quotaBytes === undefined ? {} : { quotaBytes }),
       ...(maxInodes === undefined ? {} : { maxInodes }),
     },
     ...(maxProcesses === undefined ? {} : { maxProcesses }),
-    ...(init.image ? { image: init.image } : {}),
+    ...(restored ? { snapshot: restored.snapshot } : init.image ? { image: init.image } : {}),
   });
-  for (const [path, contents] of Object.entries(init.files ?? {})) {
-    const dir = path.slice(0, path.lastIndexOf('/'));
-    if (dir) kernel.vfs.mkdir(dir, { recursive: true });
-    kernel.vfs.writeFile(path, typeof contents === 'string' ? encodeUtf8(contents) : contents);
+  if (!restored) {
+    for (const [path, contents] of Object.entries(init.files ?? {})) {
+      const dir = path.slice(0, path.lastIndexOf('/'));
+      if (dir) kernel.vfs.mkdir(dir, { recursive: true });
+      kernel.vfs.writeFile(path, typeof contents === 'string' ? encodeUtf8(contents) : contents);
+    }
   }
+  const persister = store
+    ? await Persister.attach(kernel.vfs, store.backend, restored?.generation ?? 0)
+    : null;
+  const flush = async () => {
+    await persister?.flush();
+  };
 
   const watches = new Map<number, () => void>();
   let nextWatch = 1;
@@ -74,8 +176,8 @@ export function serveInstance(
       ...(request.env ? { env: request.env } : {}),
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.syscallMode ? { syscallMode: request.syscallMode } : {}),
-      onStdout: (d) => (onOutput ? onOutput(1, d) : rpc.emit('output', proc.pid, 1, d)),
-      onStderr: (d) => (onOutput ? onOutput(2, d) : rpc.emit('output', proc.pid, 2, d)),
+      onStdout: (d) => (onOutput ? onOutput(1, d) : emit('output', proc.pid, 1, d)),
+      onStderr: (d) => (onOutput ? onOutput(2, d) : emit('output', proc.pid, 2, d)),
     });
     return proc;
   };
@@ -112,7 +214,7 @@ export function serveInstance(
       const id = nextWatch++;
       watches.set(
         id,
-        kernel.vfs.watch(path, { recursive }, (events) => rpc.emit('fsEvents', id, events)),
+        kernel.vfs.watch(path, { recursive }, (events) => emit('fsEvents', id, events)),
       );
       return id;
     },
@@ -122,7 +224,7 @@ export function serveInstance(
     },
     spawn(request) {
       const proc = spawn(request);
-      void proc.exit.then(({ code, signal }) => rpc.emit('exit', proc.pid, code, signal));
+      void proc.exit.then(({ code, signal }) => emit('exit', proc.pid, code, signal));
       return proc.pid;
     },
     kill(pid, signal) {
@@ -150,16 +252,38 @@ export function serveInstance(
       kernel.dropSnapshot(id);
     },
     exportImage: (id) => exportImage(id === null ? kernel.vfs.snapshot() : kernel.getSnapshot(id)),
-    usage: () => ({ ...kernel.vfs.used, processes: kernel.processCount }),
-    shutdown() {
+    usage: () => ({
+      ...kernel.vfs.used,
+      processes: kernel.processCount,
+      persist: persister
+        ? {
+            generation: persister.stats.generation,
+            flushes: persister.stats.flushes,
+            lastFlushMs: persister.stats.lastFlushMs,
+            bytesWritten: persister.stats.bytesWritten,
+            restored: restored !== null,
+          }
+        : null,
+    }),
+    flush,
+    async purge() {
+      if (!persister || !store) return;
+      persister.close();
+      await purgePersisted(store.backend);
+    },
+    async shutdown() {
       kernel.killAll('SIGKILL');
       for (const stop of watches.values()) stop();
       watches.clear();
+      if (persister) {
+        await persister.flush().catch(() => {});
+        persister.close();
+      }
+      store?.release();
     },
   };
 
-  const rpc = new RpcEndpoint<InstanceRpc, InstanceEvents>(port, methods);
-  return kernel;
+  return { methods, served: { kernel, flush } };
 }
 
 function kindOf(mode: number): FileKind {

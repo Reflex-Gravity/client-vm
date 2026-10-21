@@ -15,8 +15,13 @@ export interface InstanceInit {
   limits?: { quotaBytes?: number; maxInodes?: number; maxProcesses?: number };
   /** Boot from a filesystem image (fork) instead of the default seed. */
   image?: Uint8Array[];
-  /** Files to write after boot: path -> contents (directories are created). */
+  /** Files to write after boot: path -> contents (directories are created). Ignored when restoring persisted state. */
   files?: Record<string, string | Uint8Array>;
+  /**
+   * Persist the filesystem to the instance origin's OPFS and restore it on
+   * boot (reattach by passing the same id). Persisted state wins over `image`.
+   */
+  persist?: boolean;
 }
 
 export interface WireStat {
@@ -80,10 +85,23 @@ export type InstanceRpc = {
   dropSnapshot(snapshot: number): void;
   /** Serializes a snapshot (or the live tree when null) for forking into another origin. */
   exportImage(snapshot: number | null): Uint8Array[];
-  usage(): { bytes: number; inodes: number; processes: number };
-  /** Kills all processes; the controller removes the iframe afterwards. */
-  shutdown(): void;
+  usage(): { bytes: number; inodes: number; processes: number; persist: PersistInfo | null };
+  /** Persists all changes so far (no-op when not persistent). */
+  flush(): Promise<void>;
+  /** Deletes the persisted store; the instance keeps running in memory only. */
+  purge(): Promise<void>;
+  /** Kills all processes and flushes persisted state; the controller removes the iframe afterwards. */
+  shutdown(): Promise<void>;
 };
+
+export interface PersistInfo {
+  generation: number;
+  flushes: number;
+  lastFlushMs: number;
+  bytesWritten: number;
+  /** Whether the state was restored from storage at boot. */
+  restored: boolean;
+}
 
 /** Events the instance kernel emits to the controller. */
 export type InstanceEvents = {

@@ -2,7 +2,7 @@
 // The instance page: runs on <id>.<sandbox-domain>, embedded by the controller.
 // It only performs the handshake and starts the kernel worker; the controller
 // then talks to the kernel directly over the transferred MessagePort.
-import type { KernelBootMessage } from '@clientvm/kernel';
+import type { KernelBootMessage, KernelFlushMessage } from '@clientvm/kernel';
 import type { HandshakeMessage } from '@clientvm/protocol';
 
 const parentOrigin = new URLSearchParams(location.search).get('parent');
@@ -27,6 +27,13 @@ function start(parent: string): void {
       if (chunk.buffer instanceof ArrayBuffer) buffers.add(chunk.buffer);
     }
     kernel.postMessage(boot, [port, ...buffers]);
+    // Best effort: the page may be gone before an async flush completes.
+    // Instance.flush() is the durability point.
+    const flush: KernelFlushMessage = { t: 'clientvm:flush' };
+    window.addEventListener('pagehide', () => kernel.postMessage(flush));
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') kernel.postMessage(flush);
+    });
   });
 
   const hello: HandshakeMessage = {
