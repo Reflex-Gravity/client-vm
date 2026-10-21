@@ -13,6 +13,8 @@ import { createOs } from './os.ts';
 import type { PosixPath } from './path.ts';
 import type { NodeProcess } from './process-object.ts';
 import { querystringModule } from './querystring.ts';
+import { diagnosticsChannelModule } from './diagnostics-channel.ts';
+import { asyncHooksModule } from './async-hooks.ts';
 import { stringDecoderModule } from './string-decoder.ts';
 import { urlModule } from './url.ts';
 import { utilModule } from './util.ts';
@@ -145,6 +147,8 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     'path/win32': path.win32,
     process,
     querystring: querystringModule,
+    diagnostics_channel: diagnosticsChannelModule,
+    async_hooks: asyncHooksModule,
     string_decoder: stringDecoderModule,
     timers: deps.timers,
     'timers/promises': timersPromises,

@@ -12,11 +12,17 @@ describe('parseNodeArgs', () => {
     [['-p', '-e', '2'], { kind: 'eval', code: '2', print: true, rest: [] }],
     [['app.js', '--flag'], { kind: 'script', script: 'app.js', rest: ['--flag'] }],
     [['--', '-weird.js'], { kind: 'script', script: '-weird.js', rest: [] }],
+    [['-v'], { kind: 'version' }],
+    [['--version', 'x.js'], { kind: 'version' }],
+    [
+      ['--no-warnings', '--max-old-space-size=4096', '--experimental-vm-modules', 'a.js'],
+      { kind: 'script', script: 'a.js', rest: [] },
+    ],
   ])('parses %j', (args, expected) => {
     expect(parseNodeArgs(args)).toEqual(expected);
   });
 
-  it.each([[[]], [['-e']], [['--inspect']]])('rejects %j', (args) => {
+  it.each([[[]], [['-e']], [['--inspect']], [['--max-old-space-size=x']]])('rejects %j', (args) => {
     expect(parseNodeArgs(args).kind).toBe('error');
   });
 });

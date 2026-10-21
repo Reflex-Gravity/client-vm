@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { bindAsyncContext } from './async-hooks.ts';
 
 /**
  * Node's event-loop liveness: the process exits when no *referenced* handle
@@ -91,6 +92,7 @@ export function createEventLoop(scope: typeof globalThis) {
         },
       );
     }
+    fn = bindAsyncContext(fn);
     let delay = Number(ms);
     if (!(delay >= 1 && delay <= 2 ** 31 - 1)) delay = 1;
     const h = handle();
@@ -136,6 +138,7 @@ export function createEventLoop(scope: typeof globalThis) {
 
   /** setImmediate runs after I/O callbacks; a macrotask is the closest browser analog. */
   function makeImmediate(fn: (...args: unknown[]) => void, args: unknown[]) {
+    fn = bindAsyncContext(fn);
     const h = handle();
     let cancelled = false;
     const channel = new MessageChannel();

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { bindAsyncContext } from './async-hooks.ts';
 import { ExitSignal } from '@clientvm/process';
 import type { OutputStream, ProcessContext } from '@clientvm/process';
 import { Buffer } from './buffer.ts';
@@ -224,7 +225,8 @@ export function createProcessObject(
           code: 'ERR_INVALID_ARG_TYPE',
         });
       }
-      queueMicrotask(() => fn(...args));
+      const bound = bindAsyncContext(fn);
+      queueMicrotask(() => bound(...args));
     },
     emitWarning(
       warning: string | Error,

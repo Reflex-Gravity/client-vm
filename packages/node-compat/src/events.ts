@@ -293,12 +293,33 @@ Object.defineProperty(EventEmitterImpl.prototype, 'on', {
 Object.defineProperty(EventEmitterImpl.prototype, 'off', {
   ...Object.getOwnPropertyDescriptor(EventEmitterImpl.prototype, 'removeListener')!,
 });
-// Instance properties Node puts on the prototype, so subclasses that never call super still work.
-Object.assign(EventEmitter.prototype, {
-  _events: undefined,
-  _eventsCount: 0,
-  _maxListeners: undefined,
-});
+// Node's prototype is built by assignment, so its methods are enumerable, in
+// this order, after three instance fields (kept there so subclasses that
+// never call super still work). config-chain copies Object.keys() of it.
+{
+  const proto = EventEmitterImpl.prototype as unknown as Record<string, unknown>;
+  const methods = [
+    'setMaxListeners',
+    'getMaxListeners',
+    'emit',
+    'addListener',
+    'on',
+    'prependListener',
+    'once',
+    'prependOnceListener',
+    'removeListener',
+    'off',
+    'removeAllListeners',
+    'listeners',
+    'rawListeners',
+    'listenerCount',
+    'eventNames',
+  ];
+  const saved = methods.map((k) => Object.getOwnPropertyDescriptor(proto, k)!);
+  for (const k of methods) delete proto[k];
+  Object.assign(proto, { _events: undefined, _eventsCount: 0, _maxListeners: undefined });
+  methods.forEach((k, i) => Object.defineProperty(proto, k, { ...saved[i], enumerable: true }));
+}
 EventEmitter.EventEmitter = EventEmitter;
 
 function onceWrap(

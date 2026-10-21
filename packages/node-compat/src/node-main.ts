@@ -30,7 +30,15 @@ import { deprecationHook } from './util.ts';
 type Invocation =
   | { kind: 'eval'; code: string; print: boolean; rest: string[] }
   | { kind: 'script'; script: string; rest: string[]; check?: boolean }
+  | { kind: 'version' }
   | { kind: 'error'; message: string };
+
+/**
+ * Options that tune V8 or diagnostics in Node and have no effect here. They
+ * are accepted so scripts and tools that pass them still run.
+ */
+const IGNORED_OPTION =
+  /^--(no-warnings|no-deprecation|enable-source-maps|trace-warnings|trace-deprecation|trace-uncaught|throw-deprecation|pending-deprecation|preserve-symlinks|preserve-symlinks-main|expose-gc|abort-on-uncaught-exception|(no-)?experimental-[a-z-]+(=.*)?|max-old-space-size=\d+|max-semi-space-size=\d+|stack-size=\d+|stack-trace-limit=\d+|unhandled-rejections=(strict|warn|none|throw|warn-with-error-code))$/;
 
 /** fetch() that reaches this instance's own servers for `http://localhost:<port>` URLs. */
 function localFetch(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
@@ -66,6 +74,8 @@ export function parseNodeArgs(args: readonly string[]): Invocation {
       check = true;
       continue;
     }
+    if (arg === '-v' || arg === '--version') return { kind: 'version' };
+    if (IGNORED_OPTION.test(arg)) continue;
     if (arg === '-p' || arg === '--print') {
       print = true;
       // `-p <code>` is shorthand for `-p -e <code>`.
@@ -103,6 +113,10 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
   if (invocation.kind === 'error') {
     ctx.stderr.write(`${invocation.message}\n`);
     return BAD_OPTION_EXIT_CODE;
+  }
+  if (invocation.kind === 'version') {
+    ctx.stdout.write(`${NODE_VERSION}\n`);
+    return 0;
   }
 
   const state = { cwd: ctx.cwd, exiting: false };
