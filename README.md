@@ -5,9 +5,9 @@ common Linux commands **entirely in the browser**, with no server-side compute. 
 app builders: each agent gets isolated instances with their own filesystem, processes, and
 network namespace.
 
-> **Status: early development (Phases 0–4 complete; hardening next).** Not production-ready yet. See
-> [CLAUDE.md](CLAUDE.md) for the roadmap and [docs/compatibility.md](docs/compatibility.md) for
-> exactly what works.
+> **Status: pre-1.0 (Phases 0–5 implemented).** Not production-ready until the sandbox boundary
+> has had an independent [security review](docs/security-review.md). See [CLAUDE.md](CLAUDE.md)
+> for the roadmap and [docs/compatibility.md](docs/compatibility.md) for exactly what works.
 
 ## What works today
 
@@ -22,13 +22,21 @@ network namespace.
 - **Processes** making synchronous syscalls over `SharedArrayBuffer` + `Atomics.wait` at about
   10 µs per round trip, with streaming output, `kill`, and per-instance process limits.
 - **Node 24 compatibility layer:** `fs` (sync, callback, and promises), streams, `http`/`net`
-  on virtual ports, `child_process`, `crypto` hashes, `zlib`, `readline`, CommonJS and native ESM
-  with `exports` maps. Unmodified Express and ws run as golden fixtures
+  on virtual ports, `child_process` (including `fork` with IPC), `worker_threads`, `crypto`
+  hashes, `zlib`, `readline`, `node:test`, `async_hooks`, `diagnostics_channel`, CommonJS and
+  native ESM with `exports` maps. Unmodified Express and ws run as golden fixtures
   ([compatibility matrix](docs/compatibility.md)).
+- **Measured against Node itself:** 592 tests from Node 24's own `test/parallel` suite pass and
+  run in CI, alongside differential tests against real Node, bash, GNU tools and git, and seeded
+  fuzzing.
 - **A POSIX shell with about 60 Linux commands** (`ls grep sed find xargs diff tar curl ...`),
   checked against real bash and GNU tools.
-- **Real npm.** The unmodified npm 11 is fetched and verified on first use; it handles `install`,
-  `ci`, `run` and `npx`, and runs lifecycle scripts.
+- **Real npm and pnpm.** The unmodified npm 11 and pnpm 10 are fetched and verified on first use.
+  npm handles `install`, `ci`, `run` and `npx` with lifecycle scripts; pnpm handles `add`,
+  frozen-lockfile installs, `exec`, `pnpx` and workspaces. A smoke test installs and loads 50
+  popular packages.
+- **git** for local repositories (`commit`, `diff`, `log`, `branch`, `merge`, `stash`, ...), on
+  isomorphic-git, with output and commit ids matching real git.
 - **Vite + React with HMR.** A stock project runs its dev server and production build. esbuild and
   rollup run as their official WebAssembly builds.
 - **Previews:** each port gets its own origin, with WebSockets and HMR. A driveable preview
@@ -36,7 +44,10 @@ network namespace.
 - **Multiple instances:** capabilities, a mailbox, HTTP between instances
   (`http://<name>.internal:<port>/`), and read-only mounts.
 - **Agent tools:** `@clientvm/agent-api` exposes all of this as LLM tool definitions
-  ([agent API](docs/agent-api.md)).
+  ([agent API](docs/agent-api.md)). [examples/agent-playground](examples/agent-playground) is a
+  minimal host app that uses them.
+- **Limits:** process count, filesystem quota, open files, a CPU watchdog for processes that never
+  yield, and output caps. A benchmark gate in CI fails on performance regressions.
 
 ## Development
 
@@ -49,6 +60,7 @@ pnpm typecheck && pnpm lint && pnpm test   # unit + differential tests vs real N
 pnpm exec playwright install chromium
 pnpm test:e2e                              # Chromium, cross-origin isolated
 pnpm bench                                 # writes bench-results.json
+node scripts/bench-gate.mjs                # compares it with bench/baseline.json
 pnpm --filter @clientvm/sandbox-host dev   # test host page; see packages/sandbox-host/src/host.ts
 ```
 
@@ -65,9 +77,10 @@ pnpm --filter @clientvm/sandbox-host dev   # test host page; see packages/sandbo
 | `@clientvm/shell` | The shell and Linux commands |
 | `@clientvm/clientvm` | Public API: the controller (`createClientVM`), capabilities, previews, and types |
 | `@clientvm/agent-api` | Tool definitions for LLM agents |
+| `examples/agent-playground` | A minimal host app: an instance, a shell, a preview, and the agent tools |
 
 Docs: [architecture](docs/architecture.md) · [interfaces](docs/interfaces.md) · [agent API](docs/agent-api.md) · [hosting](docs/hosting.md) ·
-[security](docs/security.md) · [open questions](docs/open-questions.md) · [decisions](docs/decisions/)
+[security](docs/security.md) · [security review](docs/security-review.md) · [open questions](docs/open-questions.md) · [decisions](docs/decisions/)
 
 ## License
 

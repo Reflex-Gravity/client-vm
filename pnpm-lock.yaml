@@ -42,6 +42,15 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2))
 
+  examples/agent-playground:
+    dependencies:
+      '@clientvm/agent-api':
+        specifier: workspace:*
+        version: link:../../packages/agent-api
+      '@clientvm/clientvm':
+        specifier: workspace:*
+        version: link:../../packages/clientvm
+
   packages/agent-api:
     dependencies:
       '@clientvm/clientvm':

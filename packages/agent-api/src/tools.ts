@@ -128,7 +128,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   tool(
     'exec',
-    'Run a shell command (POSIX sh with common bash features; ls, grep, sed, find, node, npm, npx, curl, tar, ...) to completion and return its exit code and output. Do not use it for servers or watchers: use start_process.',
+    'Run a shell command (POSIX sh with common bash features; ls, grep, sed, find, node, npm, npx, pnpm, git, curl, tar, ...) to completion and return its exit code and output. Do not use it for servers or watchers: use start_process.',
     {
       command: str('The command line.'),
       cwd: str('Working directory (default /home/user).'),

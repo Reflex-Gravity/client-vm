@@ -65,9 +65,13 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - ~~git~~: isomorphic-git, fetched on first use (ADR 0014). Still open: remote operations need
   a CORS proxy for most hosts (`GIT_CORS_PROXY`), which ClientVM does not provide. Should the
   docs recommend one, or should hosts be told to run their own?
-- **pnpm.** pnpm 10 is a single bundled file that uses `worker_threads` for tarball extraction
-  and linking. Now that threads work, it should run like npm (fetched on first use). Not yet
-  tested end to end.
+- ~~pnpm~~: pnpm 10 runs unmodified, fetched on first use like npm (5e, `test/e2e/pnpm.spec.ts`).
+- **`AsyncLocalStorage` across `await`.** Context does not survive promise continuations, which
+  frameworks that keep per-request context (Next.js, some loggers) rely on. Revisit when
+  Chromium ships TC39 AsyncContext; patching `Promise.prototype.then` would not cover `await`.
+- **`require()` of ES modules** (Node 22.12+). ESM loads asynchronously through the service
+  worker, so a synchronous `require` of an ES module fails with `ERR_REQUIRE_ESM`. Packages that
+  only ship ESM under the `require` condition (svelte 4's main entry) need `import()`.
 - **Top-1,000 npm smoke test (§9).** A curated 50-package list runs in CI (`test/e2e/smoke.spec.ts`).
   The full list needs about an hour of registry traffic per run; make it an opt-in scheduled job.
 - **Node test pass rates.** 592 of 1,889 non-skipped `test/parallel` tests pass (compatibility.md).

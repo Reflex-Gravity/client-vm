@@ -1,0 +1,16 @@
+{
+  "name": "@clientvm/example-agent-playground",
+  "version": "0.0.0",
+  "description": "A minimal host app: one ClientVM instance, a shell, a preview, and the agent tools.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@clientvm/agent-api": "workspace:*",
+    "@clientvm/clientvm": "workspace:*"
+  }
+}

@@ -198,7 +198,7 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 
 **Phase 4: Multi-instance and agent API (done; see docs/phase4-plan.md).** Mailbox, virtual network between instances, capability grants, mounts, snapshot/fork, the agent-facing tool API, driveable preview.
 
-**Phase 5: Hardening.** Conformance suites, fuzzing (VFS, resolver, shell parser), resource limits, performance work (consider Rust/WASM only where profiling proves need), pnpm support, docs and examples.
+**Phase 5: Hardening (done; see docs/phase5-plan.md, ADRs 0014–0015, docs/security-review.md).** Conformance suites, fuzzing (VFS, resolver, shell parser), resource limits, performance work (consider Rust/WASM only where profiling proves need), pnpm support, docs and examples.
 
 ## 9. Quality bar ("battle-tested")
 

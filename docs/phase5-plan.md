@@ -32,6 +32,6 @@ measurements. Nothing is asserted without one.
 | 5b | Done. `test/conformance/fuzz.test.ts`; it found the `path.win32` divergences that led to vendoring Node's `path` |
 | 5c | Done except `maxMemoryMB` (open question). `maxCpuMs` watchdog, 8 MiB host output caps, host `stdin`, `measureMemory` |
 | 5d | Done. `scripts/bench-gate.mjs` against `bench/baseline.json` (3x, memory 2x) |
-| 5e | Not started; unblocked by real `worker_threads` and `child_process.fork` (done in this phase) |
+| 5e | Done. pnpm 10.34.7 on first use; `test/e2e/pnpm.spec.ts`. Fixed on the way: `fs.realpath.native`, Node's enumerable EventEmitter prototype |
 | 5f | Done. ADR 0014, `test/e2e/git.spec.ts` |
-| 5g | In progress |
+| 5g | Done. `examples/agent-playground` (built and tested in CI by `example.spec.ts`), [security-review.md](security-review.md), README. The curated npm smoke test (`smoke.spec.ts`, 50 packages) added `diagnostics_channel`, `async_hooks` and `node -v` |
