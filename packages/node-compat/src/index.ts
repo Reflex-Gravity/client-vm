@@ -16,3 +16,13 @@ export { querystringModule } from './querystring.ts';
 export { StringDecoder, stringDecoderModule } from './string-decoder.ts';
 export { AssertionError, assertModule } from './assert.ts';
 export { createOs } from './os.ts';
+export {
+  CJS_CONDITIONS,
+  CjsResolver,
+  PackageJsonCache,
+  nodeModulePaths,
+  parsePackageName,
+  resolveExports,
+  resolveImports,
+} from './module/resolve.ts';
+export type { PackageJson, ResolverFs } from './module/resolve.ts';

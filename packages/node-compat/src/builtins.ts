@@ -70,5 +70,91 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     util: utilModule,
     'util/types': utilModule['types'],
   };
+  const tty = {
+    isatty: () => false,
+    ReadStream: class ReadStream {
+      isTTY = false;
+    },
+    WriteStream: class WriteStream {
+      isTTY = false;
+      getColorDepth() {
+        return 1;
+      }
+      hasColors() {
+        return false;
+      }
+    },
+  };
+  const perfHooks = {
+    performance: globalThis.performance,
+    PerformanceObserver: globalThis.PerformanceObserver,
+    PerformanceEntry: globalThis.PerformanceEntry,
+    constants: {},
+    monitorEventLoopDelay: () => ({
+      enable() {},
+      disable() {},
+      percentile: () => 0,
+      min: 0,
+      max: 0,
+      mean: 0,
+      stddev: 0,
+    }),
+    createHistogram: () => ({ record() {}, percentile: () => 0, min: 0, max: 0, mean: 0 }),
+  };
+  table['tty'] = tty;
+  table['perf_hooks'] = perfHooks;
+  table['sys'] = utilModule;
+  table['vm'] = createVm();
   return table;
+}
+
+/**
+ * `vm`: code runs in the process's own realm. ClientVM has no V8 contexts, so
+ * "new context" functions evaluate with the sandbox's properties in scope
+ * via `with`; this is not a security boundary (neither is Node's vm).
+ */
+function createVm() {
+  const runInThisContext = (code: string, options?: { filename?: string } | string) => {
+    const filename = typeof options === 'string' ? options : options?.filename;
+    return (0, eval)(filename ? `${code}\n//# sourceURL=${filename}` : code);
+  };
+  const contexts = new WeakSet<object>();
+  const runInContext = (code: string, context: object) => {
+    const fn = new Function('__ctx', `with (__ctx) { return eval(${JSON.stringify(code)}); }`) as (
+      c: object,
+    ) => unknown;
+    return fn(context);
+  };
+  class Script {
+    readonly code: string;
+    readonly filename: string | undefined;
+    constructor(code: string, options?: { filename?: string } | string) {
+      this.code = code;
+      this.filename = typeof options === 'string' ? options : options?.filename;
+    }
+    runInThisContext() {
+      return runInThisContext(this.code, this.filename ? { filename: this.filename } : undefined);
+    }
+    runInContext(context: object) {
+      return runInContext(this.code, context);
+    }
+    runInNewContext(sandbox: object = {}) {
+      return runInContext(this.code, sandbox);
+    }
+    createCachedData() {
+      return new Uint8Array(0);
+    }
+  }
+  return {
+    Script,
+    runInThisContext,
+    runInContext,
+    runInNewContext: (code: string, sandbox: object = {}) => runInContext(code, sandbox),
+    createContext: (sandbox: object = {}) => {
+      contexts.add(sandbox);
+      return sandbox;
+    },
+    isContext: (obj: object) => contexts.has(obj),
+    compileFunction: (code: string, params: string[] = []) => new Function(...params, code),
+  };
 }

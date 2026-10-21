@@ -24,7 +24,8 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `console` | partial | e2e spike | `table` prints like `log`. No `Console` class |
 | `process` | partial | e2e | EventEmitter with `exit`, `beforeExit`, `uncaughtException`, `unhandledRejection`, `warning`; `emitWarning`, `hrtime`, `nextTick`, `memoryUsage`, `stdout`/`stderr` (minimal writables). No stdin data, signals, or `stream`-based stdio yet (3b). `arch` reports `x64` |
 | `timers` | partial | e2e spike | Process exit waits for timers. Pending promises (e.g. `fetch`) do not keep the process alive |
-| module loading | partial | e2e spike | `require` of builtins only. No filesystem modules, no ESM, no `exports` maps |
+| module loading (CommonJS) | full (tested surface) | resolution differential vs `require.resolve` (69 cases), e2e project diffed against real Node | `node_modules` lookup, `main`, `exports`/`imports` (conditions `require`, `node`, `node-addons`), self-reference, symlinks (realpath), JSON, cycles, `require.cache`, `require.extensions`, `createRequire`, `Module._load`/`_resolveFilename`/`_compile` hooks, `NODE_PATH`. **`require()` of ES modules is not supported** (`ERR_REQUIRE_ESM`; Node 24 supports it), so the `module-sync` condition is not used. Native addons (`.node`) fail with `ERR_DLOPEN_FAILED` |
+| module loading (ESM) | none | | Phase 3a3 |
 | `buffer` | full (tested surface) | Buffer differential vs `node:buffer` (thousands of cases: encodings, search, numeric reads/writes, errors), e2e | `Buffer` is a callable function sharing `FastBuffer.prototype`, as in Node. `Blob`/`File` are the browser's. No `transcode` for exotic encodings |
 | `events` | full (tested surface) | events differential vs `node:events`, e2e | `EventEmitter` (callable for legacy `EventEmitter.call(this)`), `once`, `on`, captureRejections, errorMonitor, max-listener warnings. `EventTarget` helpers partial |
 | `stream` | none | | |
@@ -36,6 +37,9 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `http` / `https` | none | | Virtual ports, the service-worker route and static serving exist (Phase 2); `http.createServer` is Phase 3 |
 | `net` | none | | |
 | `os` | partial | e2e | A fixed Linux identity (`hostname` `clientvm`, `x64`); CPU count from the browser. Memory figures are nominal |
+| `module` | partial | e2e | `Module` with Node's internal hooks, `createRequire`, `builtinModules`, `isBuiltin`. `register()` (loader hooks) is a no-op |
+| `vm` | partial | | Runs in the process's own realm; `runInNewContext` uses `with` over the sandbox object (no separate globals) |
+| `tty`, `perf_hooks`, `sys` | partial | | `isatty()` is always false |
 | `child_process` | none | | |
 | `worker_threads` | none | | |
 | `url` | partial | url differential vs `node:url` | WHATWG `URL` (browser), legacy `parse`/`format`/`resolve`, `fileURLToPath`/`pathToFileURL`, `urlToHttpOptions`. `domainToUnicode` is identity |
@@ -46,7 +50,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | Command | Status | Notes |
 |---|---|---|
 | `node -e/-p/--eval/--print <code>` | partial | Runs in global scope with `require`, `module`, `exports` |
-| `node <script.js>` | partial | CommonJS only, builtins-only `require` |
+| `node <script.js>` | partial | CommonJS entry points (full loader); ESM entry points in 3a3 |
 | `node` (REPL) | none | |
 | shell and Linux commands | none | Phase 3 |
 | `npm` / `npx` / `pnpm` | none | Phase 3 (real npm, unmodified) |

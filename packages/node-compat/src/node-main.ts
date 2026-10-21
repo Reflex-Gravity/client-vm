@@ -9,7 +9,9 @@ import { createFs } from './fs.ts';
 import { inspect } from './inspect.ts';
 import { createPosixPath } from './path.ts';
 import { createProcessObject } from './process-object.ts';
-import { createRequire } from './require.ts';
+import { createModuleSystem, requireOf } from './module/cjs-loader.ts';
+import type { ResolverFs } from './module/resolve.ts';
+import type { NodeFs } from './fs.ts';
 import { createBuiltins } from './builtins.ts';
 import { bufferModule } from './buffer.ts';
 import { warningHook } from './events.ts';
@@ -96,7 +98,17 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
   deprecationHook.emit = (msg, code) => emitWarning(msg, 'DeprecationWarning', code);
   const env = () => proc['env'] as Record<string, string>;
   const builtins = createBuiltins({ fs, path, process: proc, console, timers: loop.timers, env });
-  const require = createRequire(builtins);
+  const Module = createModuleSystem({
+    fs: resolverFsFrom(fs),
+    path,
+    builtins,
+    cwd: () => state.cwd,
+    env,
+    emitWarning: (msg, type, code) => emitWarning(msg, type, code),
+    compile: (source, filename) =>
+      (0, eval)(`${source}\n//# sourceURL=${filename}`) as (...args: unknown[]) => unknown,
+  });
+  builtins['module'] = Module;
 
   // One process per worker, so the worker's globals are this process's globals.
   const g = globalThis as unknown as Record<string, unknown>;
@@ -160,9 +172,9 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
 
   try {
     if (invocation.kind === 'eval') {
-      const module = { exports: {}, id: '[eval]', filename: '[eval]', loaded: false };
+      const module = Module._makeEvalModule();
       Object.assign(g, {
-        require,
+        require: requireOf(module),
         module,
         exports: module.exports,
         __filename: '[eval]',
@@ -171,15 +183,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
       const result: unknown = (0, eval)(`${invocation.code}\n//# sourceURL=[eval]`);
       if (invocation.print) console.log(result);
     } else {
-      const file = scriptPath!;
-      const source = fs.readFileSync(file, 'utf8') as string;
-      const body = source.startsWith('#!') ? `//${source}` : source;
-      const wrapper = (0, eval)(
-        `(function (exports, require, module, __filename, __dirname) {${body}\n})\n//# sourceURL=${file}`,
-      ) as (...args: unknown[]) => void;
-      const module = { exports: {}, id: '.', filename: file, loaded: false };
-      wrapper.call(module.exports, module.exports, require, module, file, path.dirname(file));
-      module.loaded = true;
+      Module._runMainFile(scriptPath!);
     }
   } catch (thrown) {
     if (thrown instanceof ExitSignal) return thrown.code;
@@ -208,4 +212,26 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
 function reportUncaught(ctx: ProcessContext, err: unknown): void {
   const text = err instanceof Error ? inspect(err) : `Uncaught ${inspect(err)}`;
   ctx.stderr.write(`${text}\n\nNode.js ${NODE_VERSION}\n`);
+}
+
+/** Resolver filesystem access through the process's sync fs. */
+function resolverFsFrom(fs: NodeFs): ResolverFs {
+  return {
+    stat(p) {
+      try {
+        const st = fs.statSync(p, { throwIfNoEntry: false });
+        return st ? (st.isDirectory() ? 1 : 0) : -1;
+      } catch {
+        return -1;
+      }
+    },
+    readFile(p) {
+      try {
+        return fs.readFileSync(p, 'utf8') as string;
+      } catch {
+        return null;
+      }
+    },
+    realpath: (p) => fs.realpathSync(p),
+  };
 }
