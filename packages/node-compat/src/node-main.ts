@@ -10,6 +10,9 @@ import { inspect } from './inspect.ts';
 import { createPosixPath } from './path.ts';
 import { createProcessObject } from './process-object.ts';
 import { createModuleSystem, requireOf } from './module/cjs-loader.ts';
+import { EsmResolver } from './module/esm-resolve.ts';
+import { installEsmRuntime } from './module/esm-runtime.ts';
+import type { EsmRuntime } from './module/esm-runtime.ts';
 import type { ResolverFs } from './module/resolve.ts';
 import type { NodeFs } from './fs.ts';
 import { createBuiltins } from './builtins.ts';
@@ -98,17 +101,31 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
   deprecationHook.emit = (msg, code) => emitWarning(msg, 'DeprecationWarning', code);
   const env = () => proc['env'] as Record<string, string>;
   const builtins = createBuiltins({ fs, path, process: proc, console, timers: loop.timers, env });
+  const resolverFs = resolverFsFrom(fs);
+  const esm = new EsmResolver(resolverFs);
+  let mainFile: string | undefined;
+  // eslint-disable-next-line prefer-const -- the loader's compile hook needs the runtime created after it
+  let esmRuntime: EsmRuntime;
   const Module = createModuleSystem({
-    fs: resolverFsFrom(fs),
+    fs: resolverFs,
     path,
     builtins,
     cwd: () => state.cwd,
     env,
     emitWarning: (msg, type, code) => emitWarning(msg, type, code),
     compile: (source, filename) =>
-      (0, eval)(`${source}\n//# sourceURL=${filename}`) as (...args: unknown[]) => unknown,
+      (0, eval)(`${esmRuntime.rewriteDynamicImports(source)}\n//# sourceURL=${filename}`) as (
+        ...args: unknown[]
+      ) => unknown,
   });
   builtins['module'] = Module;
+  esmRuntime = installEsmRuntime({
+    esm,
+    Module,
+    path,
+    cwd: () => state.cwd,
+    mainFile: () => mainFile,
+  });
 
   // One process per worker, so the worker's globals are this process's globals.
   const g = globalThis as unknown as Record<string, unknown>;
@@ -180,10 +197,15 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
         __filename: '[eval]',
         __dirname: '.',
       });
-      const result: unknown = (0, eval)(`${invocation.code}\n//# sourceURL=[eval]`);
+      const code = esmRuntime.rewriteDynamicImports(invocation.code);
+      const result: unknown = (0, eval)(`${code}\n//# sourceURL=[eval]`);
       if (invocation.print) console.log(result);
     } else {
-      Module._runMainFile(scriptPath!);
+      // Node resolves the entry with CommonJS rules, then picks the loader by format.
+      mainFile = Module._resolveFilename(scriptPath!, null, true);
+      const format = esm.format(mainFile, () => resolverFs.readFile(mainFile!) ?? '');
+      if (format === 'module') await esmRuntime.importFile(mainFile);
+      else Module._runMainFile(mainFile);
     }
   } catch (thrown) {
     if (thrown instanceof ExitSignal) return thrown.code;

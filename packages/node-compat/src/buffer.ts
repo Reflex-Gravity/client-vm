@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { codeError } from './internal/errors.ts';
 
 /**
  * Node's `Buffer`, implemented over Uint8Array the way Node does it: an
@@ -62,16 +63,7 @@ function unknownEncoding(enc: unknown): TypeError {
   return codeError(TypeError, 'ERR_UNKNOWN_ENCODING', `Unknown encoding: ${String(enc)}`);
 }
 
-/** Node's internal errors carry an enumerable `code`. */
-export function codeError<E extends Error>(
-  Ctor: new (msg: string) => E,
-  code: string,
-  message: string,
-): E {
-  const err = new Ctor(message);
-  (err as E & { code: string }).code = code;
-  return err;
-}
+export { codeError };
 
 function outOfRange(name: string, range: string, value: unknown): RangeError {
   return codeError(

@@ -28,6 +28,11 @@ every request outside `/__clientvm/` (preview iframes, `fetch` from processes) o
 to the kernel's `HttpRouter`, which dispatches by virtual port. If the SW restarts and loses its
 port, it asks the instance page to reconnect.
 
+Processes load ES modules with the browser's native `import()` from `/__clientvm/fs/<path>`; the SW
+sends those to the kernel's `ModuleServer`, which resolves specifiers with Node's ESM algorithm,
+rewrites them to such URLs, and serves CommonJS files as ES facades. The instance page creates the
+kernel worker only once the SW controls the page, so every process worker is controlled too.
+
 Each instance has its own origin, so the browser isolates instances' storage, channels and
 service workers from each other ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
 Forking into a new instance exports a filesystem image (`exportImage`), transfers it, and imports

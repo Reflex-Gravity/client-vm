@@ -14,7 +14,28 @@ const SW_URL = import.meta.env.DEV ? '/src/sw.ts' : '/__clientvm/sw.js';
 
 const parentOrigin = new URLSearchParams(location.search).get('parent');
 
+/**
+ * Resolves once the instance service worker controls this page. Workers take
+ * their controller from their creator when they start, so the kernel (and every
+ * process it spawns) must be created after this, or module imports and fetches
+ * from processes would bypass the service worker.
+ */
+function controlledByServiceWorker(): Promise<void> {
+  if (!('serviceWorker' in navigator)) return Promise.resolve();
+  const registered = navigator.serviceWorker.register(SW_URL, {
+    scope: '/',
+    type: 'module',
+    updateViaCache: 'none',
+  });
+  if (navigator.serviceWorker.controller) return registered.then(() => undefined);
+  return new Promise((resolve) => {
+    navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true });
+  });
+}
+
 function start(parent: string): void {
+  // Registration overlaps the handshake round trip with the controller.
+  const ready = controlledByServiceWorker();
   let connected = false;
   window.addEventListener('message', (event) => {
     // Only our embedder, at the origin it claimed, may connect, and only once.
@@ -23,26 +44,7 @@ function start(parent: string): void {
     const port = event.ports[0];
     if (msg?.t !== 'clientvm:connect' || msg.v !== 1 || !msg.init || !port) return;
     connected = true;
-
-    const kernel = new Worker(new URL('./kernel.worker.ts', import.meta.url), {
-      type: 'module',
-      name: `clientvm-kernel-${msg.init.id}`,
-    });
-    const boot: KernelBootMessage = { t: 'clientvm:kernel-boot', init: msg.init, port };
-    const buffers = new Set<ArrayBuffer>();
-    for (const chunk of msg.init.image ?? []) {
-      if (chunk.buffer instanceof ArrayBuffer) buffers.add(chunk.buffer);
-    }
-    kernel.postMessage(boot, [port, ...buffers]);
-    void linkServiceWorker(kernel);
-
-    // Best effort: the page may be gone before an async flush completes.
-    // Instance.flush() is the durability point.
-    const flush: KernelFlushMessage = { t: 'clientvm:flush' };
-    window.addEventListener('pagehide', () => kernel.postMessage(flush));
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') kernel.postMessage(flush);
-    });
+    void ready.then(() => bootKernel(msg.init!, port));
   });
 
   const hello: HandshakeMessage = {
@@ -52,6 +54,28 @@ function start(parent: string): void {
   };
   // targetOrigin pins delivery to the claimed parent; a page lying about its origin never hears back.
   window.parent.postMessage(hello, parent);
+}
+
+function bootKernel(init: KernelBootMessage['init'], port: MessagePort): void {
+  const kernel = new Worker(new URL('./kernel.worker.ts', import.meta.url), {
+    type: 'module',
+    name: `clientvm-kernel-${init.id}`,
+  });
+  const boot: KernelBootMessage = { t: 'clientvm:kernel-boot', init: init, port };
+  const buffers = new Set<ArrayBuffer>();
+  for (const chunk of init.image ?? []) {
+    if (chunk.buffer instanceof ArrayBuffer) buffers.add(chunk.buffer);
+  }
+  kernel.postMessage(boot, [port, ...buffers]);
+  void linkServiceWorker(kernel);
+
+  // Best effort: the page may be gone before an async flush completes.
+  // Instance.flush() is the durability point.
+  const flush: KernelFlushMessage = { t: 'clientvm:flush' };
+  window.addEventListener('pagehide', () => kernel.postMessage(flush));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') kernel.postMessage(flush);
+  });
 }
 
 /**
@@ -76,11 +100,6 @@ async function linkServiceWorker(kernel: Worker): Promise<void> {
       void connect();
   });
   navigator.serviceWorker.addEventListener('controllerchange', () => void connect());
-  await navigator.serviceWorker.register(SW_URL, {
-    scope: '/',
-    type: 'module',
-    updateViaCache: 'none',
-  });
   await connect();
 }
 

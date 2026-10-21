@@ -12,6 +12,9 @@
     },
     {
       "path": "../vfs"
+    },
+    {
+      "path": "../node-compat"
     }
   ]
 }

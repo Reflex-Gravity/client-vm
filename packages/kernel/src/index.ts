@@ -21,3 +21,4 @@ export type {
   KernelWorkerOptions,
   ServedInstance,
 } from './worker-entry.ts';
+export { ERROR_MODULE_PREFIX, MODULE_PREFIX, ModuleServer, moduleUrl } from './module-server.ts';

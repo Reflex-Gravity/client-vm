@@ -26,3 +26,8 @@ export {
   resolveImports,
 } from './module/resolve.ts';
 export type { PackageJson, ResolverFs } from './module/resolve.ts';
+export { analyzeEsm, stringValue, tokenize } from './module/lexer.ts';
+export type { EsmAnalysis, ImportedName, StaticImport, Token } from './module/lexer.ts';
+export { ESM_CONDITIONS, EsmResolver, fileUrl } from './module/esm-resolve.ts';
+export type { EsmResolution, ModuleFormat } from './module/esm-resolve.ts';
+export { NODE_BUILTINS, isBuiltin } from './module/builtin-names.ts';

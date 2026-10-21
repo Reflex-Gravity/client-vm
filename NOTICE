@@ -3,3 +3,6 @@ Copyright 2026 The ClientVM Authors
 
 This product is licensed under the Apache License, Version 2.0.
 See the LICENSE file for details.
+
+This product includes cjs-module-lexer (https://github.com/nodejs/cjs-module-lexer),
+Copyright Guy Bedford, licensed under the MIT License.

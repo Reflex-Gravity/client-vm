@@ -25,7 +25,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `process` | partial | e2e | EventEmitter with `exit`, `beforeExit`, `uncaughtException`, `unhandledRejection`, `warning`; `emitWarning`, `hrtime`, `nextTick`, `memoryUsage`, `stdout`/`stderr` (minimal writables). No stdin data, signals, or `stream`-based stdio yet (3b). `arch` reports `x64` |
 | `timers` | partial | e2e spike | Process exit waits for timers. Pending promises (e.g. `fetch`) do not keep the process alive |
 | module loading (CommonJS) | full (tested surface) | resolution differential vs `require.resolve` (69 cases), e2e project diffed against real Node | `node_modules` lookup, `main`, `exports`/`imports` (conditions `require`, `node`, `node-addons`), self-reference, symlinks (realpath), JSON, cycles, `require.cache`, `require.extensions`, `createRequire`, `Module._load`/`_resolveFilename`/`_compile` hooks, `NODE_PATH`. **`require()` of ES modules is not supported** (`ERR_REQUIRE_ESM`; Node 24 supports it), so the `module-sync` condition is not used. Native addons (`.node`) fail with `ERR_DLOPEN_FAILED` |
-| module loading (ESM) | none | | Phase 3a3 |
+| module loading (ESM) | full (tested surface) | ESM resolution differential vs Node `import()` (34 cases), lexer differential vs es-module-lexer (793 files), e2e project diffed against real Node | Native browser ESM through the instance service worker (ADR 0006): `exports`/`imports` with `import`/`node`/`module-sync`, CommonJS interop with Node's named exports (cjs-module-lexer, ADR 0009), builtins, `import.meta` (`url`, `filename`, `dirname`, `resolve`, `main`), top-level await, cycles, JSON with `with { type: 'json' }`, `import()` from CommonJS and eval, `type`-less `.js` syntax detection. Not supported: `export * from` a builtin, `--input-type=module`, loader hooks (`module.register`), `.wasm` imports. Errors are Node's codes and messages, but a failed static import throws when its module would evaluate, not before the whole graph links |
 | `buffer` | full (tested surface) | Buffer differential vs `node:buffer` (thousands of cases: encodings, search, numeric reads/writes, errors), e2e | `Buffer` is a callable function sharing `FastBuffer.prototype`, as in Node. `Blob`/`File` are the browser's. No `transcode` for exotic encodings |
 | `events` | full (tested surface) | events differential vs `node:events`, e2e | `EventEmitter` (callable for legacy `EventEmitter.call(this)`), `once`, `on`, captureRejections, errorMonitor, max-listener warnings. `EventTarget` helpers partial |
 | `stream` | none | | |
@@ -50,7 +50,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | Command | Status | Notes |
 |---|---|---|
 | `node -e/-p/--eval/--print <code>` | partial | Runs in global scope with `require`, `module`, `exports` |
-| `node <script.js>` | partial | CommonJS entry points (full loader); ESM entry points in 3a3 |
+| `node <script.js>` | partial | CommonJS and ESM entry points (`.mjs`, `"type": "module"`, detected ESM syntax) |
 | `node` (REPL) | none | |
 | shell and Linux commands | none | Phase 3 |
 | `npm` / `npx` / `pnpm` | none | Phase 3 (real npm, unmodified) |

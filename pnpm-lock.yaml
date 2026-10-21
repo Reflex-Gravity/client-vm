@@ -17,6 +17,12 @@ importers:
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
+      cjs-module-lexer:
+        specifier: 2.1.0
+        version: 2.1.0
+      es-module-lexer:
+        specifier: 3.0.4
+        version: 3.0.4
       eslint:
         specifier: ^10.0.0
         version: 10.13.0
@@ -44,12 +50,18 @@ importers:
 
   packages/kernel:
     dependencies:
+      '@clientvm/node-compat':
+        specifier: workspace:*
+        version: link:../node-compat
       '@clientvm/protocol':
         specifier: workspace:*
         version: link:../protocol
       '@clientvm/vfs':
         specifier: workspace:*
         version: link:../vfs
+      cjs-module-lexer:
+        specifier: 2.1.0
+        version: 2.1.0
 
   packages/node-compat:
     dependencies:
@@ -420,6 +432,9 @@ packages:
     resolution: {integrity: sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==}
     engines: {node: '>=18'}
 
+  cjs-module-lexer@2.1.0:
+    resolution: {integrity: sha512-UX0OwmYRYQQetfrLEZeewIFFI+wSTofC+pMBLNuH3RUuu/xzG1oz84UCEDOSoQlN3fZ4+AzmV50ZYvGqkMh9yA==}
+
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
@@ -442,6 +457,9 @@ packages:
 
   es-module-lexer@2.3.2:
     resolution: {integrity: sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw==}
+
+  es-module-lexer@3.0.4:
+    resolution: {integrity: sha512-BldNY5mwkVu+cQ5Ymn3e6hB9Sx8XHx4ZevWbiUyZbfKxJxYO27Hf0wfzkxIaD5CAJMaGl3YspKELj0ff/7nCMA==}
 
   escape-string-regexp@4.0.0:
     resolution: {integrity: sha512-TtpcNJ3XAzx3Gq8sWRzJaVajRs0uVxA2YAkdb1jm2YkPz4G6egUFAyA3n5vtEIZefPk5Wa4UXbKuS5fKkJWdgA==}
@@ -1191,6 +1209,8 @@ snapshots:
 
   chai@6.3.0: {}
 
+  cjs-module-lexer@2.1.0: {}
+
   cross-spawn@7.0.6:
     dependencies:
       path-key: 3.1.1
@@ -1206,6 +1226,8 @@ snapshots:
   detect-libc@2.1.2: {}
 
   es-module-lexer@2.3.2: {}
+
+  es-module-lexer@3.0.4: {}
 
   escape-string-regexp@4.0.0: {}
 

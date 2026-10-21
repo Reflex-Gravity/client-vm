@@ -6,7 +6,7 @@
 // Filesystem access goes through ResolverFs so the same code runs in a
 // process (sync syscalls), in the kernel, and against node:fs in tests.
 
-import { codeError } from '../buffer.ts';
+import { codeError } from '../internal/errors.ts';
 import { createPosixPath } from '../path.ts';
 
 const path = createPosixPath(() => '/');

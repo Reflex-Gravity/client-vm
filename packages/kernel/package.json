@@ -16,7 +16,9 @@
     "dist"
   ],
   "dependencies": {
+    "@clientvm/node-compat": "workspace:*",
     "@clientvm/protocol": "workspace:*",
-    "@clientvm/vfs": "workspace:*"
+    "@clientvm/vfs": "workspace:*",
+    "cjs-module-lexer": "2.1.0"
   }
 }

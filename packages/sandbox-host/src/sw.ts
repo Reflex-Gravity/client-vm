@@ -8,6 +8,8 @@ import type { HttpRpc, ServiceWorkerMessage, WireRequest, WireResponse } from '@
 declare const self: ServiceWorkerGlobalScope;
 
 const INSTANCE_PAGE = `${RESERVED_PATH_PREFIX}instance.html`;
+/** Reserved paths the kernel answers: ES modules from the VFS and resolution-error modules. */
+const KERNEL_ROUTES = [`${RESERVED_PATH_PREFIX}fs/`, `${RESERVED_PATH_PREFIX}error/`];
 const KERNEL_TIMEOUT_MS = 3000;
 const REQUEST_TIMEOUT_MS = 30_000;
 /** Paths Vite's dev server uses for the instance page itself (dev only). */
@@ -57,7 +59,12 @@ async function getKernel(): Promise<RpcEndpoint<Record<string, never>, HttpRpc> 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith(RESERVED_PATH_PREFIX)) return;
+  // ClientVM's own files go to the network, except the module routes the kernel serves.
+  if (
+    url.pathname.startsWith(RESERVED_PATH_PREFIX) &&
+    !KERNEL_ROUTES.some((p) => url.pathname.startsWith(p))
+  )
+    return;
   if (DEV_PASSTHROUGH.some((p) => url.pathname.startsWith(p))) return;
   event.respondWith(forward(event.request, url));
 });

@@ -24,6 +24,7 @@ import {
 } from '@clientvm/vfs';
 import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
 import { HttpRouter, staticHandler } from './http.ts';
+import { ModuleServer } from './module-server.ts';
 import { Kernel } from './kernel.ts';
 import type { KernelOptions, ProcessHandle } from './kernel.ts';
 
@@ -187,11 +188,19 @@ async function boot(
   // Ports are announced only once a service worker link exists, so a preview
   // iframe opened in response always reaches the kernel.
   let httpLinked = false;
+  const modules = new ModuleServer(kernel.vfs);
   const router = new HttpRouter((port, primary) => {
     if (httpLinked) emit('portOpen', port, primary);
   });
   const attachHttpPort = (port: MessagePort) => {
-    new RpcEndpoint<HttpRpc, Record<string, never>>(port, { fetch: (req) => router.handle(req) });
+    new RpcEndpoint<HttpRpc, Record<string, never>>(port, {
+      fetch: async (req) => {
+        // Module requests (a process importing from the VFS) only come from the instance origin itself.
+        if (req.port === null && modules.handles(new URL(req.path, 'http://x').pathname))
+          return modules.handle(req);
+        return router.handle(req);
+      },
+    });
     if (httpLinked) return;
     httpLinked = true;
     for (const p of router.ports) emit('portOpen', p.port, p.primary);

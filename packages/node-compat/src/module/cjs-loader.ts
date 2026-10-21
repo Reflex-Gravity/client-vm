@@ -5,91 +5,10 @@
 
 import { codeError } from '../buffer.ts';
 import type { PosixPath } from '../path.ts';
+import { NODE_BUILTINS, isBuiltin } from './builtin-names.ts';
+import { analyzeEsm } from './lexer.ts';
 import { CjsResolver, PackageJsonCache, nodeModulePaths } from './resolve.ts';
 import type { ResolverFs } from './resolve.ts';
-
-/** Every module name Node 24 reports in `builtinModules`. */
-export const NODE_BUILTINS: readonly string[] = [
-  '_http_agent',
-  '_http_client',
-  '_http_common',
-  '_http_incoming',
-  '_http_outgoing',
-  '_http_server',
-  '_stream_duplex',
-  '_stream_passthrough',
-  '_stream_readable',
-  '_stream_transform',
-  '_stream_wrap',
-  '_stream_writable',
-  '_tls_common',
-  '_tls_wrap',
-  'assert',
-  'assert/strict',
-  'async_hooks',
-  'buffer',
-  'child_process',
-  'cluster',
-  'console',
-  'constants',
-  'crypto',
-  'dgram',
-  'diagnostics_channel',
-  'dns',
-  'dns/promises',
-  'domain',
-  'events',
-  'fs',
-  'fs/promises',
-  'http',
-  'http2',
-  'https',
-  'inspector',
-  'inspector/promises',
-  'module',
-  'net',
-  'os',
-  'path',
-  'path/posix',
-  'path/win32',
-  'perf_hooks',
-  'process',
-  'punycode',
-  'querystring',
-  'readline',
-  'readline/promises',
-  'repl',
-  'stream',
-  'stream/consumers',
-  'stream/promises',
-  'stream/web',
-  'string_decoder',
-  'sys',
-  'timers',
-  'timers/promises',
-  'tls',
-  'trace_events',
-  'tty',
-  'url',
-  'util',
-  'util/types',
-  'v8',
-  'vm',
-  'wasi',
-  'worker_threads',
-  'zlib',
-];
-/** Builtins that only exist with the `node:` prefix. */
-const PREFIX_ONLY = new Set(['sea', 'sqlite', 'test', 'test/reporters']);
-const BUILTIN_SET = new Set(NODE_BUILTINS);
-
-export function isBuiltin(request: string): boolean {
-  if (request.startsWith('node:')) {
-    const name = request.slice(5);
-    return BUILTIN_SET.has(name) || PREFIX_ONLY.has(name);
-  }
-  return BUILTIN_SET.has(request);
-}
 
 export interface ModuleSystemDeps {
   fs: ResolverFs;
@@ -169,6 +88,14 @@ const WRAPPER: [string, string] = [
   '(function (exports, require, module, __filename, __dirname) { ',
   '\n});',
 ];
+
+function requireEsmError(filename: string, parent: string | undefined): Error {
+  return codeError(
+    Error,
+    'ERR_REQUIRE_ESM',
+    `require() of ES Module ${filename}${parent ? ` from ${parent}` : ''} not supported.\nInstead change the require of ${filename} to a dynamic import() which is available in all CommonJS modules.`,
+  );
+}
 
 function stripBOM(content: string): string {
   return content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
@@ -376,12 +303,7 @@ export function createModuleSystem(deps: ModuleSystemDeps): ModuleConstructor {
         this.loaded = true;
         return;
       }
-      const parent = this.parent?.filename;
-      throw codeError(
-        Error,
-        'ERR_REQUIRE_ESM',
-        `require() of ES Module ${filename}${parent ? ` from ${parent}` : ''} not supported.\nInstead change the require of ${filename} to a dynamic import() which is available in all CommonJS modules.`,
-      );
+      throw requireEsmError(filename, this.parent?.filename ?? undefined);
     }
     const ext = findLongestRegisteredExtension(filename);
     Module._extensions[ext]!(this, filename);
@@ -427,7 +349,19 @@ export function createModuleSystem(deps: ModuleSystemDeps): ModuleConstructor {
     const content = fs.readFile(filename);
     if (content === null)
       throw codeError(Error, 'ENOENT', `ENOENT: no such file or directory, open '${filename}'`);
-    module._compile(stripBOM(content), filename);
+    try {
+      module._compile(stripBOM(content), filename);
+    } catch (err) {
+      // Node 24 detects ESM syntax in "type"-less .js files when CommonJS compilation fails.
+      if (
+        err instanceof SyntaxError &&
+        packages.scopeOf(filename)?.type === undefined &&
+        analyzeEsm(content).hasModuleSyntax
+      ) {
+        throw requireEsmError(filename, module.parent?.filename ?? undefined);
+      }
+      throw err;
+    }
   };
   Module._extensions['.json'] = (module, filename) => {
     const content = fs.readFile(filename);
