@@ -68,3 +68,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **npm swallowed an uncaught error once.** While minipass recursed infinitely (since fixed),
   `npm install` exited 1 with no message, though `node -e` reports the same error. Find out why
   npm's exit handler printed nothing.
+- **More native stand-ins (ADR 0013).** Vite 7+/8 use rolldown (`@rolldown/binding-wasm32-wasi`
+  needs WASI and `worker_threads`); Next.js uses SWC (`@swc/wasm`); Tailwind 4 and Vite's CSS use
+  lightningcss (`lightningcss-wasm`). Each needs a stand-in mapping and an e2e test. Real
+  `worker_threads` would unlock the WASI ones.
+- **Unused native downloads.** npm fetches platform binaries (`@esbuild/linux-x64`, about 10 MB)
+  that ClientVM never runs. Reporting a platform no native package targets would skip them, but
+  it would also break packages that pick a binding by platform (rollup throws before `require`).

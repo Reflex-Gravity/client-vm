@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readTar, writeTar } from '@clientvm/node-compat';
+import { checkIntegrity, readTar, writeTar } from '@clientvm/node-compat';
 import { describe, expect, it } from 'vitest';
 
 const LONG = `${'d'.repeat(60)}/${'e'.repeat(70)}/file-${'f'.repeat(40)}.txt`;
@@ -112,5 +112,18 @@ describe('writeTar output extracts with GNU tar', () => {
     bytes[10] = 0x41;
     expect(() => [...readTar(bytes)]).toThrow(/checksum/);
     expect(() => [...readTar(new TextEncoder().encode('junk\n'))]).toThrow(/truncated/);
+  });
+});
+
+describe('checkIntegrity (SRI)', () => {
+  it('accepts matching sha512/sha1 and rejects others', async () => {
+    const { createHash } = await import('node:crypto');
+    const data = new TextEncoder().encode('package bytes');
+    const sri = (algo: string) => `${algo}-${createHash(algo).update(data).digest('base64')}`;
+    expect(checkIntegrity(data, sri('sha512'))).toBe(true);
+    expect(checkIntegrity(data, sri('sha1'))).toBe(true);
+    expect(checkIntegrity(data, `sha256-abc ${sri('sha512')}`)).toBe(true);
+    expect(checkIntegrity(data, sri('sha256'))).toBe(false);
+    expect(checkIntegrity(new TextEncoder().encode('tampered'), sri('sha512'))).toBe(false);
   });
 });

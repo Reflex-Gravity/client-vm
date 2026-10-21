@@ -22,6 +22,7 @@ service worker, and a golden React + Vite template running end to end.
 - [ADR 0010](decisions/0010-vendor-readable-stream.md): Node's streams (readable-stream) for `stream`.
 - [ADR 0011](decisions/0011-in-process-shell-commands.md): the shell runs its commands in-process; every command is also a runtime.
 - [ADR 0012](decisions/0012-npm-on-first-use.md): npm is the unmodified release, fetched and verified on first use.
+- [ADR 0013](decisions/0013-wasm-stand-ins-for-native-packages.md): WebAssembly stand-ins for native toolchain packages (esbuild, rollup).
 
 ## Progress
 
@@ -33,6 +34,7 @@ service worker, and a golden React + Vite template running end to end.
 | 3b2 | done: `child_process` with execve-style command resolution, stdin/stdout streams, handle-based liveness, `fs.watch` |
 | 3a3 | done. The instance page now boots its kernel only after the service worker controls it, because workers inherit their controller at creation. This adds about 45 ms to the first boot of each instance. Process spawn rose to about 9 ms as node-compat grew |
 | 3d | done: `http`/`https`/`net`/`dns`/`tls` on virtual ports with streamed responses, upgrade sockets and a WebSocket shim for previews; one origin per port (ADR 0008) with a bridge page; `zlib` (pako, ADR 0007) and `crypto` pulled forward from 3e because Express and ws need them. Golden fixture: unmodified Express 4 + ws 8 |
+| 3f | done: golden stock Vite 6 + React 18 project: dev server on its port origin, React Fast Refresh and CSS HMR over the WebSocket shim (component state survives edits), the error overlay, and `vite build` plus a static preview of `dist`. esbuild and rollup run as their WebAssembly builds of the same version, fetched on first use (ADR 0013). Also: fds 0–2 in `fs` (Go's WASM runtime reads stdin with `fs.read`), and EventEmitter no longer has an internal `add` method that chokidar's `FSWatcher.add` shadowed. Dev server ready in about 1.4 s, first paint in about 3 s |
 | 3e | done: real npm 11.6.1, unmodified, fetched and integrity-checked on first use (ADR 0012): `install`/`ci`/`run`/`npx`, lifecycle scripts and bin links against the public registry. New in node-compat: `readline`, `http2` constants, `v8`, main-thread `worker_threads`, `path.win32`; dynamic `import()` keeps the process alive. Shell gains `tar`, `gzip`/`gunzip`/`zcat` and `curl`. Closed local ports now refuse connections (`ECONNREFUSED`, curl exit 7) instead of answering 502 |
 | 3c | done: `@clientvm/shell` (POSIX sh + common bash extensions) with 50 commands in-process (ADR 0011). About 170 differential scripts vs real bash and GNU tools, a parser fuzz test, and e2e scripts piping between commands and `node`. `Instance.exec` with timeouts; killing a process kills its children. A 10,000-iteration `while` loop takes about 0.4 s in Node (bash: 0.03 s) |
 

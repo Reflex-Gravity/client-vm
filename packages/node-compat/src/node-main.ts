@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { nativeStandIn } from './standins.ts';
 import { NO_LISTENER_HEADER, SystemError } from '@clientvm/protocol';
 import { ExitSignal } from '@clientvm/process';
 import type { ProcessContext } from '@clientvm/process';
@@ -146,6 +147,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     cwd: () => state.cwd,
     env,
     emitWarning: (msg, type, code) => emitWarning(msg, type, code),
+    nativeStandIn: (filename, requireFile) => nativeStandIn(fs, filename, ctx.pid, requireFile),
     compile: (source, filename) =>
       (0, eval)(`${esmRuntime.rewriteDynamicImports(source)}\n//# sourceURL=${filename}`) as (
         ...args: unknown[]

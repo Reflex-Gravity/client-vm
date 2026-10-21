@@ -205,3 +205,31 @@ describe('EventEmitter aliases', () => {
     expect(s.listenerCount('x')).toBe(0);
   });
 });
+
+describe('EventEmitter prototype', () => {
+  it("has Node's method names and no extra internals subclasses could shadow", () => {
+    const names = (p: object) =>
+      Object.getOwnPropertyNames(p)
+        .filter((n) => n !== 'constructor')
+        .sort();
+    expect(names(OURS.prototype).filter((n) => !n.startsWith('_'))).toEqual(
+      names(NODE.prototype).filter((n) => !n.startsWith('_')),
+    );
+  });
+
+  it('a subclass with its own add() still receives listeners (chokidar)', () => {
+    class Watcher extends OURS {
+      added: string[] = [];
+      add(path: string) {
+        this.added.push(path);
+        return this;
+      }
+    }
+    const w = new Watcher();
+    let got = 0;
+    w.on('change', () => got++);
+    w.emit('change');
+    expect(got).toBe(1);
+    expect(w.added).toEqual([]);
+  });
+});

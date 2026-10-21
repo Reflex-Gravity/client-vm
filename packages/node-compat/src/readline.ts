@@ -75,8 +75,10 @@ export class Interface extends EventEmitter {
         : this.#decode.decode(chunk as Uint8Array, { stream: true });
     for (;;) {
       // A \r\n split across chunks: drop the \n that follows a \r line end.
-      if (this.#sawCR && this.#buffer.startsWith('\n')) this.#buffer = this.#buffer.slice(1);
-      this.#sawCR = false;
+      if (this.#sawCR && this.#buffer.length > 0) {
+        if (this.#buffer.startsWith('\n')) this.#buffer = this.#buffer.slice(1);
+        this.#sawCR = false;
+      }
       const m = /\r\n|\n|\r/.exec(this.#buffer);
       if (!m) break;
       const line = this.#buffer.slice(0, m.index);

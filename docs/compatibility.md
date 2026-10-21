@@ -8,8 +8,12 @@ works, how it is tested, and the known gaps.
   Verified on Chromium 156. Instance pages rely on `Document-Isolation-Policy` (host apps need no
   COOP/COEP), `Atomics.waitAsync`, and nested module workers. The exact minimum version is still to
   be pinned by testing older Chromium builds (see open-questions.md).
-- **Required frameworks (v1 goal):** Vite + React dev server with HMR, Express. Express 4 works
-  (golden fixture); Vite is slice 3f.
+- **Required frameworks (v1 goal):** Vite + React dev server with HMR, Express. Both work as
+  golden fixtures: Express 4 + ws 8, and a stock Vite 6 + React 18 project (dev server, React Fast
+  Refresh, CSS HMR, error overlay, `vite build`).
+- **Native packages:** native addons and binaries do not run. esbuild and rollup are replaced by
+  their official WebAssembly builds of the same version (ADR 0013); other native addons fail
+  with `ERR_DLOPEN_FAILED`.
 
 Status legend: **none** = not implemented · **partial** = subset, see gaps · **full** = matches Node for all tested behavior.
 
@@ -24,7 +28,8 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `console` | partial | e2e spike | `table` prints like `log`. No `Console` class |
 | `process` | partial | e2e | EventEmitter with `exit`, `beforeExit`, `uncaughtException`, `unhandledRejection`, `warning`; `stdin` is a Readable over the kernel pipe, `stdout`/`stderr` are Writables (not TTYs); liveness follows referenced handles (timers, children, stdin while read, watchers, in-flight `fetch`) with `ref`/`unref`. No signals delivered to the process. `arch` reports `x64` |
 | `timers` | partial | e2e | Node `Timeout` objects with `ref`/`unref`/`refresh`/`hasRef`; `setImmediate` is a macrotask. Promise-only work (other than `fetch`) does not keep the process alive |
-| module loading (CommonJS) | full (tested surface) | resolution differential vs `require.resolve` (69 cases), e2e project diffed against real Node | `node_modules` lookup, `main`, `exports`/`imports` (conditions `require`, `node`, `node-addons`), self-reference, symlinks (realpath), JSON, cycles, `require.cache`, `require.extensions`, `createRequire`, `Module._load`/`_resolveFilename`/`_compile` hooks, `NODE_PATH`. **`require()` of ES modules is not supported** (`ERR_REQUIRE_ESM`; Node 24 supports it), so the `module-sync` condition is not used. Native addons (`.node`) fail with `ERR_DLOPEN_FAILED` |
+| `fs` on fds 0–2 | partial | e2e (esbuild-wasm service) | `fs.read(0)` reads stdin asynchronously; `write`/`writeSync` to 1 and 2 go to stdout/stderr; `fstat` reports pipes. `readSync(0)` fails with `EAGAIN` (a sync read would block the worker) |
+| module loading (CommonJS) | full (tested surface) | resolution differential vs `require.resolve` (69 cases), e2e project diffed against real Node | `node_modules` lookup, `main`, `exports`/`imports` (conditions `require`, `node`, `node-addons`), self-reference, symlinks (realpath), JSON, cycles, `require.cache`, `require.extensions`, `createRequire`, `Module._load`/`_resolveFilename`/`_compile` hooks, `NODE_PATH`. **`require()` of ES modules is not supported** (`ERR_REQUIRE_ESM`; Node 24 supports it), so the `module-sync` condition is not used. Native addons (`.node`) fail with `ERR_DLOPEN_FAILED`, except rollup's binding (ADR 0013) |
 | module loading (ESM) | full (tested surface) | ESM resolution differential vs Node `import()` (34 cases), lexer differential vs es-module-lexer (793 files), e2e project diffed against real Node | Native browser ESM through the instance service worker (ADR 0006): `exports`/`imports` with `import`/`node`/`module-sync`, CommonJS interop with Node's named exports (cjs-module-lexer, ADR 0009), builtins, `import.meta` (`url`, `filename`, `dirname`, `resolve`, `main`), top-level await, cycles, JSON with `with { type: 'json' }`, `import()` from CommonJS and eval, `type`-less `.js` syntax detection. Not supported: `export * from` a builtin, `--input-type=module`, loader hooks (`module.register`), `.wasm` imports. Errors are Node's codes and messages, but a failed static import throws when its module would evaluate, not before the whole graph links |
 | `buffer` | full (tested surface) | Buffer differential vs `node:buffer` (thousands of cases: encodings, search, numeric reads/writes, errors), e2e | `Buffer` is a callable function sharing `FastBuffer.prototype`, as in Node. `Blob`/`File` are the browser's. No `transcode` for exotic encodings |
 | `events` | full (tested surface) | events differential vs `node:events`, e2e | `EventEmitter` (callable for legacy `EventEmitter.call(this)`), `once`, `on`, captureRejections, errorMonitor, max-listener warnings. `EventTarget` helpers partial |

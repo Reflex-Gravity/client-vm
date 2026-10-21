@@ -20,7 +20,21 @@ const ROOT = new URL('../..', import.meta.url).pathname;
 const CACHE = join(ROOT, 'node_modules', '.cache', 'clientvm-fixtures');
 
 export interface FileTree {
-  [name: string]: string | FileTree;
+  [name: string]: string | Uint8Array | FileTree;
+}
+
+const utf8 = new TextDecoder('utf-8', { fatal: true });
+
+/** Text when the bytes are valid UTF-8 without NULs, else the bytes (wasm, images). */
+function contents(bytes: Buffer): string | Uint8Array {
+  if (!bytes.includes(0)) {
+    try {
+      return utf8.decode(bytes);
+    } catch {
+      // binary
+    }
+  }
+  return new Uint8Array(bytes);
 }
 
 /** Returns the path of an installed copy of fixture `name`. */
@@ -52,7 +66,7 @@ export function installFixture(name: string): string {
   return dest;
 }
 
-/** Reads a directory into a file tree (text files only; symlinks and `.bin` are skipped). */
+/** Reads a directory into a file tree (symlinks and `.bin` are skipped). */
 export function readTree(dir: string): FileTree {
   const tree: FileTree = {};
   for (const name of readdirSync(dir)) {
@@ -61,7 +75,7 @@ export function readTree(dir: string): FileTree {
     const st = lstatSync(path);
     if (st.isSymbolicLink()) continue;
     if (st.isDirectory()) tree[name] = readTree(path);
-    else if (st.isFile()) tree[name] = readFileSync(path, 'utf8');
+    else if (st.isFile()) tree[name] = contents(readFileSync(path));
   }
   return tree;
 }

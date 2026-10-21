@@ -21,6 +21,8 @@ export const DEFAULT_ENV: Readonly<Record<string, string>> = {
   SHELL: '/bin/sh',
   TMPDIR: '/tmp',
   LANG: 'C.UTF-8',
+  // esbuild's native binary cannot run; this launcher runs esbuild-wasm instead (ADR 0013).
+  ESBUILD_BINARY_PATH: '/usr/local/lib/clientvm/bin/esbuild',
 };
 
 /** Well-known paths scripts hard-code (`#!/bin/sh`, `#!/bin/bash`, `/usr/bin/env`). */
@@ -28,6 +30,7 @@ const WELL_KNOWN_PATHS: Readonly<Record<string, string>> = {
   sh: '/bin/sh',
   bash: '/bin/bash',
   env: '/usr/bin/env',
+  'clientvm-esbuild': '/usr/local/lib/clientvm/bin/esbuild',
 };
 
 /**

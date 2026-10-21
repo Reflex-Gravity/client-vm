@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { installStdioFds } from './fs-stdio.ts';
 import { createV8, createWorkerThreads } from './v8.ts';
 import { createHttp2 } from './http2.ts';
 import { createReadline } from './readline.ts';
@@ -77,6 +78,7 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     }));
   const defer = (fn: () => void) => (deps.timers['setImmediate'] as (f: () => void) => void)(fn);
   const fsFull = extendFs({ fs, path, stream: loadStream as never, defer });
+  installStdioFds(fsFull, () => process as never);
   const statForWatch = (p: string) =>
     fs.statSync(p, { throwIfNoEntry: false }) as { mtimeMs: number; size: number } | undefined;
   Object.assign(
