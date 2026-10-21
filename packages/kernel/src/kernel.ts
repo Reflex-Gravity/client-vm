@@ -5,10 +5,21 @@ import {
   SyscallServer,
   SystemError,
   createChannelBuffer,
+  decode,
+  encode,
+  errnoOf,
 } from '@clientvm/protocol';
-import type { KernelToProcess, ProcessToKernel, Signal, SyscallMode } from '@clientvm/protocol';
+import type {
+  ChildSpawnRequest,
+  KernelToProcess,
+  ProcessToKernel,
+  Signal,
+  SyscallMode,
+  Value,
+} from '@clientvm/protocol';
 import { MemoryVfs, importImage } from '@clientvm/vfs';
 import type { Snapshot, VfsLimits } from '@clientvm/vfs';
+import { installBuiltinCommands, resolveCommand } from './commands.ts';
 import { createSyscallHandler } from './dispatcher.ts';
 import { FdTable } from './fd-table.ts';
 
@@ -22,6 +33,8 @@ export interface ProcessWorkerLike {
 
 export interface KernelOptions {
   createProcessWorker: () => ProcessWorkerLike;
+  /** Names of the built-in runtimes; each gets a marker file in /usr/local/bin. */
+  commands?: readonly string[];
   /** Bytes in each process's shared syscall payload region. */
   payloadBytes?: number;
   /** Directories created at boot. */
@@ -40,6 +53,8 @@ export interface SpawnOptions {
   env?: Record<string, string>;
   cwd?: string;
   syscallMode?: SyscallMode;
+  /** 'pipe' keeps stdin open for `writeStdin`; 'closed' (default) starts at end-of-file. */
+  stdin?: 'pipe' | 'closed';
   onStdout?: (data: Uint8Array) => void;
   onStderr?: (data: Uint8Array) => void;
 }
@@ -64,6 +79,8 @@ export interface ProcessHandle {
   readonly timing: ProcessTiming;
   /** Terminates the process worker immediately; exit code is 128 + signal number. */
   kill(signal?: Signal): void;
+  /** Writes to stdin (null closes it). Ignored unless spawned with `stdin: 'pipe'`. */
+  writeStdin(data: Uint8Array | null): void;
 }
 
 export const DEFAULT_SEED_DIRS = [
@@ -75,6 +92,9 @@ export const DEFAULT_SEED_DIRS = [
   '/usr',
   '/usr/bin',
 ];
+
+/** spawnSync results larger than this are truncated, like Node's default maxBuffer. */
+const SPAWN_SYNC_MAX_BUFFER = 1024 * 1024 * 64;
 
 export class Kernel {
   readonly vfs: MemoryVfs;
@@ -88,16 +108,15 @@ export class Kernel {
     this.options = options;
     if (options.snapshot) {
       this.vfs = MemoryVfs.fromSnapshot(options.snapshot, options.fsLimits);
-      return;
-    }
-    if (options.image) {
+    } else if (options.image) {
       this.vfs = MemoryVfs.fromSnapshot(importImage(options.image), options.fsLimits);
-      return;
+    } else {
+      this.vfs = new MemoryVfs(options.fsLimits);
+      for (const dir of options.seedDirs ?? DEFAULT_SEED_DIRS)
+        this.vfs.mkdir(dir, { recursive: true });
     }
-    this.vfs = new MemoryVfs(options.fsLimits);
-    for (const dir of options.seedDirs ?? DEFAULT_SEED_DIRS) {
-      this.vfs.mkdir(dir, { recursive: true });
-    }
+    // Refreshed on every boot: restored filesystems may predate a runtime.
+    installBuiltinCommands(this.vfs, options.commands ?? []);
   }
 
   get processCount(): number {
@@ -126,18 +145,36 @@ export class Kernel {
     for (const proc of [...this.processes.values()]) proc.kill(signal);
   }
 
+  /**
+   * Starts a process. argv[0] is resolved like execve: PATH lookup, exec
+   * permission, shebang interpreters. Throws spawn errors (ENOENT, EACCES, EAGAIN).
+   */
   spawn(argv: string[], options: SpawnOptions = {}): ProcessHandle {
     const { maxProcesses } = this.options;
     if (maxProcesses !== undefined && this.processes.size >= maxProcesses) {
       throw new SystemError('EAGAIN', 'spawn');
     }
+    const env = options.env ?? {};
+    const cwd = options.cwd ?? '/home/user';
+    const resolvedArgv = resolveCommand(this.vfs, argv, env, cwd);
+
     const pid = this.nextPid++;
     const syscallMode = options.syscallMode ?? 'waitAsync';
     const channel = createChannelBuffer(this.options.payloadBytes ?? DEFAULT_PAYLOAD_BYTES);
     const fds = new FdTable(this.vfs);
-    const server = new SyscallServer(channel, createSyscallHandler(this.vfs, fds));
+    const children = new Map<number, ProcessHandle>();
+    const watches = new Map<number, () => void>();
     const timing: ProcessTiming = { spawnedAt: performance.now() };
     const worker = this.options.createProcessWorker();
+    const post = (msg: KernelToProcess) => {
+      if (timing.exitedAt === undefined) worker.postMessage(msg);
+    };
+    const server = new SyscallServer(
+      channel,
+      createSyscallHandler(this.vfs, fds, {
+        spawnSync: (request) => this.spawnSync(request, options),
+      }),
+    );
 
     let settle!: (code: number, signal?: Signal) => void;
     const exit = new Promise<ProcessExit>((resolve) => {
@@ -147,6 +184,7 @@ export class Kernel {
         server.close();
         worker.terminate();
         fds.closeAll();
+        for (const stop of watches.values()) stop();
         this.processes.delete(pid);
         resolve({ code, signal: signal ?? null });
       };
@@ -170,6 +208,32 @@ export class Kernel {
         case 'exit':
           settle(msg.code);
           break;
+        case 'spawn':
+          this.spawnChild(msg.id, msg.request, children, post, options);
+          break;
+        case 'child-stdin':
+          children.get(msg.id)?.writeStdin(msg.data);
+          break;
+        case 'child-kill':
+          children.get(msg.id)?.kill(msg.signal);
+          break;
+        case 'watch':
+          try {
+            const id = msg.id;
+            watches.set(
+              id,
+              this.vfs.watch(msg.path, { recursive: msg.recursive }, (events) =>
+                post({ t: 'watch-event', id, events }),
+              ),
+            );
+          } catch {
+            // The process stats the path first and reports errors itself.
+          }
+          break;
+        case 'unwatch':
+          watches.get(msg.id)?.();
+          watches.delete(msg.id);
+          break;
       }
     });
     worker.addEventListener('error', (event) => {
@@ -179,27 +243,171 @@ export class Kernel {
 
     if (syscallMode === 'waitAsync') void server.listen();
 
+    const stdinOpen = options.stdin === 'pipe';
     worker.postMessage({
       t: 'init',
       pid,
       channel,
       syscallMode,
-      argv,
-      env: options.env ?? {},
-      cwd: options.cwd ?? '/home/user',
+      argv: resolvedArgv,
+      env,
+      cwd,
+      stdinOpen,
     });
 
+    let stdinClosed = !stdinOpen;
     const handle: ProcessHandle = {
       pid,
       exit,
       timing,
       kill: (signal = 'SIGTERM') => settle(128 + SIGNAL_NUMBERS[signal], signal),
+      writeStdin: (data) => {
+        if (stdinClosed) return;
+        if (data === null) stdinClosed = true;
+        post({ t: 'stdin', data });
+      },
     };
     this.processes.set(pid, handle);
     return handle;
   }
 
+  /** A child requested by a process (child_process.spawn). */
+  private spawnChild(
+    id: number,
+    request: ChildSpawnRequest,
+    children: Map<number, ProcessHandle>,
+    post: (msg: KernelToProcess) => void,
+    parent: SpawnOptions,
+  ): void {
+    const [stdinMode, stdoutMode, stderrMode] = request.stdio;
+    const route = (mode: string, fd: 1 | 2, inherit: ((d: Uint8Array) => void) | undefined) =>
+      mode === 'pipe'
+        ? (data: Uint8Array) => post({ t: 'child-output', id, fd, data })
+        : mode === 'inherit'
+          ? inherit
+          : undefined;
+    let child: ProcessHandle;
+    try {
+      const onStdout = route(stdoutMode, 1, parent.onStdout);
+      const onStderr = route(stderrMode, 2, parent.onStderr);
+      child = this.spawn(request.argv, {
+        env: request.env,
+        cwd: request.cwd,
+        stdin: stdinMode === 'pipe' ? 'pipe' : 'closed',
+        ...(onStdout ? { onStdout } : {}),
+        ...(onStderr ? { onStderr } : {}),
+      });
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      post({ t: 'child-error', id, code: e.code ?? 'EIO', message: e.message ?? String(err) });
+      return;
+    }
+    children.set(id, child);
+    post({ t: 'child-spawned', id, pid: child.pid });
+    void child.exit.then(({ code, signal }) => {
+      children.delete(id);
+      post({ t: 'child-exit', id, code: signal ? null : code, signal });
+    });
+  }
+
+  /**
+   * SPAWN_SYNC: runs a child to completion while the calling process blocks
+   * in its syscall. `inherit` streams go straight to the caller's outputs.
+   */
+  private async spawnSync(request: Uint8Array, parent: SpawnOptions): Promise<Uint8Array> {
+    const args = decode(request) as {
+      argv: string[];
+      env: Record<string, string>;
+      cwd: string;
+      input: Uint8Array | null;
+      stdio: string[];
+      timeout: number | null;
+      killSignal: Signal | null;
+    };
+    const out: Uint8Array[] = [];
+    const err: Uint8Array[] = [];
+    let outBytes = 0;
+    let errBytes = 0;
+    const collect = (
+      mode: string | undefined,
+      bucket: Uint8Array[],
+      add: (n: number) => number,
+      inherit?: (d: Uint8Array) => void,
+    ) => {
+      if (mode === 'inherit') return inherit;
+      if (mode === 'ignore') return undefined;
+      return (d: Uint8Array) => {
+        if (add(d.length) <= SPAWN_SYNC_MAX_BUFFER) bucket.push(d);
+      };
+    };
+    let child: ProcessHandle;
+    try {
+      const onStdout = collect(args.stdio[1], out, (n) => (outBytes += n), parent.onStdout);
+      const onStderr = collect(args.stdio[2], err, (n) => (errBytes += n), parent.onStderr);
+      child = this.spawn(args.argv, {
+        env: args.env,
+        cwd: args.cwd,
+        stdin: 'pipe',
+        ...(onStdout ? { onStdout } : {}),
+        ...(onStderr ? { onStderr } : {}),
+      });
+    } catch (e) {
+      return encode({
+        error: {
+          code: (e as { code?: string }).code ?? 'EIO',
+          errno: -errnoOf(e),
+          message: (e as Error).message,
+        },
+      });
+    }
+    if (args.input) child.writeStdin(args.input);
+    child.writeStdin(null);
+    let timedOut = false;
+    const timer =
+      args.timeout && args.timeout > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            child.kill(args.killSignal ?? 'SIGTERM');
+          }, args.timeout)
+        : undefined;
+    const { code, signal } = await child.exit;
+    if (timer) clearTimeout(timer);
+    const result: Record<string, Value> = {
+      pid: child.pid,
+      status: signal ? null : code,
+      signal,
+      stdout: concat(out),
+      stderr: concat(err),
+    };
+    if (timedOut)
+      result['error'] = {
+        code: 'ETIMEDOUT',
+        errno: -110,
+        message: `spawnSync ${args.argv[0]} ETIMEDOUT`,
+      };
+    if (outBytes > SPAWN_SYNC_MAX_BUFFER || errBytes > SPAWN_SYNC_MAX_BUFFER) {
+      result['error'] = {
+        code: 'ENOBUFS',
+        errno: -105,
+        message: `spawnSync ${args.argv[0]} ENOBUFS`,
+      };
+    }
+    return encode(result);
+  }
+
   getProcess(pid: number): ProcessHandle | undefined {
     return this.processes.get(pid);
   }
+}
+
+function concat(chunks: Uint8Array[]): Uint8Array {
+  let total = 0;
+  for (const c of chunks) total += c.length;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
 }

@@ -2,7 +2,7 @@
 import { SyscallClient, encodeUtf8 } from '@clientvm/protocol';
 import type { KernelToProcess, ProcessToKernel } from '@clientvm/protocol';
 import { ExitSignal } from './context.ts';
-import type { OutputStream, ProcessContext, RuntimeTable } from './context.ts';
+import type { InputStream, OutputStream, ProcessContext, RuntimeTable } from './context.ts';
 
 /** The subset of `DedicatedWorkerGlobalScope` the bootstrap uses. */
 export interface ProcessScopeLike {
@@ -16,18 +16,52 @@ const COMMAND_NOT_FOUND = 127;
 /** Waits for the kernel's init message, then runs the matching runtime to completion. */
 export function startProcessWorker(scope: ProcessScopeLike, runtimes: RuntimeTable): void {
   let started = false;
+  const listeners = new Set<(m: KernelToProcess) => void>();
+  const stdin = createStdin();
   scope.addEventListener('message', (event) => {
     const msg = event.data;
-    if (msg.t !== 'init' || started) return;
-    started = true;
-    void run(scope, runtimes, msg);
+    if (msg.t === 'init') {
+      if (started) return;
+      started = true;
+      if (!msg.stdinOpen) stdin.push(null);
+      void run(scope, runtimes, msg, stdin, listeners);
+      return;
+    }
+    if (msg.t === 'stdin') {
+      stdin.push(msg.data);
+      return;
+    }
+    for (const l of listeners) l(msg);
   });
+}
+
+function createStdin(): InputStream & { push(data: Uint8Array | null): void } {
+  const buffered: (Uint8Array | null)[] = [];
+  let listener: ((data: Uint8Array | null) => void) | null = null;
+  let ended = false;
+  return {
+    get open() {
+      return !ended;
+    },
+    push(data) {
+      if (ended) return;
+      if (data === null) ended = true;
+      if (listener) listener(data);
+      else buffered.push(data);
+    },
+    subscribe(l) {
+      listener = l;
+      for (const d of buffered.splice(0)) l(d);
+    },
+  };
 }
 
 async function run(
   scope: ProcessScopeLike,
   runtimes: RuntimeTable,
-  init: KernelToProcess,
+  init: Extract<KernelToProcess, { t: 'init' }>,
+  stdin: InputStream,
+  listeners: Set<(m: KernelToProcess) => void>,
 ): Promise<void> {
   const stream = (t: 'stdout' | 'stderr'): OutputStream => ({
     write(data) {
@@ -50,15 +84,22 @@ async function run(
     syscall,
     stdout: stream('stdout'),
     stderr: stream('stderr'),
+    stdin,
+    send: (message) => scope.postMessage(message),
+    onMessage(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   };
 
-  const command = basename(init.argv[0] ?? '');
+  // The kernel resolved argv[0] to a runtime name before spawning.
+  const command = init.argv[0] ?? '';
   const runtime = runtimes[command];
   scope.postMessage({ t: 'ready' });
 
   let code: number;
   if (!runtime) {
-    ctx.stderr.write(`${command}: command not found\n`);
+    ctx.stderr.write(`${command}: runtime not available in this build\n`);
     code = COMMAND_NOT_FOUND;
   } else {
     try {
@@ -74,9 +115,4 @@ async function run(
   }
   scope.postMessage({ t: 'exit', code });
   scope.close?.();
-}
-
-function basename(path: string): string {
-  const i = path.lastIndexOf('/');
-  return i === -1 ? path : path.slice(i + 1);
 }

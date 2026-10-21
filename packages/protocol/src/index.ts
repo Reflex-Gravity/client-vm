@@ -16,7 +16,13 @@ export { RpcEndpoint, RpcError } from './rpc.ts';
 export type { Methods, PortLike } from './rpc.ts';
 export { StatLayout, encodeStat, decodeStat } from './stat.ts';
 export type { StatData } from './stat.ts';
-export type { ProcessToKernel, KernelToProcess, SyscallMode } from './process-messages.ts';
+export type {
+  ChildSpawnRequest,
+  KernelToProcess,
+  ProcessToKernel,
+  StdioMode,
+  SyscallMode,
+} from './process-messages.ts';
 export { SIGNAL_NUMBERS } from './instance-rpc.ts';
 export type {
   FileKind,

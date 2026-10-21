@@ -33,6 +33,12 @@ sends those to the kernel's `ModuleServer`, which resolves specifiers with Node'
 rewrites them to such URLs, and serves CommonJS files as ES facades. The instance page creates the
 kernel worker only once the SW controls the page, so every process worker is controlled too.
 
+Commands are files. Built-in runtimes are marker files in `/usr/local/bin`
+(`#!/clientvm/builtin node`), and the kernel resolves `argv[0]` like `execve`: `PATH` lookup, exec
+bits, shebang interpreters. So `node_modules/.bin` symlinks and `#!/usr/bin/env node` scripts
+just work. Child processes started by a process are routed through the kernel. `spawnSync` is a
+syscall that blocks the caller until the child exits.
+
 Each instance has its own origin, so the browser isolates instances' storage, channels and
 service workers from each other ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
 Forking into a new instance exports a filesystem image (`exportImage`), transfers it, and imports

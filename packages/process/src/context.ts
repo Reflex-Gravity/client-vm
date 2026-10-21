@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { SyscallClient } from '@clientvm/protocol';
+import type { KernelToProcess, ProcessToKernel, SyscallClient } from '@clientvm/protocol';
 
 export interface OutputStream {
   write(data: string | Uint8Array): void;
@@ -14,6 +14,19 @@ export interface ProcessContext {
   readonly syscall: SyscallClient;
   readonly stdout: OutputStream;
   readonly stderr: OutputStream;
+  readonly stdin: InputStream;
+  /** Sends a message to the kernel (child processes, watchers). */
+  send(message: ProcessToKernel): void;
+  /** Subscribes to kernel messages (child output, watch events). */
+  onMessage(listener: (message: KernelToProcess) => void): () => void;
+}
+
+/** This process's stdin as pushed by the kernel. */
+export interface InputStream {
+  /** False once end-of-file has been delivered (or stdin was never open). */
+  readonly open: boolean;
+  /** Receives each chunk and finally null (EOF). Chunks before subscribing are buffered. */
+  subscribe(listener: (data: Uint8Array | null) => void): void;
 }
 
 /**

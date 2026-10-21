@@ -8,7 +8,8 @@ import { codeError } from './buffer.ts';
  * max-listeners leak warning.
  */
 
-type Listener = (...args: unknown[]) => unknown;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- listeners take event-specific arguments, as in Node's typings
+type Listener = (...args: any[]) => unknown;
 type OnceWrapper = Listener & { listener: Listener };
 type Handlers = Record<string | symbol, Listener | Listener[] | undefined>;
 

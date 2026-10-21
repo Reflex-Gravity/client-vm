@@ -25,6 +25,7 @@ import {
 import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
 import { HttpRouter, staticHandler } from './http.ts';
 import { ModuleServer } from './module-server.ts';
+import { DEFAULT_ENV } from './commands.ts';
 import { Kernel } from './kernel.ts';
 import type { KernelOptions, ProcessHandle } from './kernel.ts';
 
@@ -36,7 +37,10 @@ export interface KernelBootMessage {
   port: MessagePort;
 }
 
-export type KernelWorkerOptions = Pick<KernelOptions, 'createProcessWorker' | 'payloadBytes'> & {
+export type KernelWorkerOptions = Pick<
+  KernelOptions,
+  'createProcessWorker' | 'payloadBytes' | 'commands'
+> & {
   /**
    * Opens the persistent store for `init.persist`. Defaults to the instance
    * origin's OPFS, guarded by a Web Lock so only one tab owns it.
@@ -163,6 +167,7 @@ async function boot(
   const { quotaBytes, maxInodes, maxProcesses } = init.limits ?? {};
   const kernel = new Kernel({
     createProcessWorker: options.createProcessWorker,
+    ...(options.commands ? { commands: options.commands } : {}),
     ...(options.payloadBytes === undefined ? {} : { payloadBytes: options.payloadBytes }),
     fsLimits: {
       ...(quotaBytes === undefined ? {} : { quotaBytes }),
@@ -214,7 +219,10 @@ async function boot(
     onOutput?: (fd: 1 | 2, data: Uint8Array) => void,
   ): ProcessHandle => {
     const proc = kernel.spawn(request.argv, {
-      ...(request.env ? { env: request.env } : {}),
+      // Processes started by the controller get a login-like environment.
+      env: { ...DEFAULT_ENV, ...request.env },
+      // `spawn` keeps stdin open for writeStdin; `run` opens it only to feed `request.stdin`.
+      stdin: !onOutput || request.stdin !== undefined ? 'pipe' : 'closed',
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.syscallMode ? { syscallMode: request.syscallMode } : {}),
       onStdout: (d) => (onOutput ? onOutput(1, d) : emit('output', proc.pid, 1, d)),
@@ -273,10 +281,22 @@ async function boot(
       if (!proc) throw new SystemError('ESRCH', 'kill');
       proc.kill(signal);
     },
+    writeStdin(pid, data) {
+      const proc = kernel.getProcess(pid);
+      if (!proc) throw new SystemError('ESRCH', 'write');
+      if (data !== null && !(data instanceof Uint8Array)) throw new SystemError('EINVAL', 'write');
+      proc.writeStdin(data);
+    },
     async run(request) {
       const out: Uint8Array[] = [];
       const err: Uint8Array[] = [];
       const proc = spawn(request, (fd, d) => (fd === 1 ? out : err).push(d));
+      if (request.stdin !== undefined) {
+        proc.writeStdin(
+          typeof request.stdin === 'string' ? encodeUtf8(request.stdin) : request.stdin,
+        );
+        proc.writeStdin(null);
+      }
       const { code, signal } = await proc.exit;
       const { spawnedAt, readyAt, exitedAt } = proc.timing;
       return {

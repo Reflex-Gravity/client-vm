@@ -11,48 +11,75 @@ export interface ProcessState {
   exiting: boolean;
 }
 
-/**
- * A minimal writable for process.stdout/stderr until `stream` lands (3b):
- * write(chunk, encoding?, cb?), end(), and the EventEmitter API.
- */
-function createStdioStream(out: OutputStream, fd: number) {
-  const stream = new EventEmitter() as EventEmitter & Record<string, unknown>;
-  Object.assign(stream, {
-    fd,
-    isTTY: false,
-    writable: true,
-    _isStdio: true,
-    write(chunk: string | Uint8Array, encoding?: string | (() => void), cb?: () => void) {
-      if (typeof encoding === 'function') cb = encoding;
+type StreamModule = Record<string, unknown> & {
+  Readable: new (
+    opts?: object,
+  ) => EventEmitter & Record<string, unknown> & { push(c: unknown): boolean };
+  Writable: new (opts?: object) => EventEmitter & Record<string, unknown>;
+};
+
+export interface StdioDeps {
+  stream: () => StreamModule;
+  /** Keeps the process alive while something reads stdin. */
+  handle: () => { ref(): unknown; unref(): unknown; close(): void };
+}
+
+/** process.stdout / process.stderr: Writable streams over the kernel output pipe (not a TTY). */
+function createStdioWritable(out: OutputStream, fd: number, deps: StdioDeps) {
+  const { Writable } = deps.stream();
+  const stream = new Writable({
+    decodeStrings: false,
+    write(chunk: string | Uint8Array, encoding: string, cb: () => void) {
       if (
         typeof chunk === 'string' &&
-        typeof encoding === 'string' &&
+        encoding !== 'utf8' &&
+        encoding !== 'utf-8' &&
         Buffer.isEncoding(encoding)
       ) {
         out.write(Buffer.from(chunk, encoding as BufferEncoding) as unknown as Uint8Array);
       } else {
         out.write(chunk);
       }
-      if (cb) queueMicrotask(cb);
-      return true;
+      cb();
     },
-    end(chunk?: string | Uint8Array | (() => void), cb?: () => void) {
-      if (typeof chunk === 'function') cb = chunk;
-      else if (chunk !== undefined) out.write(chunk);
-      queueMicrotask(() => {
-        stream.emit('finish');
-        cb?.();
-      });
-      return stream;
-    },
-    cork() {},
-    uncork() {},
-    setDefaultEncoding() {
-      return stream;
-    },
+  });
+  // Node never closes stdio on end() (other code may still write).
+  Object.assign(stream, {
+    fd,
+    isTTY: false,
+    _isStdio: true,
+    destroySoon: () => {},
+    _destroy: (_err: unknown, cb: (e?: unknown) => void) => cb(),
     hasColors: () => false,
     getColorDepth: () => 1,
   });
+  return stream;
+}
+
+/** process.stdin: a Readable over the kernel's stdin pipe; live only while consumed. */
+function createStdin(ctx: ProcessContext, deps: StdioDeps) {
+  const { Readable } = deps.stream();
+  let handle: ReturnType<StdioDeps['handle']> | null = null;
+  let subscribed = false;
+  const stream = new Readable({
+    read() {
+      if (subscribed) return;
+      subscribed = true;
+      if (ctx.stdin.open) handle ??= deps.handle();
+      ctx.stdin.subscribe((data) => {
+        if (data === null) {
+          handle?.close();
+          stream.push(null);
+        } else {
+          stream.push(Buffer.from(data));
+        }
+      });
+    },
+  });
+  // A paused stdin (no reader) does not keep the process alive, as in Node.
+  stream.on('pause', () => handle?.unref());
+  stream.on('resume', () => handle?.ref());
+  Object.assign(stream, { fd: 0, isTTY: false, setRawMode: undefined });
   return stream;
 }
 
@@ -62,6 +89,7 @@ export function createProcessObject(
   state: ProcessState,
   argv: string[],
   chdir: (dir: string) => string,
+  stdioDeps: StdioDeps,
 ): NodeProcess {
   const start = performance.now();
 
@@ -84,22 +112,24 @@ export function createProcessObject(
 
   const proc = new EventEmitter() as EventEmitter &
     Record<string, unknown> & { exitCode: number | undefined };
-  const stdout = createStdioStream(ctx.stdout, 1);
-  const stderr = createStdioStream(ctx.stderr, 2);
-  const stdin = new EventEmitter() as EventEmitter & Record<string, unknown>;
-  Object.assign(stdin, {
-    fd: 0,
-    isTTY: false,
-    readable: true,
-    setEncoding: () => stdin,
-    resume: () => stdin,
-    pause: () => stdin,
-    // No stdin data yet (Phase 3b); behave like an empty pipe.
-    read: () => null,
-  });
-  // Let 'data'/'end' listeners on stdin see an immediately-closed stream.
-  stdin.on('newListener', (event: unknown) => {
-    if (event === 'end' || event === 'close') queueMicrotask(() => stdin.emit(event as string));
+  // stdio streams are created on first access: loading streams costs a few ms.
+  let stdout: unknown, stderr: unknown, stdin: unknown;
+  Object.defineProperties(proc, {
+    stdout: {
+      get: () => (stdout ??= createStdioWritable(ctx.stdout, 1, stdioDeps)),
+      enumerable: true,
+      configurable: true,
+    },
+    stderr: {
+      get: () => (stderr ??= createStdioWritable(ctx.stderr, 2, stdioDeps)),
+      enumerable: true,
+      configurable: true,
+    },
+    stdin: {
+      get: () => (stdin ??= createStdin(ctx, stdioDeps)),
+      enumerable: true,
+      configurable: true,
+    },
   });
 
   Object.assign(proc, {
@@ -122,9 +152,6 @@ export function createProcessObject(
     argv0: 'node',
     env: { ...ctx.env },
     exitCode: undefined,
-    stdout,
-    stderr,
-    stdin,
     config: { variables: {} },
     features: {
       inspector: false,

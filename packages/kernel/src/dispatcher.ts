@@ -10,9 +10,22 @@ const EMPTY = new Uint8Array(0);
  * Maps syscall opcodes onto VFS calls for one process. Arguments arrive as a
  * codec-encoded array and are validated here: process code is untrusted.
  */
-export function createSyscallHandler(vfs: MemoryVfs, fds: FdTable): SyscallHandler {
+export interface SyscallHooks {
+  /** Runs a child to completion (Op.SPAWN_SYNC); resolves with the encoded result. */
+  spawnSync?: (request: Uint8Array) => Promise<Uint8Array>;
+}
+
+export function createSyscallHandler(
+  vfs: MemoryVfs,
+  fds: FdTable,
+  hooks: SyscallHooks = {},
+): SyscallHandler {
   return (op, request) => {
     if (op === Op.NOOP) return EMPTY;
+    if (op === Op.SPAWN_SYNC) {
+      if (!hooks.spawnSync) throw new SystemError('ENOSYS', 'spawnSync');
+      return hooks.spawnSync(request);
+    }
     const a = new Args(request);
     switch (op) {
       case Op.STAT:

@@ -89,9 +89,14 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     return target;
   };
 
-  const proc = createProcessObject(ctx, state, argv, chdir);
-  const console = createConsole(ctx.stdout, ctx.stderr);
   const loop = createEventLoop(globalThis);
+  let streamModule: Record<string, unknown> | undefined;
+  const lazyStream = () => (streamModule ??= builtins['stream'] as Record<string, unknown>);
+  const proc = createProcessObject(ctx, state, argv, chdir, {
+    stream: lazyStream as never,
+    handle: () => loop.handle(),
+  });
+  const console = createConsole(ctx.stdout, ctx.stderr);
   const emitWarning = proc['emitWarning'] as (
     w: string | Error,
     type?: string,
@@ -100,7 +105,17 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
   warningHook.emit = (w) => emitWarning(w);
   deprecationHook.emit = (msg, code) => emitWarning(msg, 'DeprecationWarning', code);
   const env = () => proc['env'] as Record<string, string>;
-  const builtins = createBuiltins({ fs, path, process: proc, console, timers: loop.timers, env });
+  const builtins = createBuiltins({
+    fs,
+    path,
+    process: proc,
+    console,
+    timers: loop.timers,
+    env,
+    ctx,
+    loop,
+    cwd: () => state.cwd,
+  });
   const resolverFs = resolverFsFrom(fs);
   const esm = new EsmResolver(resolverFs);
   let mainFile: string | undefined;
@@ -134,6 +149,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     process: proc,
     console,
     Buffer: bufferModule.Buffer,
+    ...(loop.fetch ? { fetch: loop.fetch } : {}),
     setImmediate: loop.timers.setImmediate,
     clearImmediate: loop.timers.clearImmediate,
   });

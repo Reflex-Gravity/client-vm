@@ -49,6 +49,8 @@ export interface SpawnRequest {
   env?: Record<string, string>;
   cwd?: string;
   syscallMode?: SyscallMode;
+  /** For `run`: bytes written to stdin before it is closed. `spawn` keeps stdin open. */
+  stdin?: string | Uint8Array;
 }
 
 export interface RunResult {
@@ -78,6 +80,8 @@ export type InstanceRpc = {
   /** Starts a process; output and exit arrive as {@link InstanceEvents}. Fails with EAGAIN at the process limit. */
   spawn(request: SpawnRequest): number;
   kill(pid: number, signal: Signal): void;
+  /** Writes to a process's stdin; null closes it. Only for processes spawned with an open stdin. */
+  writeStdin(pid: number, data: Uint8Array | null): void;
   /** Runs a process to completion, collecting its output (tests and benchmarks). */
   run(request: SpawnRequest): Promise<RunResult>;
   /** Takes a copy-on-write snapshot held by this kernel; returns its number. */

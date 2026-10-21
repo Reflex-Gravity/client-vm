@@ -13,6 +13,9 @@ import { urlModule } from './url.ts';
 import { utilModule } from './util.ts';
 import { extendFs } from './fs-extra.ts';
 import { createConsumers, loadStreamModule } from './stream.ts';
+import { createChildProcess, createWatchers } from './child-process.ts';
+import type { EventLoop } from './event-loop.ts';
+import type { ProcessContext } from '@clientvm/process';
 
 export interface BuiltinDeps {
   fs: NodeFs;
@@ -21,6 +24,9 @@ export interface BuiltinDeps {
   console: ReturnType<typeof createConsole>;
   timers: Record<string, unknown>;
   env: () => Record<string, string>;
+  ctx: ProcessContext;
+  loop: EventLoop;
+  cwd: () => string;
 }
 
 /**
@@ -62,6 +68,52 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     }));
   const defer = (fn: () => void) => (deps.timers['setImmediate'] as (f: () => void) => void)(fn);
   const fsFull = extendFs({ fs, path, stream: loadStream as never, defer });
+  const statForWatch = (p: string) =>
+    fs.statSync(p, { throwIfNoEntry: false }) as { mtimeMs: number; size: number } | undefined;
+  Object.assign(
+    fsFull,
+    createWatchers({ ctx: deps.ctx, loop: deps.loop, path, statSync: statForWatch }),
+  );
+  const fsPromises = fsFull['promises'] as Record<string, unknown>;
+  fsPromises['watch'] = async function* (
+    filename: string,
+    options: { recursive?: boolean; signal?: AbortSignal } = {},
+  ) {
+    const queue: { eventType: string; filename: string | null }[] = [];
+    let wake: (() => void) | null = null;
+    let closed = false;
+    const watcher = (
+      fsFull['watch'] as (
+        f: string,
+        o: object,
+        l: (e: string, n: string | null) => void,
+      ) => { close(): void }
+    )(filename, options, (eventType, name) => {
+      queue.push({ eventType, filename: name });
+      wake?.();
+    });
+    options.signal?.addEventListener('abort', () => {
+      closed = true;
+      wake?.();
+    });
+    try {
+      while (!closed) {
+        if (queue.length === 0) await new Promise<void>((r) => (wake = r));
+        wake = null;
+        while (queue.length > 0) yield queue.shift()!;
+      }
+    } finally {
+      watcher.close();
+    }
+  };
+  const childProcess = createChildProcess({
+    ctx: deps.ctx,
+    path,
+    loop: deps.loop,
+    stream: loadStream as never,
+    env: deps.env,
+    cwd: deps.cwd,
+  });
   const table: Record<string, unknown> = {
     assert: assertModule,
     'assert/strict': assertModule.strict,
@@ -70,6 +122,7 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     constants: { ...fs.constants, ...createOs(deps.env).constants.signals },
     events: eventsModule,
     fs: fsFull,
+    child_process: childProcess,
     'fs/promises': fsFull['promises'],
     os: createOs(deps.env),
     path,

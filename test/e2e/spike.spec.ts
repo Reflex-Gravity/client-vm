@@ -70,10 +70,10 @@ for (const mode of ['waitAsync', 'postMessage'] as const) {
       expect(exited.code).toBe(3);
     });
 
-    test('unknown commands exit 127', async ({ page }) => {
-      const result = await run(page, ['nosuchcmd'], mode);
-      expect(result.code).toBe(127);
-      expect(result.stderr).toBe('nosuchcmd: command not found\n');
+    test('unknown commands fail to spawn with ENOENT, like execve', async ({ page }) => {
+      await expect(run(page, ['nosuchcmd'], mode)).rejects.toThrow(
+        /ENOENT: no such file or directory, spawn nosuchcmd/,
+      );
     });
   });
 }

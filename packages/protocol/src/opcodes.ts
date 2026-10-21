@@ -29,6 +29,8 @@ export const Op = {
   WRITE: 23,
   FSTAT: 24,
   FTRUNCATE: 25,
+  /** Runs a child to completion while the caller blocks (spawnSync / execSync). */
+  SPAWN_SYNC: 26,
 } as const;
 
 export type Op = (typeof Op)[keyof typeof Op];

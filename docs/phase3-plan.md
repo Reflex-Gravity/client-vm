@@ -28,6 +28,7 @@ service worker, and a golden React + Vite template running end to end.
 | 3a1 | done |
 | 3a2 | done |
 | 3b1 | done: streams (ADR 0010) and async fs |
+| 3b2 | done: `child_process` with execve-style command resolution, stdin/stdout streams, handle-based liveness, `fs.watch` |
 | 3a3 | done. The instance page now boots its kernel only after the service worker controls it, because workers inherit their controller at creation. This adds about 45 ms to the first boot of each instance. Process spawn rose to about 9 ms as node-compat grew |
 
 ## Slices (each tested and committed separately)
