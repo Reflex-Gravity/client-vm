@@ -135,6 +135,7 @@ test.describe('instances', () => {
     await openHost(page);
     const a = await host(page, 'createInstance', {
       fs: { from: { app: { 'index.js': "console.log('v1')" } } },
+      capabilities: [{ kind: 'spawn-instance' }],
     });
     expect((await host(page, 'run', a, { argv: ['node', '/app/index.js'] })).stdout).toBe('v1\n');
     const b = await host(page, 'fork', a);

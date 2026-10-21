@@ -33,6 +33,7 @@ export type {
   InstanceEvents,
   InstanceInit,
   InstanceRpc,
+  ControllerRpc,
   PersistInfo,
   RunResult,
   Signal,
@@ -47,6 +48,8 @@ export {
   RESERVED_PATH_PREFIX,
   WS_SHIM_PATH,
   NO_LISTENER_HEADER,
+  NET_PATH_PREFIX,
+  MAILBOX_HOST,
   portLabel,
 } from './http-rpc.ts';
 export type {

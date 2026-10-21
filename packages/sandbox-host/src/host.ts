@@ -3,7 +3,14 @@
 // (http://localhost:<port>) and is NOT cross-origin isolated; each instance
 // lives on http://<id>.localhost:<port>.
 import { createClientVM } from '@clientvm/clientvm';
-import type { ExecOptions, ExecResult, Instance, InstanceOptions } from '@clientvm/clientvm';
+import type {
+  Capability,
+  ExecOptions,
+  ExecResult,
+  Instance,
+  InstanceId,
+  InstanceOptions,
+} from '@clientvm/clientvm';
 import type { RunResult, SpawnRequest } from '@clientvm/protocol';
 
 /** Test/automation surface on `window.__clientvm`. Ids cross the page boundary, objects don't. */
@@ -38,7 +45,17 @@ export interface HostApi {
   readFile(id: string, path: string): Promise<string>;
   readdir(id: string, path: string): Promise<string[]>;
   snapshot(id: string): Promise<string>;
-  fork(id: string): Promise<string>;
+  fork(id: string, options?: InstanceOptions): Promise<string>;
+  /** Host-authority grant (`ClientVM.grant`). */
+  grant(to: string, cap: Capability): void;
+  /** Runs an instance-scoped call and reports errors as values (for denial tests). */
+  as(id: string, op: 'grant' | 'revoke', to: string, cap: Capability): Promise<Outcome>;
+  as(id: string, op: 'send', to: string, message: unknown): Promise<Outcome>;
+  as(id: string, op: 'fork', options?: InstanceOptions): Promise<Outcome>;
+  capabilities(id: string): Capability[];
+  /** Starts recording mailbox deliveries to `id` (host listener). */
+  recordMail(id: string): void;
+  mail(id: string): { from: string; message: unknown }[];
   destroy(id: string, purge?: boolean): Promise<void>;
   flush(id: string): Promise<void>;
   /** Serves a directory on a port and resolves with the preview URL once it is routable. */
@@ -49,6 +66,8 @@ export interface HostApi {
   list(): string[];
   watch(id: string, path: string): Promise<() => unknown[]>;
 }
+
+export type Outcome = { ok: true; value?: unknown } | { ok: false; code: string; message: string };
 
 declare global {
   interface Window {
@@ -81,6 +100,8 @@ async function drain(
   for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>)
     onChunk(decoder.decode(chunk));
 }
+
+const mailLogs = new Map<string, { from: string; message: unknown }[]>();
 
 window.__clientvm = {
   hostCrossOriginIsolated: globalThis.crossOriginIsolated === true,
@@ -130,7 +151,29 @@ window.__clientvm = {
   readFile: async (id, path) => new TextDecoder().decode(await get(id).fs.readFile(path)),
   readdir: async (id, path) => (await get(id).fs.readdir(path)).map((e) => e.name),
   snapshot: (id) => get(id).snapshot(),
-  fork: async (id) => keep(await get(id).fork()),
+  fork: async (id, options) => keep(await get(id).fork(options)),
+  grant: (to, cap) => vm.grant(to as InstanceId, cap),
+  async as(id: string, op: string, a?: unknown, b?: unknown): Promise<Outcome> {
+    const instance = get(id);
+    try {
+      if (op === 'grant') await instance.grant(a as InstanceId, b as Capability);
+      else if (op === 'revoke') await instance.revoke(a as InstanceId, b as Capability);
+      else if (op === 'send') await instance.mailbox.send(a as string, b);
+      else if (op === 'fork')
+        return { ok: true, value: keep(await instance.fork(a as InstanceOptions)) };
+      return { ok: true };
+    } catch (err) {
+      const e = err as { code?: unknown; message?: unknown };
+      return { ok: false, code: String(e.code), message: String(e.message) };
+    }
+  },
+  capabilities: (id) => get(id).capabilities(),
+  recordMail(id) {
+    const log: { from: string; message: unknown }[] = [];
+    mailLogs.set(id, log);
+    get(id).mailbox.onMessage((from, message) => log.push({ from, message }));
+  },
+  mail: (id) => mailLogs.get(id) ?? [],
   async destroy(id, purge) {
     await get(id).destroy(purge ? { purge } : {});
     instances.delete(id);

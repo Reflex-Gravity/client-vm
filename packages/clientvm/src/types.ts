@@ -47,6 +47,10 @@ export interface InstanceOptions {
    * existing id to reattach to a persisted instance's storage.
    */
   id?: string;
+  /**
+   * A DNS label, unique among live instances. Other instances reach this one
+   * as `http://<name>.internal:<port>/` and address mail to it by name.
+   */
   name?: InstanceName;
   parent?: InstanceId;
   fs?: {
@@ -77,6 +81,10 @@ export interface ClientVM {
   createInstance(opts?: InstanceOptions): Promise<Instance>;
   getInstance(id: InstanceId): Instance | undefined;
   listInstances(): InstanceInfo[];
+  /** Grants `cap` to instance `to` with the host's authority (any capability). */
+  grant(to: InstanceId, cap: Capability): void;
+  /** Removes a capability from `to`. Returns whether it held one. */
+  revoke(to: InstanceId, cap: Capability): boolean;
 }
 
 export interface SpawnOptions {
@@ -100,6 +108,8 @@ export interface ExecResult {
 
 export interface Instance {
   readonly id: InstanceId;
+  /** Unique among live instances; also its `<name>.internal` host name. */
+  readonly name?: InstanceName;
   /** Per-instance sandbox origin, e.g. https://<id>.sandbox.example.dev */
   readonly origin: string;
   readonly fs: FileSystem;
@@ -113,7 +123,15 @@ export interface Instance {
   onPortClose(cb: (port: number) => void): Disposable;
   snapshot(): Promise<SnapshotId>;
   fork(opts?: InstanceOptions): Promise<Instance>;
+  /**
+   * Grants `cap` to another instance. Allowed when `cap` is about this
+   * instance (its `peer`/`from`), or this instance holds it (delegation).
+   */
   grant(to: InstanceId, cap: Capability): Promise<void>;
+  /** Revokes a capability about this instance from `to`. */
+  revoke(to: InstanceId, cap: Capability): Promise<void>;
+  /** The capabilities this instance holds. */
+  capabilities(): Capability[];
   /** Persists pending filesystem changes. Resolves immediately for non-persistent instances. */
   flush(): Promise<void>;
   /**
@@ -170,7 +188,13 @@ export interface FileSystem {
   mount(path: string, source: MountSource): Promise<void>;
 }
 
+/**
+ * Messages between instances, brokered by the controller. Sending needs a
+ * `channel` capability to the recipient. Messages are JSON values up to 1 MiB.
+ * Processes use the same mailbox at `http://mailbox.internal/`.
+ */
 export interface Mailbox {
   send(to: InstanceName | InstanceId, msg: unknown): Promise<void>;
+  /** Messages delivered to this instance (also queued for its processes). */
   onMessage(cb: (from: InstanceId, msg: unknown) => void): Disposable;
 }

@@ -10,6 +10,7 @@
 // It runs on origins that also run instance code, so it is only as trusted as
 // that code.
 import {
+  NET_PATH_PREFIX,
   PORT_BRIDGE_PATH,
   PORT_PATH_PREFIX,
   RESERVED_PATH_PREFIX,
@@ -103,7 +104,15 @@ async function forward(request: Request, url: URL): Promise<Response> {
   const first = await getKernel();
   let port: number | null = fixedPort;
   let path = url.pathname;
-  if (port === null && path.startsWith(PORT_PATH_PREFIX)) {
+  let peer: string | undefined;
+  if (port === null && path.startsWith(NET_PATH_PREFIX)) {
+    // A process reaching http://<peer>.internal:<port>/ (another instance, or the mailbox).
+    const match = /^\/__net\/([a-z0-9-]{1,63})\/(\d{1,5})(\/.*)?$/.exec(path);
+    if (!match) return plain(404, 'Not Found');
+    peer = match[1]!;
+    port = Number(match[2]);
+    path = match[3] ?? '/';
+  } else if (port === null && path.startsWith(PORT_PATH_PREFIX)) {
     const match = /^\/__port\/(\d{1,5})(\/.*)?$/.exec(path);
     if (!match) return plain(404, 'Not Found');
     port = Number(match[1]);
@@ -117,6 +126,13 @@ async function forward(request: Request, url: URL): Promise<Response> {
     headers: wireHeaders(request.headers, url),
     body: hasBody ? new Uint8Array(await request.arrayBuffer()) : null,
   };
+  if (peer !== undefined) {
+    wire.peer = peer;
+    wire.headers = [
+      ['host', `${peer}.internal${port === 80 ? '' : `:${port}`}`],
+      ...wire.headers.filter(([k]) => k !== 'host'),
+    ];
+  }
   // Content-Length is forbidden for scripts too; servers use it to detect a body.
   if (wire.body) {
     wire.headers = wire.headers.filter(([k]) => k !== 'content-length');

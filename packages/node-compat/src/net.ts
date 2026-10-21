@@ -59,6 +59,12 @@ export const isLocalHost = (host: string | undefined | null): boolean =>
  * Maps a URL that targets this instance (`http://localhost:3000/x`) to the
  * instance origin path the service worker routes to that port.
  */
+/** `b` for `b.internal`: another instance (or `mailbox`), reached through the controller. */
+export function internalPeer(hostname: string): string | null {
+  const m = /^([a-z0-9-]{1,63})\.internal\.?$/i.exec(hostname);
+  return m ? m[1]!.toLowerCase() : null;
+}
+
 export function virtualUrl(url: string | URL): string | null {
   let u: URL;
   try {
@@ -66,9 +72,12 @@ export function virtualUrl(url: string | URL): string | null {
   } catch {
     return null;
   }
-  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !isLocalHost(u.hostname)) return null;
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
   const port = u.port ? Number(u.port) : u.protocol === 'https:' ? 443 : 80;
   const origin = (globalThis as { location?: { origin: string } }).location?.origin ?? '';
+  const peer = internalPeer(u.hostname);
+  if (peer !== null) return `${origin}/__net/${peer}/${port}${u.pathname}${u.search}`;
+  if (!isLocalHost(u.hostname)) return null;
   return `${origin}/__port/${port}${u.pathname}${u.search}`;
 }
 

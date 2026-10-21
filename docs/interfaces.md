@@ -27,15 +27,19 @@ affect decisions, CLAUDE.md.
 | `Instance.fs.mount` | Phase 4 → `NotImplementedError` |
 | `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `kill`, `exit` | done. `stdin` writes reject until node-compat reads stdin. Output is buffered without bound until read |
 | `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
-| `Instance.fork()` | done: image export → new origin |
+| `Instance.fork()` | done: image export → new origin. Since 4a it needs a `spawn-instance` capability, whose limits bound the child's |
 | `Instance.destroy()` | done |
 | `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started) |
 | `Instance.onPortOpen` | done (3d): fires for open and future virtual ports with the port's own origin, `https://<id>-p<port>.<sandbox-domain>/` (ADR 0008), once its service worker is linked |
 | `Instance.onPortClose` | done (3d): fires when a reported port stops listening (its server closed or its process exited) |
-| `Instance.mailbox`, `Instance.grant` | Phase 4 → `NotImplementedError` |
+| `InstanceOptions.name`, `Instance.name` | done (4a): a DNS label, unique among live instances; the instance's `<name>.internal` host name |
+| `ClientVM.grant`/`revoke`, `Instance.grant`/`revoke`/`capabilities`, `InstanceOptions.capabilities` | done (4a): the controller's capability table. Instances grant what is about themselves or delegate what they hold; children get no more than their parent could grant (docs/phase4-plan.md) |
+| `Instance.mailbox` | done (4a): `send` needs a `channel` capability; JSON values up to 1 MiB; delivery goes to host listeners and to the kernel inbox, which processes read at `http://mailbox.internal/` |
+| `http://<name>.internal:<port>/` from processes | done (4b): needs a `net` capability for the peer (and port); HTTP only, responses stream |
 
 Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`,
-`ERR_BOOT_TIMEOUT`, `ERR_INSTANCE_PROTOCOL`, `ERR_DESTROYED`, ...). Errors from inside an instance
+`ERR_BOOT_TIMEOUT`, `ERR_INSTANCE_PROTOCOL`, `ERR_DESTROYED`, `ERR_NO_CAPABILITY`,
+`ERR_NO_INSTANCE`, `ERR_INVALID_CAPABILITY`, `ERR_INVALID_MESSAGE`, ...). Errors from inside an instance
 keep the system error `code` (`ENOENT`, `EAGAIN`, ...).
 
 ## Internal interfaces (not public API)
@@ -47,3 +51,5 @@ keep the system error `code` (`ENOENT`, `EAGAIN`, ...).
   | Promise<…>`. `ctx` provides `argv`, `env`, `cwd`, `syscall`, `stdout`, and `stderr`.
 - **Instance RPC** (`@clientvm/protocol` `InstanceRpc` / `InstanceEvents`): what an instance kernel
   serves to the controller over its MessagePort, plus the handshake messages.
+- **Controller RPC** (`ControllerRpc`): requests a kernel makes of the controller on the same
+  port (`mailboxSend`, `netFetch`). They run with the calling instance's capabilities.

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import type { WireRequest, WireResponse } from './http-rpc.ts';
 import type { SyscallMode } from './process-messages.ts';
 
 /**
@@ -12,6 +13,8 @@ export type FileKind = 'file' | 'dir' | 'symlink';
 export interface InstanceInit {
   /** Instance id, also the first DNS label of the instance origin. */
   id: string;
+  /** The instance's name (its `.internal` host name besides the id), if it has one. */
+  name?: string;
   limits?: { quotaBytes?: number; maxInodes?: number; maxProcesses?: number };
   /** Boot from a filesystem image (fork) instead of the default seed. */
   image?: Uint8Array[];
@@ -109,6 +112,22 @@ export type InstanceRpc = {
   linkPort(port: number, channel: MessagePort): void;
   /** Kills all processes and flushes persisted state; the controller removes the iframe afterwards. */
   shutdown(): Promise<void>;
+  /** Puts a mailbox message from another instance (or the host) in this instance's inbox. */
+  mailboxDeliver(from: string, fromName: string | null, message: unknown): void;
+  /** Serves a request from another instance (`http://<this>.internal:<port>/`) on a virtual port. */
+  fetchPort(request: WireRequest): Promise<WireResponse>;
+};
+
+/**
+ * Requests a kernel makes of the controller. The controller checks each one
+ * against the calling instance's capabilities; failures carry `code`
+ * `ERR_NO_CAPABILITY` or `ERR_NO_INSTANCE`.
+ */
+export type ControllerRpc = {
+  /** Sends a mailbox message as this instance. */
+  mailboxSend(to: string, message: unknown): void;
+  /** Forwards a request to `http://<peer>.internal:<port>/`. */
+  netFetch(peer: string, request: WireRequest): Promise<WireResponse>;
 };
 
 export interface PersistInfo {

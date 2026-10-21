@@ -20,6 +20,7 @@ import type {
 import { MemoryVfs, importImage } from '@clientvm/vfs';
 import type { Snapshot, VfsLimits } from '@clientvm/vfs';
 import { installBuiltinCommands, resolveCommand } from './commands.ts';
+import { installDevices } from './devices.ts';
 import { createSyscallHandler } from './dispatcher.ts';
 import { FdTable } from './fd-table.ts';
 import type { NetStack } from './net.ts';
@@ -120,6 +121,7 @@ export class Kernel {
     }
     // Refreshed on every boot: restored filesystems may predate a runtime.
     installBuiltinCommands(this.vfs, options.commands ?? []);
+    installDevices(this.vfs);
   }
 
   get processCount(): number {

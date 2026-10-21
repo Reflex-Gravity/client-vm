@@ -15,7 +15,7 @@ for (const mode of ['waitAsync', 'postMessage'] as const) {
         mode,
       );
       expect(result.stderr).toBe('');
-      expect(result.stdout).toBe("[ 'bin', 'etc', 'home', 'tmp', 'usr' ]\n");
+      expect(result.stdout).toBe("[ 'bin', 'dev', 'etc', 'home', 'tmp', 'usr' ]\n");
       expect(result.code).toBe(0);
     });
 

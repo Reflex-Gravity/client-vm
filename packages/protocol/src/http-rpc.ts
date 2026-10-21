@@ -10,6 +10,11 @@
 export interface WireRequest {
   /** Target virtual port; null routes to the primary (first opened) port. */
   port: number | null;
+  /**
+   * For requests from processes to `http://<peer>.internal:<port>/`: the
+   * target instance (name or id), or `mailbox` for the instance's mailbox.
+   */
+  peer?: string;
   method: string;
   /** Path plus query string, e.g. `/assets/app.js?v=1`. */
   path: string;
@@ -72,6 +77,12 @@ export const WS_SHIM_PATH = '/__clientvm/ws-shim.js';
  * clients (fetch, http, curl) report ECONNREFUSED as Node and curl would.
  */
 export const NO_LISTENER_HEADER = 'x-clientvm-no-listener';
+
+/** Instance-origin path prefix for requests to other instances: `/__net/<peer>/<port>/<path>`. */
+export const NET_PATH_PREFIX = '/__net/';
+
+/** The reserved `.internal` name that reaches the instance's own mailbox. */
+export const MAILBOX_HOST = 'mailbox';
 /** The bridge page on a port origin. */
 export const PORT_BRIDGE_PATH = '/__clientvm/port.html';
 

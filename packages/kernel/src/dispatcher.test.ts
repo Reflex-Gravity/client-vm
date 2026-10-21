@@ -3,6 +3,7 @@ import { Op, decode, decodeStat, encode } from '@clientvm/protocol';
 import { MemoryVfs } from '@clientvm/vfs';
 import { describe, expect, it } from 'vitest';
 import { createSyscallHandler } from './dispatcher.ts';
+import { installDevices } from './devices.ts';
 import { FdTable } from './fd-table.ts';
 
 describe('syscall dispatcher', () => {
@@ -49,5 +50,26 @@ describe('syscall dispatcher', () => {
     expect(() => c(Op.OPEN, ['/f', 0, 0])).toThrow(/EMFILE/);
     fds.closeAll();
     expect(() => c(Op.CLOSE, [ro])).toThrow(/EBADF/);
+  });
+
+  it('serves character devices by path', () => {
+    const own = new MemoryVfs();
+    installDevices(own);
+    const h = createSyscallHandler(own, new FdTable(own));
+    const c = (op: number, args: Parameters<typeof encode>[0]) => h(op, encode(args)) as Uint8Array;
+    expect(decode(c(Op.READDIR, ['/dev', false]))).toEqual(['null', 'random', 'urandom', 'zero']);
+    const st = decodeStat(c(Op.STAT, ['/dev/null']));
+    expect(st.mode & 0o170000).toBe(0o020000);
+    expect(st.rdev).toBe(259);
+    c(Op.WRITE_FILE, ['/dev/null', new Uint8Array(10), null]);
+    expect(c(Op.READ_FILE, ['/dev/null']).length).toBe(0);
+    const zero = decode(c(Op.OPEN, ['/dev/zero', 0, 0])) as number;
+    expect(c(Op.READ, [zero, 8, null])).toEqual(new Uint8Array(8));
+    const rnd = decode(c(Op.OPEN, ['//dev/urandom', 0, 0])) as number;
+    expect(c(Op.READ, [rnd, 32, null]).length).toBe(32);
+    const sink = decode(c(Op.OPEN, ['/dev/null', 1, 0])) as number;
+    expect(decode(c(Op.WRITE, [sink, new Uint8Array(5), null]))).toBe(5);
+    expect(decodeStat(c(Op.FSTAT, [sink])).mode & 0o170000).toBe(0o020000);
+    c(Op.CLOSE, [sink]);
   });
 });

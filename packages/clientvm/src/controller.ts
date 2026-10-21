@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-import { PORT_BRIDGE_PATH, RpcEndpoint, portLabel } from '@clientvm/protocol';
+import {
+  MAILBOX_HOST,
+  PORT_BRIDGE_PATH,
+  RpcEndpoint,
+  portLabel,
+  withTransfer,
+} from '@clientvm/protocol';
 import type {
+  ControllerRpc,
   InstanceEvents,
   InstanceInit,
   InstanceRpc,
   RunResult,
   SpawnRequest,
+  WireRequest,
+  WireResponse,
 } from '@clientvm/protocol';
+import { CapabilityTable, parseCapability, subjectOf } from './capabilities.ts';
 import { connectInstance, connectPortBridge } from './connect.ts';
 import { ClientVMError, NotImplementedError } from './errors.ts';
 import { ProcessHandleImpl } from './process.ts';
@@ -67,12 +77,17 @@ export function createClientVM(options: ClientVMOptions): ClientVM {
   return new Controller(options);
 }
 
-/** Options accepted internally by instance creation (adds the fork image). */
-type CreateOptions = InstanceOptions & { image?: Uint8Array[] };
+/** Options accepted internally by instance creation (adds the fork image and granting parent). */
+type CreateOptions = InstanceOptions & { image?: Uint8Array[]; grantedBy?: InstanceId };
+
+const MAX_MESSAGE_BYTES = 1 << 20;
 
 class Controller implements ClientVM {
   readonly options: Required<Omit<ClientVMOptions, 'container'>> & { container?: HTMLElement };
   private readonly instances = new Map<InstanceId, InstanceImpl>();
+  private readonly names = new Map<string, InstanceId>();
+  /** @internal */
+  readonly caps = new CapabilityTable();
 
   constructor(options: ClientVMOptions) {
     this.options = {
@@ -87,11 +102,26 @@ class Controller implements ClientVM {
     if (!ID_PATTERN.test(id) || PORT_SUFFIX.test(id)) {
       throw new ClientVMError(`invalid instance id "${id}"`, 'ERR_INVALID_ID');
     }
-    if (this.instances.has(id))
+    if (this.instances.has(id) || this.names.has(id))
       throw new ClientVMError(`instance ${id} already exists`, 'ERR_EXISTS');
+    const name = opts.name;
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !ID_PATTERN.test(name) || name === MAILBOX_HOST) {
+        throw new ClientVMError(`invalid instance name "${String(name)}"`, 'ERR_INVALID_ID');
+      }
+      if (this.names.has(name) || this.instances.has(name as InstanceId) || name === id)
+        throw new ClientVMError(`an instance named ${name} already exists`, 'ERR_EXISTS');
+    }
+    const capabilities = (opts.capabilities ?? []).map(parseCapability);
+    if (opts.grantedBy !== undefined) {
+      for (const cap of capabilities) {
+        if (!this.caps.canGrant(opts.grantedBy, cap))
+          throw noCapability(`${opts.grantedBy} cannot give its child a ${cap.kind} capability`);
+      }
+    }
     const origin = new URL(this.options.sandboxOrigin(id)).origin;
 
-    const init: InstanceInit = { id };
+    const init: InstanceInit = { id, ...(name === undefined ? {} : { name }) };
     const limits = {
       ...(opts.fs?.quotaBytes === undefined ? {} : { quotaBytes: opts.fs.quotaBytes }),
       ...(opts.limits?.maxProcesses === undefined
@@ -130,7 +160,61 @@ class Controller implements ClientVM {
       throw err;
     }
     this.instances.set(id, instance);
+    if (name !== undefined) this.names.set(name, id);
+    for (const cap of capabilities) this.caps.grant(id, cap);
     return instance;
+  }
+
+  grant(to: InstanceId, cap: Capability): void {
+    if (!this.instances.has(to)) throw noInstance(to);
+    this.caps.grant(to, parseCapability(cap));
+  }
+
+  revoke(to: InstanceId, cap: Capability): boolean {
+    return this.caps.revoke(to, parseCapability(cap));
+  }
+
+  /** @internal An instance by id or name. */
+  resolve(nameOrId: string): InstanceImpl | undefined {
+    return (
+      this.instances.get(nameOrId as InstanceId) ??
+      this.instances.get(this.names.get(nameOrId) ?? ('' as InstanceId))
+    );
+  }
+
+  /** @internal Delivers `message` from `sender` to `to` if `sender` holds a channel to it. */
+  mailboxSend(sender: InstanceImpl, to: unknown, message: unknown): void {
+    if (typeof to !== 'string')
+      throw new ClientVMError('mailbox: bad recipient', 'ERR_INVALID_MESSAGE');
+    const target = this.resolve(to);
+    if (!target) throw noInstance(to);
+    if (!this.caps.has(sender.id, { kind: 'channel', peer: target.id }))
+      throw noCapability(`${sender.label} has no channel capability for ${to}`);
+    let json: string | undefined;
+    try {
+      json = JSON.stringify(message);
+    } catch {
+      json = undefined;
+    }
+    if (json === undefined)
+      throw new ClientVMError('mailbox: messages must be JSON values', 'ERR_INVALID_MESSAGE');
+    if (json.length > MAX_MESSAGE_BYTES)
+      throw new ClientVMError('mailbox: message larger than 1 MiB', 'ERR_INVALID_MESSAGE');
+    // A fresh copy: the recipient never shares objects with the sender.
+    target.deliverMail(sender, JSON.parse(json));
+  }
+
+  /** @internal Forwards `request` from `sender` to `http://<peer>.internal:<port>/`. */
+  async netFetch(sender: InstanceImpl, peer: unknown, request: unknown): Promise<WireResponse> {
+    if (typeof peer !== 'string') throw noInstance(String(peer));
+    const target = this.resolve(peer);
+    if (!target) throw noInstance(peer);
+    const req: WireRequest = v.wireRequest(request);
+    const port = req.port ?? 80;
+    if (!this.caps.has(sender.id, { kind: 'net', peer: target.id, ports: [port] }))
+      throw noCapability(`${sender.label} has no net capability for ${peer}:${port}`);
+    const res = v.wireResponse(await target.rpc.call('fetchPort', { ...req, port }));
+    return res.body instanceof ReadableStream ? withTransfer(res, [res.body]) : res;
   }
 
   getInstance(id: InstanceId): Instance | undefined {
@@ -143,7 +227,10 @@ class Controller implements ClientVM {
 
   /** @internal */
   forget(id: InstanceId): void {
+    const instance = this.instances.get(id);
     this.instances.delete(id);
+    if (instance?.name !== undefined) this.names.delete(instance.name);
+    this.caps.drop(id);
   }
 
   private async exportSnapshot(snapshotId: SnapshotId): Promise<Uint8Array[]> {
@@ -159,11 +246,12 @@ class Controller implements ClientVM {
 
 class InstanceImpl implements Instance {
   readonly id: InstanceId;
+  readonly name?: string;
   readonly origin: string;
   readonly fs: FileSystem;
   readonly mailbox: Mailbox;
   /** @internal */
-  readonly rpc: RpcEndpoint<InstanceEvents, InstanceRpc>;
+  readonly rpc: RpcEndpoint<InstanceEvents & ControllerRpc, InstanceRpc>;
 
   private readonly controller: Controller;
   private readonly iframe: HTMLIFrameElement;
@@ -175,6 +263,7 @@ class InstanceImpl implements Instance {
   private readonly openPorts = new Map<number, string>();
   private readonly portListeners = new Set<(port: number, url: string) => void>();
   private readonly portCloseListeners = new Set<(port: number) => void>();
+  private readonly mailListeners = new Set<(from: InstanceId, msg: unknown) => void>();
   /** Bridge iframe per port origin (null while linking). */
   private readonly portBridges = new Map<number, HTMLIFrameElement | null>();
   private destroyed = false;
@@ -193,7 +282,11 @@ class InstanceImpl implements Instance {
     this.iframe = iframe;
     this.port = port;
     this.opts = opts;
-    this.rpc = new RpcEndpoint<InstanceEvents, InstanceRpc>(port, {
+    if (opts.name !== undefined) this.name = opts.name;
+    this.rpc = new RpcEndpoint<InstanceEvents & ControllerRpc, InstanceRpc>(port, {
+      // Requests from the kernel run with this instance's capabilities.
+      mailboxSend: (to, message) => controller.mailboxSend(this, to, message),
+      netFetch: (peer, request) => controller.netFetch(this, peer, request),
       output: (pid, fd, data) => {
         if ((fd === 1 || fd === 2) && v.isUint8Array(data))
           this.processes.get(pid)?.deliverOutput(fd, data);
@@ -224,11 +317,26 @@ class InstanceImpl implements Instance {
     });
     this.fs = new InstanceFs(this);
     this.mailbox = {
-      send: () => Promise.reject(new NotImplementedError('mailbox')),
-      onMessage: () => {
-        throw new NotImplementedError('mailbox');
+      send: async (to, msg) => {
+        this.assertAlive();
+        controller.mailboxSend(this, to, msg);
+      },
+      onMessage: (cb) => {
+        this.mailListeners.add(cb);
+        return { dispose: () => void this.mailListeners.delete(cb) };
       },
     };
+  }
+
+  /** @internal How errors name this instance. */
+  get label(): string {
+    return this.name ?? this.id;
+  }
+
+  /** @internal Puts a message in this instance's inbox and tells host listeners. */
+  deliverMail(sender: InstanceImpl, message: unknown): void {
+    void this.rpc.call('mailboxDeliver', sender.id, sender.name ?? null, message).catch(() => {});
+    for (const cb of this.mailListeners) cb(sender.id, message);
   }
 
   info(): InstanceInfo {
@@ -350,14 +458,68 @@ class InstanceImpl implements Instance {
     return `${this.id}:${n}` as SnapshotId;
   }
 
+  /**
+   * Copies this instance's filesystem into a new child instance. Needs a
+   * `spawn-instance` capability; the child's limits default to (and may not
+   * exceed) the capability's.
+   */
   async fork(opts: InstanceOptions = {}): Promise<Instance> {
     this.assertAlive();
+    const childOpts = this.childOptions(opts);
     const image = v.chunks(await this.rpc.call('exportImage', null));
-    return this.controller.createInstance({ ...opts, parent: this.id, image } as CreateOptions);
+    return this.controller.createInstance({ ...childOpts, image } as CreateOptions);
   }
 
-  grant(_to: InstanceId, _cap: Capability): Promise<void> {
-    return Promise.reject(new NotImplementedError('capability grants (Phase 4)'));
+  /** @internal Checks `spawn-instance` and applies its limits to a child's options. */
+  childOptions(opts: InstanceOptions): CreateOptions {
+    const held = this.controller.caps.list(this.id).filter((c) => c.kind === 'spawn-instance');
+    if (held.length === 0) throw noCapability(`${this.label} has no spawn-instance capability`);
+    const wanted = {
+      ...(opts.limits?.maxProcesses === undefined
+        ? {}
+        : { maxProcesses: opts.limits.maxProcesses }),
+      ...(opts.fs?.quotaBytes === undefined ? {} : { quotaBytes: opts.fs.quotaBytes }),
+    };
+    const cap = held.find((c) =>
+      this.controller.caps.has(this.id, {
+        kind: 'spawn-instance',
+        limits: { ...c.limits, ...wanted },
+      }),
+    );
+    if (!cap) throw noCapability(`${this.label} cannot create a child with those limits`);
+    const limits = { ...cap.limits, ...wanted };
+    return {
+      ...opts,
+      parent: this.id,
+      grantedBy: this.id,
+      ...(limits.maxProcesses === undefined
+        ? {}
+        : { limits: { ...opts.limits, maxProcesses: limits.maxProcesses } }),
+      ...(limits.quotaBytes === undefined
+        ? {}
+        : { fs: { ...opts.fs, quotaBytes: limits.quotaBytes } }),
+    };
+  }
+
+  async grant(to: InstanceId, cap: Capability): Promise<void> {
+    this.assertAlive();
+    const parsed = parseCapability(cap);
+    if (!this.controller.getInstance(to)) throw noInstance(to);
+    if (!this.controller.caps.canGrant(this.id, parsed))
+      throw noCapability(`${this.label} cannot grant this ${parsed.kind} capability`);
+    this.controller.caps.grant(to, parsed);
+  }
+
+  async revoke(to: InstanceId, cap: Capability): Promise<void> {
+    this.assertAlive();
+    const parsed = parseCapability(cap);
+    if (subjectOf(parsed) !== this.id)
+      throw noCapability(`${this.label} can only revoke capabilities about itself`);
+    this.controller.caps.revoke(to, parsed);
+  }
+
+  capabilities(): Capability[] {
+    return this.controller.caps.list(this.id);
   }
 
   async flush(): Promise<void> {
@@ -383,6 +545,7 @@ class InstanceImpl implements Instance {
     this.watchers.clear();
     this.portListeners.clear();
     this.portCloseListeners.clear();
+    this.mailListeners.clear();
     for (const bridge of this.portBridges.values()) bridge?.remove();
     this.portBridges.clear();
     this.port.close();
@@ -509,4 +672,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
       },
     );
   });
+}
+
+function noCapability(message: string): ClientVMError {
+  return new ClientVMError(message, 'ERR_NO_CAPABILITY');
+}
+
+function noInstance(nameOrId: string): ClientVMError {
+  return new ClientVMError(`no instance named ${nameOrId}`, 'ERR_NO_INSTANCE');
 }

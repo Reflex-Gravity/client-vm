@@ -119,6 +119,7 @@ tools.
 
 ## Filesystem semantics
 
+- `/dev/null`, `/dev/zero`, `/dev/random` and `/dev/urandom` are character devices (by path; `ls /dev` lists them). Reading a whole infinite device with `readFile` returns nothing rather than looping.
 - Linux semantics are the reference (CI runs the differentials on Linux; a few macOS-divergent cases are skipped locally).
 - Symlinks are followed with a 40-hop limit (`ELOOP`); `..` is resolved physically, as the kernel does.
 - Hard links, unlinked-but-open files, `O_APPEND`/`O_EXCL`/`O_TRUNC`, and zero-filled holes behave as on Linux.

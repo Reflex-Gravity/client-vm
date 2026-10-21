@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-import { RpcEndpoint, SystemError, decodeUtf8, encodeUtf8, withTransfer } from '@clientvm/protocol';
+import {
+  MAILBOX_HOST,
+  NO_LISTENER_HEADER,
+  RpcEndpoint,
+  SystemError,
+  decodeUtf8,
+  encodeUtf8,
+  withTransfer,
+} from '@clientvm/protocol';
 import type {
+  ControllerRpc,
   FileKind,
   HttpRpc,
   InstanceEvents,
@@ -9,6 +18,7 @@ import type {
   PortLike,
   SpawnRequest,
   StatData,
+  WireRequest,
   WireResponse,
   WireStat,
 } from '@clientvm/protocol';
@@ -25,6 +35,7 @@ import {
 } from '@clientvm/vfs';
 import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
 import { HttpRouter, staticHandler } from './http.ts';
+import { Inbox, mailboxHandler } from './mailbox.ts';
 import { NetStack } from './net.ts';
 import { ModuleServer } from './module-server.ts';
 import { DEFAULT_ENV } from './commands.ts';
@@ -125,8 +136,13 @@ export function serveInstance(
 ): Promise<ServedInstance> {
   let methods: InstanceRpc | undefined;
   // eslint-disable-next-line prefer-const -- assigned after the endpoint that boot() emits through
-  let rpc: RpcEndpoint<InstanceRpc, InstanceEvents>;
-  const ready = boot(init, options, (event, ...args) => rpc.emit(event, ...args)).then((booted) => {
+  let rpc: RpcEndpoint<InstanceRpc, InstanceEvents & ControllerRpc>;
+  const ready = boot(
+    init,
+    options,
+    (event, ...args) => rpc.emit(event, ...args),
+    (method, ...args) => rpc.call(method, ...args),
+  ).then((booted) => {
     methods = booted.methods;
     return booted.served;
   });
@@ -140,7 +156,7 @@ export function serveInstance(
         return method(...args);
       },
   });
-  rpc = new RpcEndpoint<InstanceRpc, InstanceEvents>(port, gated);
+  rpc = new RpcEndpoint<InstanceRpc, InstanceEvents & ControllerRpc>(port, gated);
   return ready;
 }
 
@@ -149,10 +165,16 @@ type Emit = <K extends keyof InstanceEvents>(
   ...args: Parameters<InstanceEvents[K]>
 ) => void;
 
+type CallController = <K extends keyof ControllerRpc>(
+  method: K,
+  ...args: Parameters<ControllerRpc[K]>
+) => Promise<Awaited<ReturnType<ControllerRpc[K]>>>;
+
 async function boot(
   init: InstanceInit,
   options: KernelWorkerOptions,
   emit: Emit,
+  callController: CallController,
 ): Promise<{ methods: InstanceRpc; served: ServedInstance }> {
   let store: { backend: PersistenceBackend; release(): void } | null = null;
   let restored: { snapshot: Snapshot; generation: number } | null = null;
@@ -205,9 +227,37 @@ async function boot(
   };
 
   const modules = new ModuleServer(kernel.vfs);
+  const inbox = new Inbox();
+  const mailbox = mailboxHandler({ id: init.id, name: init.name ?? null }, inbox, (to, message) =>
+    callController('mailboxSend', to, message),
+  );
+  /** Requests from processes to `http://<peer>.internal/`: the mailbox, or another instance. */
+  const fetchPeer = async (req: WireRequest & { peer: string }): Promise<WireResponse> => {
+    if (req.peer === MAILBOX_HOST) return mailbox(req);
+    try {
+      return await callController('netFetch', req.peer, req);
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        status: code === 'ERR_NO_CAPABILITY' ? 403 : 502,
+        statusText: code === 'ERR_NO_CAPABILITY' ? 'Forbidden' : 'Bad Gateway',
+        headers: [
+          ['content-type', 'text/plain; charset=utf-8'],
+          // An unknown instance refuses connections, like a closed port.
+          ...(code === 'ERR_NO_INSTANCE'
+            ? ([[NO_LISTENER_HEADER, '1']] as [string, string][])
+            : []),
+        ],
+        body: encodeUtf8(`ClientVM: ${message}\n`),
+      };
+    }
+  };
   const attachHttpPort = (port: MessagePort) => {
     new RpcEndpoint<HttpRpc, Record<string, never>>(port, {
       fetch: async (req) => {
+        if (typeof req.peer === 'string')
+          return transferBody(await fetchPeer(req as WireRequest & { peer: string }));
         // Module requests (a process importing from the VFS) only come from the instance origin itself.
         if (req.port === null && modules.handles(new URL(req.path, 'http://x').pathname))
           return modules.handle(req);
@@ -364,6 +414,16 @@ async function boot(
       if (!persister || !store) return;
       persister.close();
       await purgePersisted(store.backend);
+    },
+    mailboxDeliver(from, fromName, message) {
+      if (typeof from !== 'string') throw new SystemError('EINVAL', 'mailbox');
+      inbox.deliver({ from, fromName: typeof fromName === 'string' ? fromName : null, message });
+    },
+    async fetchPort(request) {
+      // The controller already routed it here; serve it as a local request.
+      const req: WireRequest = { ...request };
+      delete req.peer;
+      return transferBody(await router.handle(req));
     },
     async shutdown() {
       kernel.killAll('SIGKILL');

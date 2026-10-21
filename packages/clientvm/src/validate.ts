@@ -7,6 +7,8 @@ import type {
   Signal,
   WireDirEntry,
   WireFsEvent,
+  WireRequest,
+  WireResponse,
   WireStat,
 } from '@clientvm/protocol';
 import { ClientVMError } from './errors.ts';
@@ -107,4 +109,52 @@ export function fsEvents(v: unknown): WireFsEvent[] | null {
     }
   }
   return out;
+}
+
+const isHeaders = (v: unknown): v is [string, string][] =>
+  Array.isArray(v) &&
+  v.every(
+    (h) =>
+      Array.isArray(h) && h.length === 2 && typeof h[0] === 'string' && typeof h[1] === 'string',
+  );
+
+/** A request a kernel asks the controller to forward to another instance. */
+export function wireRequest(v: unknown): WireRequest {
+  const r = v as Partial<WireRequest> | null;
+  if (
+    typeof r !== 'object' ||
+    r === null ||
+    !(r.port === null || (Number.isInteger(r.port) && r.port! >= 1 && r.port! <= 65535)) ||
+    typeof r.method !== 'string' ||
+    !/^[A-Z]{1,16}$/.test(r.method) ||
+    typeof r.path !== 'string' ||
+    !r.path.startsWith('/') ||
+    !isHeaders(r.headers) ||
+    !(r.body === null || isUint8Array(r.body))
+  ) {
+    bad('request');
+  }
+  return {
+    port: r.port ?? null,
+    method: r.method,
+    path: r.path,
+    headers: r.headers,
+    body: r.body ?? null,
+  };
+}
+
+/** A response from a peer kernel, before it is handed to the requesting kernel. */
+export function wireResponse(v: unknown): WireResponse {
+  const r = v as Partial<WireResponse> | null;
+  if (
+    typeof r !== 'object' ||
+    r === null ||
+    !Number.isInteger(r.status) ||
+    typeof r.statusText !== 'string' ||
+    !isHeaders(r.headers) ||
+    !(isUint8Array(r.body) || r.body instanceof ReadableStream)
+  ) {
+    bad('response');
+  }
+  return { status: r.status!, statusText: r.statusText, headers: r.headers, body: r.body };
 }

@@ -3,6 +3,7 @@ import { Op, SystemError, decode, encode, encodeStat } from '@clientvm/protocol'
 import type { SyscallHandler, Value } from '@clientvm/protocol';
 import type { MemoryVfs } from '@clientvm/vfs';
 import type { FdTable } from './fd-table.ts';
+import { deviceAt, deviceStat } from './devices.ts';
 
 const EMPTY = new Uint8Array(0);
 
@@ -27,6 +28,22 @@ export function createSyscallHandler(
       return hooks.spawnSync(request);
     }
     const a = new Args(request);
+    // Character devices are resolved by path before the VFS sees them.
+    const device =
+      op === Op.STAT ||
+      op === Op.LSTAT ||
+      op === Op.READ_FILE ||
+      op === Op.WRITE_FILE ||
+      op === Op.ACCESS ||
+      op === Op.TRUNCATE
+        ? deviceAt(a.str(0))
+        : undefined;
+    if (device) {
+      if (op === Op.STAT || op === Op.LSTAT) return encodeStat(deviceStat(device));
+      // Reading a whole infinite device has no end; return one chunk like a short read.
+      if (op === Op.READ_FILE) return device.read(0);
+      return EMPTY;
+    }
     switch (op) {
       case Op.STAT:
         return encodeStat(vfs.stat(a.str(0)));
@@ -97,9 +114,12 @@ export function createSyscallHandler(
         return fds.read(a.int(0), a.int(1), a.optInt(2) ?? null);
       case Op.WRITE:
         return encode(fds.write(a.int(0), a.bytes(1), a.optInt(2) ?? null));
-      case Op.FSTAT:
-        return encodeStat(vfs.fstat(fds.get(a.int(0), 'fstat').ino));
+      case Op.FSTAT: {
+        const file = fds.get(a.int(0), 'fstat');
+        return encodeStat(file.device ? deviceStat(file.device) : vfs.fstat(file.ino));
+      }
       case Op.FTRUNCATE:
+        if (fds.get(a.int(0), 'ftruncate').device) return EMPTY;
         vfs.ftruncate(fds.get(a.int(0), 'ftruncate').ino, a.int(1));
         return EMPTY;
       default:

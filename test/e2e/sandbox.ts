@@ -15,6 +15,15 @@ export interface RunResult {
 
 type SyscallMode = 'waitAsync' | 'postMessage';
 
+/** Mirrors `Capability` from @clientvm/clientvm. */
+export type Capability =
+  | { kind: 'mount'; from: string; path: string; readOnly: boolean }
+  | { kind: 'channel'; peer: string }
+  | { kind: 'net'; peer: string; ports?: number[] }
+  | { kind: 'spawn-instance'; limits?: { maxProcesses?: number; quotaBytes?: number } };
+
+export type Outcome = { ok: true; value?: unknown } | { ok: false; code: string; message: string };
+
 interface HostWindow {
   __clientvm: {
     hostCrossOriginIsolated: boolean;
@@ -49,7 +58,13 @@ interface HostWindow {
     readFile(id: string, path: string): Promise<string>;
     readdir(id: string, path: string): Promise<string[]>;
     snapshot(id: string): Promise<string>;
-    fork(id: string): Promise<string>;
+    fork(id: string, options?: unknown): Promise<string>;
+    grant(to: string, cap: Capability): void;
+    /** `op` is grant/revoke (to, cap), send (to, message) or fork (options). */
+    as(id: string, op: 'grant' | 'revoke' | 'send' | 'fork', ...args: unknown[]): Promise<Outcome>;
+    capabilities(id: string): Capability[];
+    recordMail(id: string): void;
+    mail(id: string): { from: string; message: unknown }[];
     destroy(id: string, purge?: boolean): Promise<void>;
     flush(id: string): Promise<void>;
     serveStatic(id: string, port: number, dir: string): Promise<string>;
