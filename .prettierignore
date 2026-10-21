@@ -7,3 +7,4 @@ playwright-report
 *.md
 LICENSE
 NOTICE
+packages/node-compat/src/vendor

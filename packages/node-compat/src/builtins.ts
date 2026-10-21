@@ -11,6 +11,8 @@ import { querystringModule } from './querystring.ts';
 import { stringDecoderModule } from './string-decoder.ts';
 import { urlModule } from './url.ts';
 import { utilModule } from './util.ts';
+import { extendFs } from './fs-extra.ts';
+import { createConsumers, loadStreamModule } from './stream.ts';
 
 export interface BuiltinDeps {
   fs: NodeFs;
@@ -50,6 +52,16 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
         ),
     },
   };
+  let stream: Record<string, unknown> | undefined;
+  const loadStream = () =>
+    (stream ??= loadStreamModule({
+      buffer: bufferModule,
+      events: eventsModule,
+      string_decoder: stringDecoderModule,
+      process,
+    }));
+  const defer = (fn: () => void) => (deps.timers['setImmediate'] as (f: () => void) => void)(fn);
+  const fsFull = extendFs({ fs, path, stream: loadStream as never, defer });
   const table: Record<string, unknown> = {
     assert: assertModule,
     'assert/strict': assertModule.strict,
@@ -57,7 +69,8 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     console: deps.console,
     constants: { ...fs.constants, ...createOs(deps.env).constants.signals },
     events: eventsModule,
-    fs,
+    fs: fsFull,
+    'fs/promises': fsFull['promises'],
     os: createOs(deps.env),
     path,
     'path/posix': path,
@@ -100,6 +113,30 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
       stddev: 0,
     }),
     createHistogram: () => ({ record() {}, percentile: () => 0, min: 0, max: 0, mean: 0 }),
+  };
+  // Streams are loaded on first use (they are ~7k lines of Node's own code).
+  const lazy = (name: string, get: () => unknown) =>
+    Object.defineProperty(table, name, { get, enumerable: true, configurable: true });
+  lazy('stream', loadStream);
+  lazy('stream/promises', () => loadStream()['promises']);
+  lazy('stream/consumers', () => createConsumers(bufferModule.Buffer as never));
+  lazy('_stream_readable', () => loadStream()['Readable']);
+  lazy('_stream_writable', () => loadStream()['Writable']);
+  lazy('_stream_duplex', () => loadStream()['Duplex']);
+  lazy('_stream_transform', () => loadStream()['Transform']);
+  lazy('_stream_passthrough', () => loadStream()['PassThrough']);
+  table['stream/web'] = {
+    ReadableStream: globalThis.ReadableStream,
+    WritableStream: globalThis.WritableStream,
+    TransformStream: globalThis.TransformStream,
+    ReadableStreamDefaultReader: globalThis.ReadableStreamDefaultReader,
+    WritableStreamDefaultWriter: globalThis.WritableStreamDefaultWriter,
+    ByteLengthQueuingStrategy: globalThis.ByteLengthQueuingStrategy,
+    CountQueuingStrategy: globalThis.CountQueuingStrategy,
+    TextEncoderStream: globalThis.TextEncoderStream,
+    TextDecoderStream: globalThis.TextDecoderStream,
+    CompressionStream: globalThis.CompressionStream,
+    DecompressionStream: globalThis.DecompressionStream,
   };
   table['tty'] = tty;
   table['perf_hooks'] = perfHooks;

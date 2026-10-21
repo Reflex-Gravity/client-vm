@@ -29,7 +29,10 @@ async function* walk(dir) {
 const missing = [];
 for await (const file of walk(ROOT)) {
   const firstLine = (await readFile(file, 'utf8')).split('\n', 1)[0];
-  if (firstLine !== HEADER) missing.push(relative(ROOT, file));
+  // Vendored third-party code keeps its own license identifier.
+  const vendored =
+    file.includes('/vendor/') && firstLine?.startsWith('// SPDX-License-Identifier: ');
+  if (firstLine !== HEADER && !vendored) missing.push(relative(ROOT, file));
 }
 
 if (missing.length > 0) {

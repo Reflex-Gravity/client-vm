@@ -19,6 +19,7 @@ service worker, and a golden React + Vite template running end to end.
 - [ADR 0007](decisions/0007-vendor-pako-for-zlib.md): vendor `pako` for zlib.
 - [ADR 0008](decisions/0008-sub-origin-per-port.md): one sub-origin per virtual port.
 - [ADR 0009](decisions/0009-cjs-module-lexer.md): Node's cjs-module-lexer for CommonJS named exports.
+- [ADR 0010](decisions/0010-vendor-readable-stream.md): Node's streams (readable-stream) for `stream`.
 
 ## Progress
 
@@ -26,6 +27,7 @@ service worker, and a golden React + Vite template running end to end.
 |---|---|
 | 3a1 | done |
 | 3a2 | done |
+| 3b1 | done: streams (ADR 0010) and async fs |
 | 3a3 | done. The instance page now boots its kernel only after the service worker controls it, because workers inherit their controller at creation. This adds about 45 ms to the first boot of each instance. Process spawn rose to about 9 ms as node-compat grew |
 
 ## Slices (each tested and committed separately)
