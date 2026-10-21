@@ -32,3 +32,5 @@ export { ESM_CONDITIONS, EsmResolver, fileUrl } from './module/esm-resolve.ts';
 export type { EsmResolution, ModuleFormat } from './module/esm-resolve.ts';
 export { NODE_BUILTINS, isBuiltin } from './module/builtin-names.ts';
 export { createConsumers, loadStreamModule } from './stream.ts';
+export { createZlib } from './zlib.ts';
+export { cryptoModule } from './crypto.ts';

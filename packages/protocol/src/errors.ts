@@ -24,7 +24,12 @@ export const Errno = {
   ENOSYS: 38,
   ENOTEMPTY: 39,
   ELOOP: 40,
+  EPIPE: 32,
   EADDRINUSE: 98,
+  EADDRNOTAVAIL: 99,
+  ECONNRESET: 104,
+  ETIMEDOUT: 110,
+  ECONNREFUSED: 111,
 } as const;
 
 export type ErrnoCode = keyof typeof Errno;
@@ -52,7 +57,12 @@ const DESCRIPTIONS: Record<ErrnoCode, string> = {
   ENOSYS: 'function not implemented',
   ENOTEMPTY: 'directory not empty',
   ELOOP: 'too many symbolic links encountered',
+  EPIPE: 'broken pipe',
   EADDRINUSE: 'address already in use',
+  EADDRNOTAVAIL: 'address not available',
+  ECONNRESET: 'connection reset by peer',
+  ETIMEDOUT: 'connection timed out',
+  ECONNREFUSED: 'connection refused',
 };
 
 const BY_NUMBER = new Map<number, ErrnoCode>(

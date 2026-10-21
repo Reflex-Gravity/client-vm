@@ -28,7 +28,10 @@ Instance iframe on <id>.<sandbox-domain> (one origin per instance)    ← bounda
   └─ kernel worker (our code, but shares the origin with hostile code)
        ║ SAB channel + postMessage; kernel validates every request   ← boundary 3
        └─ process workers (untrusted code)
-  └─ (2d) service worker + preview iframes, same origin as the kernel
+  └─ service worker for module loading and in-instance fetch
+Port origins <id>-p<port>.<sandbox-domain> (one per open port, ADR 0008)
+  └─ bridge page + service worker + preview iframes running the app's own pages.
+     The SW only reaches its own port through a channel the controller handed the kernel.
 ```
 
 ## Mitigations (planned and status)
@@ -47,6 +50,8 @@ Instance iframe on <id>.<sandbox-domain> (one origin per instance)    ← bounda
 | Resource limits per instance (processes, memory, FS quota, CPU time via kill on timeout) | Phase 2/5 |
 | The service worker never routes `/__clientvm/*` (ClientVM's own page, workers and SW script) to instance servers, so instance code cannot shadow them | **done** (2d), e2e-tested |
 | The service worker accepts a kernel link only from the instance page | **done** (2d) |
+| Preview pages run on a per-port origin, not the kernel's: app code cannot touch the kernel's OPFS store, the instance page, or other ports' storage. A port origin's link serves only its own port, never the module routes | **done** (3d), e2e-tested |
+| Instance ids cannot end in `-p<digits>`, so an instance never shares an origin with another instance's port | **done** (3d) |
 | Fuzzing of codec, channel, VFS, resolver, shell parser | Phase 5 (VFS: seeded random-op differential done; shell parser: seeded random-input test done) |
 | Agent-supplied regexes (`grep`, `sed`, `find -regex`, `[[ =~ ]]`) run on the JS regex engine and can backtrack catastrophically. They run in the instance's own worker, so a bad pattern only stalls that process; `Instance.exec` `timeoutMs` stops it | **documented** |
 

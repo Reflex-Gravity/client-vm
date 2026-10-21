@@ -9,3 +9,7 @@ Copyright Guy Bedford, licensed under the MIT License.
 
 This product includes readable-stream (https://github.com/nodejs/readable-stream),
 Copyright Node.js contributors, licensed under the MIT License.
+
+This product includes pako (https://github.com/nodeca/pako),
+Copyright (C) 2014-2017 by Vitaly Puzrin and Andrei Tuputcyn, licensed under the MIT License
+(zlib port: Copyright (C) 1995-2013 Jean-loup Gailly and Mark Adler).

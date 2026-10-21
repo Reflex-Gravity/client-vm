@@ -102,6 +102,11 @@ export type InstanceRpc = {
    * served at the instance origin's root.
    */
   serveStatic(port: number, dir: string): void;
+  /**
+   * Serves HTTP for one virtual port on `channel` (the other end belongs to
+   * that port origin's service worker, via the controller's bridge page).
+   */
+  linkPort(port: number, channel: MessagePort): void;
   /** Kills all processes and flushes persisted state; the controller removes the iframe afterwards. */
   shutdown(): Promise<void>;
 };
@@ -120,8 +125,10 @@ export type InstanceEvents = {
   output(pid: number, fd: 1 | 2, data: Uint8Array): void;
   exit(pid: number, code: number, signal: Signal | null): void;
   fsEvents(watchId: number, events: WireFsEvent[]): void;
-  /** A virtual port is accepting requests through the service worker. */
+  /** A virtual port is accepting requests. The controller links a port origin to it. */
   portOpen(port: number, primary: boolean): void;
+  /** A virtual port stopped listening. */
+  portClose(port: number): void;
 };
 
 /** Messages exchanged between the controller and the instance page during the handshake. */

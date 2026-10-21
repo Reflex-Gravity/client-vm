@@ -16,6 +16,9 @@ import {
 } from '@clientvm/node-compat';
 import type { ResolverFs, StaticImport } from '@clientvm/node-compat';
 import type { WireRequest, WireResponse } from '@clientvm/protocol';
+
+/** Module responses are always whole bodies. */
+type ModuleResponse = WireResponse & { body: Uint8Array };
 import type { MemoryVfs } from '@clientvm/vfs';
 import { S_IFDIR, S_IFMT } from '@clientvm/vfs';
 import { initSync as initCjsLexer, parse as parseCjs } from 'cjs-module-lexer';
@@ -38,7 +41,7 @@ export function moduleUrl(path: string): string {
   return MODULE_PREFIX + path.split('/').map(encodeURIComponent).join('/');
 }
 
-function js(body: string, status = 200): WireResponse {
+function js(body: string, status = 200): ModuleResponse {
   return {
     status,
     statusText: status === 200 ? 'OK' : 'Not Found',
@@ -88,7 +91,7 @@ export class ModuleServer {
     return path.startsWith(`${MODULE_PREFIX}/`) || path.startsWith(ERROR_MODULE_PREFIX);
   }
 
-  handle(request: WireRequest): WireResponse {
+  handle(request: WireRequest): ModuleResponse {
     const pathname = new URL(request.path, 'http://x').pathname;
     if (pathname.startsWith(ERROR_MODULE_PREFIX)) {
       const error = this.errors.get(pathname.slice(ERROR_MODULE_PREFIX.length));

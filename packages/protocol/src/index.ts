@@ -12,7 +12,7 @@ export {
   createChannelBuffer,
 } from './syscall-channel.ts';
 export type { SyscallClientOptions, SyscallHandler } from './syscall-channel.ts';
-export { RpcEndpoint, RpcError } from './rpc.ts';
+export { RpcEndpoint, RpcError, Transfer, withTransfer } from './rpc.ts';
 export type { Methods, PortLike } from './rpc.ts';
 export { StatLayout, encodeStat, decodeStat } from './stat.ts';
 export type { StatData } from './stat.ts';
@@ -20,6 +20,8 @@ export { BUILTIN_MARKER } from './process-messages.ts';
 export type {
   ChildSpawnRequest,
   KernelToProcess,
+  NetToKernel,
+  NetToProcess,
   ProcessToKernel,
   StdioMode,
   SyscallMode,
@@ -39,5 +41,17 @@ export type {
   WireFsEvent,
   WireStat,
 } from './instance-rpc.ts';
-export { PORT_PATH_PREFIX, RESERVED_PATH_PREFIX } from './http-rpc.ts';
-export type { HttpRpc, ServiceWorkerMessage, WireRequest, WireResponse } from './http-rpc.ts';
+export {
+  PORT_BRIDGE_PATH,
+  PORT_PATH_PREFIX,
+  RESERVED_PATH_PREFIX,
+  WS_SHIM_PATH,
+  portLabel,
+} from './http-rpc.ts';
+export type {
+  HttpRpc,
+  PortBridgeMessage,
+  ServiceWorkerMessage,
+  WireRequest,
+  WireResponse,
+} from './http-rpc.ts';

@@ -27,12 +27,13 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 
 ## Runtime design
 
-- **Port → URL mapping.** The primary port is served at the instance origin root; others under
-  `/__port/<n>/`. Apps that use absolute paths (`/assets/x.js`) only work on the primary port.
-  Options: a sub-origin per port (`<id>-<port>.<sandbox-domain>` bridged to the kernel), or
-  rewriting. Decide with a probe before Phase 3 servers (Vite, Express) depend on it.
-- **Request/response streaming.** The service worker currently buffers whole bodies. Vite HMR and
-  long-lived responses (SSE) will need streaming through the kernel link (Phase 3).
+- ~~Port → URL mapping~~: one origin per port (ADR 0008, implemented in 3d).
+- **WebSocket shim timing.** The shim is a module script, so classic scripts that open a WebSocket
+  while the page is parsing get the browser's own (which cannot reach the instance). Building it as
+  a classic script would close that gap.
+- ~~Request/response streaming~~: responses stream (3d). Request bodies are still buffered by
+  the service worker, and nothing applies backpressure from the page to a server's writes or from a
+  socket reader to its writer; large uploads or fast producers queue in memory.
 
 - **`fs.rmSync` quirk:** on Node 24.11, `rmSync(path, { recursive: true })` reports success on a
   dangling symlink but does not remove it. `MemoryVfs.rmTree` removes it, as `rm -rf` and POSIX do.
@@ -55,3 +56,4 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   kernel. A credit-based `child-stdin` protocol would bound it.
 - **Shell arrays** (`a=(...)`, `"${a[@]}"`) are not implemented. Add them if agent scripts need
   them (common in hand-written bash, rare in generated build scripts).
+- **Brotli** is absent from `zlib`. Add a decoder if a package needs it (most feature-detect).

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { RpcEndpoint, SystemError, decodeUtf8, encodeUtf8 } from '@clientvm/protocol';
+import { RpcEndpoint, SystemError, decodeUtf8, encodeUtf8, withTransfer } from '@clientvm/protocol';
 import type {
   FileKind,
   HttpRpc,
@@ -9,6 +9,7 @@ import type {
   PortLike,
   SpawnRequest,
   StatData,
+  WireResponse,
   WireStat,
 } from '@clientvm/protocol';
 import {
@@ -24,6 +25,7 @@ import {
 } from '@clientvm/vfs';
 import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
 import { HttpRouter, staticHandler } from './http.ts';
+import { NetStack } from './net.ts';
 import { ModuleServer } from './module-server.ts';
 import { DEFAULT_ENV } from './commands.ts';
 import { Kernel } from './kernel.ts';
@@ -165,6 +167,17 @@ async function boot(
   }
 
   const { quotaBytes, maxInodes, maxProcesses } = init.limits ?? {};
+
+  // Ports are announced only once a service worker link exists, so a preview
+  // opened in response always reaches the kernel.
+  let httpLinked = false;
+  const router = new HttpRouter(
+    (port, primary) => {
+      if (httpLinked) emit('portOpen', port, primary);
+    },
+    (port) => emit('portClose', port),
+  );
+  const net = new NetStack(router);
   const kernel = new Kernel({
     createProcessWorker: options.createProcessWorker,
     ...(options.commands ? { commands: options.commands } : {}),
@@ -174,6 +187,7 @@ async function boot(
       ...(maxInodes === undefined ? {} : { maxInodes }),
     },
     ...(maxProcesses === undefined ? {} : { maxProcesses }),
+    net,
     ...(restored ? { snapshot: restored.snapshot } : init.image ? { image: init.image } : {}),
   });
   if (!restored) {
@@ -190,20 +204,17 @@ async function boot(
     await persister?.flush();
   };
 
-  // Ports are announced only once a service worker link exists, so a preview
-  // iframe opened in response always reaches the kernel.
-  let httpLinked = false;
   const modules = new ModuleServer(kernel.vfs);
-  const router = new HttpRouter((port, primary) => {
-    if (httpLinked) emit('portOpen', port, primary);
-  });
   const attachHttpPort = (port: MessagePort) => {
     new RpcEndpoint<HttpRpc, Record<string, never>>(port, {
       fetch: async (req) => {
         // Module requests (a process importing from the VFS) only come from the instance origin itself.
         if (req.port === null && modules.handles(new URL(req.path, 'http://x').pathname))
           return modules.handle(req);
-        return router.handle(req);
+        return transferBody(await router.handle(req));
+      },
+      upgrade: async (req, socket) => {
+        if (socket instanceof MessagePort) router.upgrade(req, socket);
       },
     });
     if (httpLinked) return;
@@ -333,6 +344,17 @@ async function boot(
         : null,
     }),
     flush,
+    linkPort(port, channel) {
+      if (!Number.isInteger(port) || !(channel instanceof MessagePort))
+        throw new SystemError('EINVAL', 'linkPort');
+      // A port origin only ever reaches its own port; module routes stay on the instance origin.
+      new RpcEndpoint<HttpRpc, Record<string, never>>(channel, {
+        fetch: async (req) => transferBody(await router.handle({ ...req, port })),
+        upgrade: async (req, socket) => {
+          if (socket instanceof MessagePort) router.upgrade({ ...req, port }, socket);
+        },
+      });
+    },
     serveStatic(port, dir) {
       if (typeof dir !== 'string' || !dir.startsWith('/'))
         throw new SystemError('EINVAL', 'listen');
@@ -356,6 +378,11 @@ async function boot(
   };
 
   return { methods, served: { kernel, flush, attachHttpPort } };
+}
+
+/** Streams are transferred to the service worker rather than cloned (they cannot be). */
+function transferBody(res: WireResponse): WireResponse {
+  return res.body instanceof ReadableStream ? withTransfer(res, [res.body]) : res;
 }
 
 function kindOf(mode: number): FileKind {

@@ -3,6 +3,7 @@ import { SystemError } from '@clientvm/protocol';
 import { ExitSignal } from '@clientvm/process';
 import type { ProcessContext } from '@clientvm/process';
 import { createConsole } from './console.ts';
+import { virtualUrl } from './net.ts';
 import { NODE_EXEC_PATH, NODE_VERSION } from './constants.ts';
 import { createEventLoop } from './event-loop.ts';
 import { createFs } from './fs.ts';
@@ -24,6 +25,16 @@ type Invocation =
   | { kind: 'eval'; code: string; print: boolean; rest: string[] }
   | { kind: 'script'; script: string; rest: string[] }
   | { kind: 'error'; message: string };
+
+/** fetch() that reaches this instance's own servers for `http://localhost:<port>` URLs. */
+function localFetch(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (input, init) => {
+    const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
+    const local = virtualUrl(url);
+    if (!local) return fetch(input, init);
+    return fetch(input instanceof Request ? new Request(local, input) : local, init);
+  };
+}
 
 /** Exit code Node uses for invalid command-line arguments. */
 const BAD_OPTION_EXIT_CODE = 9;
@@ -149,7 +160,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     process: proc,
     console,
     Buffer: bufferModule.Buffer,
-    ...(loop.fetch ? { fetch: loop.fetch } : {}),
+    ...(loop.fetch ? { fetch: localFetch(loop.fetch) } : {}),
     setImmediate: loop.timers.setImmediate,
     clearImmediate: loop.timers.clearImmediate,
   });

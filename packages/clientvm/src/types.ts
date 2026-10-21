@@ -107,7 +107,10 @@ export interface Instance {
   spawn(cmd: string, args?: string[], opts?: SpawnOptions): Promise<Process>;
   /** Runs a command line through the shell. */
   exec(commandLine: string, opts?: ExecOptions): Promise<ExecResult>;
+  /** Reports each virtual port with its preview URL (the port's own origin). */
   onPortOpen(cb: (port: number, url: string) => void): Disposable;
+  /** Reports ports that stop listening. */
+  onPortClose(cb: (port: number) => void): Disposable;
   snapshot(): Promise<SnapshotId>;
   fork(opts?: InstanceOptions): Promise<Instance>;
   grant(to: InstanceId, cap: Capability): Promise<void>;

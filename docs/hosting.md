@@ -50,6 +50,12 @@ Your app needs **no** special headers. If your app already uses COOP/COEP, insta
 ## Previews
 
 When a server inside an instance opens a port, `instance.onPortOpen((port, url) => ...)` reports
-a URL on the instance origin. Load it in an iframe to show the preview. The first port is served
-at the origin root; others are served under `/__port/<port>/`. Previews are private: they only
-resolve inside the browser tab that runs the instance.
+the port's own origin, `https://<id>-p<port>.<sandbox-domain>/` (ADR 0008). The same wildcard
+deployment serves it: the controller embeds `/__clientvm/port.html` there to link that origin's
+service worker to the instance. Load the URL in an iframe to show the preview. Previews are
+private: they only resolve inside the browser tab that runs the instance.
+
+The service worker adds a module script, `/__clientvm/ws-shim.js`, to HTML pages on port origins:
+browsers do not let service workers see WebSockets, so the shim carries same-origin (and
+`localhost`) WebSockets to the server through the service worker. Port origins get the same
+headers as instance origins; preview responses themselves carry only the app server's headers.

@@ -46,6 +46,12 @@ scripts, `.bin` shims) is spawned through the kernel, and output the shell does 
 inherited ([ADR 0011](decisions/0011-in-process-shell-commands.md)). Each command is also its own
 runtime, so programs can spawn `ls` or `grep` directly.
 
+Servers listen on virtual ports in the kernel's net stack (`packages/kernel/src/net.ts`). An
+HTTP request is relayed to the owning process as messages, and the response streams back to the
+service worker as a transferred `ReadableStream`. Upgrades and `net` connections are byte
+sockets linked end to end (process ↔ process, or process ↔ MessagePort for a preview's
+WebSocket). Each port is previewed on its own origin (ADR 0008).
+
 Each instance has its own origin, so the browser isolates instances' storage, channels and
 service workers from each other ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
 Forking into a new instance exports a filesystem image (`exportImage`), transfers it, and imports

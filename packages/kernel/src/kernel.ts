@@ -22,6 +22,7 @@ import type { Snapshot, VfsLimits } from '@clientvm/vfs';
 import { installBuiltinCommands, resolveCommand } from './commands.ts';
 import { createSyscallHandler } from './dispatcher.ts';
 import { FdTable } from './fd-table.ts';
+import type { NetStack } from './net.ts';
 
 /** The subset of `Worker` the kernel needs; lets tests substitute Node worker_threads. */
 export interface ProcessWorkerLike {
@@ -47,6 +48,8 @@ export interface KernelOptions {
   image?: readonly Uint8Array[];
   /** Boot from a snapshot (e.g. restored from persistent storage). Takes precedence over `image`. */
   snapshot?: Snapshot;
+  /** The instance's virtual network; without it, `listen`/`connect` fail with ENOSYS. */
+  net?: NetStack;
 }
 
 export interface SpawnOptions {
@@ -178,6 +181,7 @@ export class Kernel {
       }),
     );
 
+    const net = this.options.net?.attach(post);
     let settle!: (code: number, signal?: Signal) => void;
     const exit = new Promise<ProcessExit>((resolve) => {
       settle = (code, signal) => {
@@ -187,6 +191,7 @@ export class Kernel {
         worker.terminate();
         fds.closeAll();
         for (const stop of watches.values()) stop();
+        net?.close();
         this.processes.delete(pid);
         resolve({ code, signal: signal ?? null });
       };
@@ -235,6 +240,22 @@ export class Kernel {
         case 'unwatch':
           watches.get(msg.id)?.();
           watches.delete(msg.id);
+          break;
+        case 'net-listen':
+          if (!net) post({ t: 'net-listen-error', id: msg.id, code: 'ENOSYS' });
+          else net.handle(msg);
+          break;
+        case 'net-connect':
+          if (!net) post({ t: 'net-connect-error', sid: msg.sid, code: 'ENOSYS' });
+          else net.handle(msg);
+          break;
+        case 'net-unlisten':
+        case 'http-res-head':
+        case 'http-res-body':
+        case 'http-res-end':
+        case 'sock-data':
+        case 'sock-end':
+          net?.handle(msg);
           break;
       }
     });

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { RpcEndpoint } from '@clientvm/protocol';
+import { PORT_BRIDGE_PATH, RpcEndpoint, portLabel } from '@clientvm/protocol';
 import type {
   InstanceEvents,
   InstanceInit,
@@ -7,7 +7,7 @@ import type {
   RunResult,
   SpawnRequest,
 } from '@clientvm/protocol';
-import { connectInstance } from './connect.ts';
+import { connectInstance, connectPortBridge } from './connect.ts';
 import { ClientVMError, NotImplementedError } from './errors.ts';
 import { ProcessHandleImpl } from './process.ts';
 import type {
@@ -48,8 +48,13 @@ export interface ClientVMOptions {
   bootTimeoutMs?: number;
 }
 
-/** Instance ids double as DNS labels: lowercase letters and digits, 1-63 chars. */
-const ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+/**
+ * Instance ids double as DNS labels: lowercase letters, digits and hyphens.
+ * At most 56 characters so port origins (`<id>-p65535`) fit in a 63-character
+ * label; ids may not end in `-p<digits>` so they never collide with one.
+ */
+const ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,54}[a-z0-9])?$/;
+const PORT_SUFFIX = /-p\d+$/;
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
 
 function randomId(): string {
@@ -79,7 +84,7 @@ class Controller implements ClientVM {
 
   async createInstance(opts: CreateOptions = {}): Promise<Instance> {
     const id = (opts.id ?? randomId()) as InstanceId;
-    if (!ID_PATTERN.test(id)) {
+    if (!ID_PATTERN.test(id) || PORT_SUFFIX.test(id)) {
       throw new ClientVMError(`invalid instance id "${id}"`, 'ERR_INVALID_ID');
     }
     if (this.instances.has(id))
@@ -169,6 +174,9 @@ class InstanceImpl implements Instance {
   private readonly watchers = new Map<number, (e: FsEvent) => void>();
   private readonly openPorts = new Map<number, string>();
   private readonly portListeners = new Set<(port: number, url: string) => void>();
+  private readonly portCloseListeners = new Set<(port: number) => void>();
+  /** Bridge iframe per port origin (null while linking). */
+  private readonly portBridges = new Map<number, HTMLIFrameElement | null>();
   private destroyed = false;
 
   constructor(
@@ -201,11 +209,17 @@ class InstanceImpl implements Instance {
         const parsed = v.fsEvents(events);
         if (cb && parsed) for (const e of parsed) cb(e);
       },
-      portOpen: (port, primary) => {
-        if (!Number.isInteger(port) || port < 1 || port > 65535 || this.openPorts.has(port)) return;
-        const url = primary === true ? `${this.origin}/` : `${this.origin}/__port/${port}/`;
-        this.openPorts.set(port, url);
-        for (const cb of this.portListeners) cb(port, url);
+      portOpen: (port) => {
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || this.portBridges.has(port))
+          return;
+        this.portBridges.set(port, null);
+        void this.openPortOrigin(port);
+      },
+      portClose: (port) => {
+        if (!this.portBridges.has(port)) return;
+        this.portBridges.get(port)?.remove();
+        this.portBridges.delete(port);
+        if (this.openPorts.delete(port)) for (const cb of this.portCloseListeners) cb(port);
       },
     });
     this.fs = new InstanceFs(this);
@@ -277,13 +291,48 @@ class InstanceImpl implements Instance {
 
   /**
    * Calls `cb` for every virtual port that is open now and opens later, with
-   * the URL that reaches it. The first port is served at the origin root;
-   * others under `/__port/<port>/`. Load the URL in an iframe to preview it.
+   * the URL that reaches it: the port's own origin,
+   * `https://<id>-p<port>.<sandbox-domain>/` (ADR 0008). Load the URL in an
+   * iframe to preview it.
    */
   onPortOpen(cb: (port: number, url: string) => void): Disposable {
     this.portListeners.add(cb);
     for (const [port, url] of this.openPorts) cb(port, url);
     return { dispose: () => void this.portListeners.delete(cb) };
+  }
+
+  /** Calls `cb` when a port reported by {@link onPortOpen} stops listening. */
+  onPortClose(cb: (port: number) => void): Disposable {
+    this.portCloseListeners.add(cb);
+    return { dispose: () => void this.portCloseListeners.delete(cb) };
+  }
+
+  /** Embeds the bridge page on the port's origin and links its service worker to the kernel. */
+  private async openPortOrigin(port: number): Promise<void> {
+    const options = this.controller.options;
+    const origin = new URL(options.sandboxOrigin(portLabel(this.id, port))).origin;
+    let iframe: HTMLIFrameElement;
+    try {
+      iframe = await connectPortBridge({
+        origin,
+        path: PORT_BRIDGE_PATH,
+        port,
+        container: options.container ?? document.body,
+        timeoutMs: options.bootTimeoutMs,
+        link: (channel) => this.rpc.callTransfer('linkPort', [port, channel], [channel]),
+      });
+    } catch {
+      this.portBridges.delete(port);
+      return;
+    }
+    if (this.destroyed || !this.portBridges.has(port)) {
+      iframe.remove();
+      return;
+    }
+    this.portBridges.set(port, iframe);
+    const url = `${origin}/`;
+    this.openPorts.set(port, url);
+    for (const cb of this.portListeners) cb(port, url);
   }
 
   /**
@@ -333,6 +382,9 @@ class InstanceImpl implements Instance {
     this.processes.clear();
     this.watchers.clear();
     this.portListeners.clear();
+    this.portCloseListeners.clear();
+    for (const bridge of this.portBridges.values()) bridge?.remove();
+    this.portBridges.clear();
     this.port.close();
     this.iframe.remove();
     this.controller.forget(this.id);

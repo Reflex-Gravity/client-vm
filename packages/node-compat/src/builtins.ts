@@ -16,6 +16,12 @@ import { createConsumers, loadStreamModule } from './stream.ts';
 import { createChildProcess, createWatchers } from './child-process.ts';
 import type { EventLoop } from './event-loop.ts';
 import type { ProcessContext } from '@clientvm/process';
+import { createNet } from './net.ts';
+import type { NetModule } from './net.ts';
+import { createHttp } from './http.ts';
+import { createZlib } from './zlib.ts';
+import { cryptoModule } from './crypto.ts';
+import { createDns, createTls } from './dns-tls.ts';
 
 export interface BuiltinDeps {
   fs: NodeFs;
@@ -119,6 +125,7 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     'assert/strict': assertModule.strict,
     buffer: bufferModule,
     console: deps.console,
+    crypto: cryptoModule,
     constants: { ...fs.constants, ...createOs(deps.env).constants.signals },
     events: eventsModule,
     fs: fsFull,
@@ -171,6 +178,27 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   const lazy = (name: string, get: () => unknown) =>
     Object.defineProperty(table, name, { get, enumerable: true, configurable: true });
   lazy('stream', loadStream);
+  let net: NetModule | undefined;
+  const loadNet = () =>
+    (net ??= createNet({ ctx: deps.ctx, loop: deps.loop, stream: loadStream as never }));
+  let http: Record<string, unknown> | undefined;
+  let https: Record<string, unknown> | undefined;
+  lazy('net', () => loadNet().module);
+  let dns: Record<string, unknown> | undefined;
+  let tls: Record<string, unknown> | undefined;
+  lazy('dns', () => (dns ??= createDns()));
+  lazy('dns/promises', () => (dns ??= createDns())['promises']);
+  lazy('tls', () => (tls ??= createTls(loadNet())));
+  let zlib: Record<string, unknown> | undefined;
+  lazy('zlib', () => (zlib ??= createZlib(loadStream as never)));
+  lazy(
+    'http',
+    () => (http ??= createHttp({ net: loadNet(), stream: loadStream as never }, 'http:')),
+  );
+  lazy(
+    'https',
+    () => (https ??= createHttp({ net: loadNet(), stream: loadStream as never }, 'https:')),
+  );
   lazy('stream/promises', () => loadStream()['promises']);
   lazy('stream/consumers', () => createConsumers(bufferModule.Buffer as never));
   lazy('_stream_readable', () => loadStream()['Readable']);

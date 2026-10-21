@@ -6,6 +6,12 @@ import type { MemoryVfs } from '@clientvm/vfs';
 /** Handles one HTTP request for a virtual port. */
 export type HttpHandler = (request: WireRequest) => WireResponse | Promise<WireResponse>;
 
+/** A virtual server: requests, and optionally upgrades (raw byte sockets over a MessagePort). */
+export interface HttpServer {
+  fetch: HttpHandler;
+  upgrade?(request: WireRequest, socket: MessagePort): void;
+}
+
 const MIME: Record<string, string> = {
   html: 'text/html; charset=utf-8',
   htm: 'text/html; charset=utf-8',
@@ -98,33 +104,48 @@ export function staticHandler(vfs: MemoryVfs, root: string): HttpHandler {
   };
 }
 
-/** The instance's virtual ports. Requests arrive from the service worker. */
+/** The instance's virtual ports. Requests arrive from the service workers. */
 export class HttpRouter {
-  private readonly handlers = new Map<number, HttpHandler>();
+  private readonly servers = new Map<number, HttpServer>();
   private primary: number | null = null;
   private readonly onOpen: (port: number, primary: boolean) => void;
+  private readonly onClose: (port: number) => void;
 
-  constructor(onOpen: (port: number, primary: boolean) => void) {
+  constructor(
+    onOpen: (port: number, primary: boolean) => void,
+    onClose: (port: number) => void = () => {},
+  ) {
     this.onOpen = onOpen;
+    this.onClose = onClose;
   }
 
   get ports(): { port: number; primary: boolean }[] {
-    return [...this.handlers.keys()].map((port) => ({ port, primary: port === this.primary }));
+    return [...this.servers.keys()].map((port) => ({ port, primary: port === this.primary }));
   }
 
-  listen(port: number, handler: HttpHandler): void {
+  listen(port: number, server: HttpHandler | HttpServer): void {
     if (!Number.isInteger(port) || port < 1 || port > 65535)
       throw new SystemError('EINVAL', 'listen');
-    if (this.handlers.has(port)) throw new SystemError('EADDRINUSE', 'listen');
-    this.handlers.set(port, handler);
+    if (this.servers.has(port)) throw new SystemError('EADDRINUSE', 'listen');
+    this.servers.set(port, typeof server === 'function' ? { fetch: server } : server);
     this.primary ??= port;
     this.onOpen(port, port === this.primary);
   }
 
-  async handle(request: WireRequest): Promise<WireResponse> {
+  close(port: number): void {
+    if (!this.servers.delete(port)) return;
+    if (this.primary === port) this.primary = this.servers.keys().next().value ?? null;
+    this.onClose(port);
+  }
+
+  private resolve(request: WireRequest): { port: number | null; server: HttpServer | undefined } {
     const port = request.port ?? this.primary;
-    const handler = port === null ? undefined : this.handlers.get(port);
-    if (!handler) {
+    return { port, server: port === null ? undefined : this.servers.get(port) };
+  }
+
+  async handle(request: WireRequest): Promise<WireResponse> {
+    const { port, server } = this.resolve(request);
+    if (!server) {
       return text(
         502,
         'Bad Gateway',
@@ -134,9 +155,20 @@ export class HttpRouter {
       );
     }
     try {
-      return await handler(request);
+      return await server.fetch(request);
     } catch (err) {
       return text(500, 'Internal Server Error', err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /** Routes an upgrade; the socket is closed when nothing accepts it. */
+  upgrade(request: WireRequest, socket: MessagePort): void {
+    const { server } = this.resolve(request);
+    if (!server?.upgrade) {
+      socket.postMessage(null);
+      socket.close();
+      return;
+    }
+    server.upgrade(request, socket);
   }
 }

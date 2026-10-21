@@ -169,13 +169,59 @@ export function createEventLoop(scope: typeof globalThis) {
     clearImmediate: (imm: unknown) => (imm as { _cancel?: () => void } | undefined)?._cancel?.(),
   };
 
-  /** fetch that keeps the process alive while the request is in flight. */
+  /**
+   * fetch that keeps the process alive while the request is in flight, and
+   * while its body is being read (bodies stream in after fetch resolves).
+   */
   const fetch = native.fetch
-    ? (input: RequestInfo | URL, init?: RequestInit) => {
+    ? async (input: RequestInfo | URL, init?: RequestInit) => {
         const h = handle();
-        return native.fetch!(input, init).finally(() => h.close());
+        let res: Response;
+        try {
+          res = await native.fetch!(input, init);
+        } finally {
+          h.close();
+        }
+        return res.body ? withLiveBody(res) : res;
       }
     : undefined;
+
+  function withLiveBody(res: Response): Response {
+    const reader = res.body!.getReader();
+    let reading: Handle | null = null;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          reading ??= handle();
+          try {
+            const { done, value } = await reader.read();
+            if (done) {
+              reading.close();
+              controller.close();
+            } else controller.enqueue(value);
+          } catch (err) {
+            reading.close();
+            controller.error(err);
+          }
+        },
+        cancel(reason) {
+          reading?.close();
+          return reader.cancel(reason);
+        },
+        // Pull only when the caller reads, so an unread body does not keep the process alive.
+      },
+      { highWaterMark: 0 },
+    );
+    const out = new Response(body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+    for (const key of ['url', 'redirected', 'type'] as const) {
+      Object.defineProperty(out, key, { value: res[key], enumerable: true });
+    }
+    return out;
+  }
 
   /** Resolves once no referenced handle remains (after at least one macrotask turn). */
   function drain(): Promise<void> {

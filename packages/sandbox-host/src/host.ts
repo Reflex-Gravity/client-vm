@@ -20,6 +20,20 @@ export interface HostApi {
     args: string[],
     killAfterMs?: number,
   ): Promise<{ stdout: string[]; stderr: string; code: number; signal?: string }>;
+  /**
+   * Spawns a long-running server and resolves with its preview URL once
+   * `port` opens. Output is kept for {@link HostApi.output}.
+   */
+  startServer(
+    id: string,
+    cmd: string,
+    args: string[],
+    opts: { cwd?: string; env?: Record<string, string> },
+    port: number,
+  ): Promise<{ pid: number; url: string }>;
+  /** Combined output so far of a process started with startServer. */
+  output(pid: number): string;
+  kill(id: string, pid: number): Promise<void>;
   writeFile(id: string, path: string, data: string): Promise<void>;
   readFile(id: string, path: string): Promise<string>;
   readdir(id: string, path: string): Promise<string[]>;
@@ -46,6 +60,8 @@ const vm = createClientVM({
   sandboxOrigin: (id) => `${location.protocol}//${id}.${location.host}`,
 });
 const instances = new Map<string, Instance>();
+const outputs = new Map<number, string>();
+const processes = new Map<number, Awaited<ReturnType<Instance['spawn']>>>();
 
 const get = (id: string): Instance => {
   const instance = instances.get(id);
@@ -72,6 +88,32 @@ window.__clientvm = {
   run: (id, request) =>
     (get(id) as Instance & { debugRun(r: SpawnRequest): Promise<RunResult> }).debugRun(request),
   exec: (id, commandLine, opts) => get(id).exec(commandLine, opts),
+  async startServer(id, cmd, args, opts, port) {
+    const instance = get(id);
+    const url = new Promise<string>((resolve) => {
+      const sub = instance.onPortOpen((p, u) => {
+        if (p !== port) return;
+        queueMicrotask(() => sub.dispose());
+        resolve(u);
+      });
+    });
+    const proc = await instance.spawn(cmd, args, opts);
+    processes.set(proc.pid, proc);
+    outputs.set(proc.pid, '');
+    const append = (s: string) => outputs.set(proc.pid, (outputs.get(proc.pid) ?? '') + s);
+    void drain(proc.stdout, append);
+    void drain(proc.stderr, append);
+    const exited = proc.exit.then(({ code }) => {
+      throw new Error(`server exited with ${code}: ${outputs.get(proc.pid)}`);
+    });
+    return { pid: proc.pid, url: await Promise.race([url, exited]) };
+  },
+  output: (pid) => outputs.get(pid) ?? '',
+  async kill(_id, pid) {
+    const proc = processes.get(pid);
+    proc?.kill('SIGTERM');
+    await proc?.exit;
+  },
   async spawnAndCollect(id, cmd, args, killAfterMs) {
     const proc = await get(id).spawn(cmd, args);
     const stdout: string[] = [];

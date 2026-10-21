@@ -30,7 +30,8 @@ affect decisions, CLAUDE.md.
 | `Instance.fork()` | done: image export → new origin |
 | `Instance.destroy()` | done |
 | `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started) |
-| `Instance.onPortOpen` | done (2d): fires for open and future virtual ports with a preview URL. Until `http.createServer` exists (Phase 3), ports are opened with the internal `serveStatic` |
+| `Instance.onPortOpen` | done (3d): fires for open and future virtual ports with the port's own origin, `https://<id>-p<port>.<sandbox-domain>/` (ADR 0008), once its service worker is linked |
+| `Instance.onPortClose` | done (3d): fires when a reported port stops listening (its server closed or its process exited) |
 | `Instance.mailbox`, `Instance.grant` | Phase 4 → `NotImplementedError` |
 
 Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`,

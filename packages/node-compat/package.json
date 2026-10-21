@@ -16,7 +16,8 @@
     "dist"
   ],
   "dependencies": {
+    "@clientvm/process": "workspace:*",
     "@clientvm/protocol": "workspace:*",
-    "@clientvm/process": "workspace:*"
+    "pako": "2.1.0"
   }
 }

@@ -31,6 +31,7 @@ service worker, and a golden React + Vite template running end to end.
 | 3b1 | done: streams (ADR 0010) and async fs |
 | 3b2 | done: `child_process` with execve-style command resolution, stdin/stdout streams, handle-based liveness, `fs.watch` |
 | 3a3 | done. The instance page now boots its kernel only after the service worker controls it, because workers inherit their controller at creation. This adds about 45 ms to the first boot of each instance. Process spawn rose to about 9 ms as node-compat grew |
+| 3d | done: `http`/`https`/`net`/`dns`/`tls` on virtual ports with streamed responses, upgrade sockets and a WebSocket shim for previews; one origin per port (ADR 0008) with a bridge page; `zlib` (pako, ADR 0007) and `crypto` pulled forward from 3e because Express and ws need them. Golden fixture: unmodified Express 4 + ws 8 |
 | 3c | done: `@clientvm/shell` (POSIX sh + common bash extensions) with 50 commands in-process (ADR 0011). About 170 differential scripts vs real bash and GNU tools, a parser fuzz test, and e2e scripts piping between commands and `node`. `Instance.exec` with timeouts; killing a process kills its children. A 10,000-iteration `while` loop takes about 0.4 s in Node (bash: 0.03 s) |
 
 ## Slices (each tested and committed separately)

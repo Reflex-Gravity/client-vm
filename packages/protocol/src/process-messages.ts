@@ -44,7 +44,8 @@ export type KernelToProcess =
   | { t: 'child-error'; id: number; code: string; message: string }
   | { t: 'child-output'; id: number; fd: 1 | 2; data: Uint8Array }
   | { t: 'child-exit'; id: number; code: number | null; signal: Signal | null }
-  | { t: 'watch-event'; id: number; events: WireFsEvent[] };
+  | { t: 'watch-event'; id: number; events: WireFsEvent[] }
+  | NetToProcess;
 
 /** Process worker -> kernel. */
 export type ProcessToKernel =
@@ -58,4 +59,53 @@ export type ProcessToKernel =
   | { t: 'child-stdin'; id: number; data: Uint8Array | null }
   | { t: 'child-kill'; id: number; signal: Signal }
   | { t: 'watch'; id: number; path: string; recursive: boolean }
-  | { t: 'unwatch'; id: number };
+  | { t: 'unwatch'; id: number }
+  | NetToKernel;
+
+/**
+ * Virtual networking. A listener (`id`, chosen by the process) owns a port.
+ * Sockets (`sid`) are positive when the kernel created them (incoming
+ * requests, upgrades, accepted connections) and negative when the process did
+ * (outgoing connections), so the two never collide.
+ */
+export type NetToKernel =
+  /** Listen on `port` (0 picks a free one). `http` gets requests; `tcp` gets raw connections. */
+  | { t: 'net-listen'; id: number; port: number; kind: 'http' | 'tcp' }
+  | { t: 'net-unlisten'; id: number }
+  /** Opens a raw connection to a `tcp` listener in this instance. */
+  | { t: 'net-connect'; sid: number; port: number }
+  | {
+      t: 'http-res-head';
+      sid: number;
+      status: number;
+      statusText: string;
+      headers: [string, string][];
+    }
+  | { t: 'http-res-body'; sid: number; data: Uint8Array }
+  | { t: 'http-res-end'; sid: number }
+  | { t: 'sock-data'; sid: number; data: Uint8Array }
+  /** Closes the socket (both directions). */
+  | { t: 'sock-end'; sid: number };
+
+export type NetToProcess =
+  | { t: 'net-listening'; id: number; port: number }
+  | { t: 'net-listen-error'; id: number; code: string }
+  | { t: 'net-connected'; sid: number }
+  | { t: 'net-connect-error'; sid: number; code: string }
+  /** A request for listener `id`. With `upgrade`, the socket `sid` then carries raw bytes. */
+  | {
+      t: 'http-req';
+      sid: number;
+      id: number;
+      method: string;
+      url: string;
+      headers: [string, string][];
+      upgrade: boolean;
+    }
+  | { t: 'http-req-body'; sid: number; data: Uint8Array }
+  | { t: 'http-req-end'; sid: number }
+  /** The client went away before the response finished. */
+  | { t: 'http-req-abort'; sid: number }
+  | { t: 'tcp-accept'; sid: number; id: number }
+  | { t: 'sock-data'; sid: number; data: Uint8Array }
+  | { t: 'sock-end'; sid: number };

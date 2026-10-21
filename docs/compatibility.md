@@ -1,0 +1,119 @@
+# Compatibility matrix
+
+ClientVM does not claim generic "Node compatibility". This page is the source of truth for what
+works, how it is tested, and the known gaps.
+
+- **Node target:** Node.js **24 LTS** (`process.version` = `v24.11.0`). See [ADR 0001](decisions/0001-node-24-target.md).
+- **Browser:** Chromium only, cross-origin isolated (COOP `same-origin` + COEP `require-corp`).
+  Verified on Chromium 156. Instance pages rely on `Document-Isolation-Policy` (host apps need no
+  COOP/COEP), `Atomics.waitAsync`, and nested module workers. The exact minimum version is still to
+  be pinned by testing older Chromium builds (see open-questions.md).
+- **Required frameworks (v1 goal):** Vite + React dev server with HMR, Express. Both are not yet
+  working.
+
+Status legend: **none** = not implemented · **partial** = subset, see gaps · **full** = matches Node for all tested behavior.
+
+## Core modules
+
+| Module | Status | Tested by | Known gaps |
+|---|---|---|---|
+| `fs` (sync) | partial | e2e fs differential vs real Node, fs differential + seeded random-op fuzz vs `node:fs` | Paths: `readFileSync writeFileSync appendFileSync readdirSync statSync lstatSync existsSync mkdirSync rmdirSync unlinkSync rmSync renameSync linkSync symlinkSync readlinkSync realpathSync(.native) accessSync chmodSync utimesSync truncateSync copyFileSync`. Fds: `openSync closeSync readSync writeSync fstatSync ftruncateSync`. Returns `Buffer`; all Buffer encodings; fds accepted by `readFileSync`/`writeFileSync`; no `opendirSync`, `cpSync`, `watch` (VFS watchers exist, not yet exposed), `fchmod`/`futimes`, `fsync` |
+| `fs` (callback / promises) | partial | e2e diffed against real Node | Callback and `fs.promises` APIs for every sync API, `FileHandle`, `Dir`/`opendir`, `mkdtemp`, `cp`, recursive `readdir`, `createReadStream`/`createWriteStream` (ranges, `fd`, events). Operations run synchronously and complete on a later tick. `watch`, `watchFile`, `fs.promises.watch` via kernel VFS watchers. Not yet: `glob`; `statfs` returns fixed values |
+| `path` | partial (posix full) | path differential vs `node:path.posix` | `win32` not provided |
+| `util` | partial | inspect + events + modules differentials vs `node:util`, e2e | `format`, `inspect` (custom inspect, depth), `types`, `promisify`/`callbackify`, `inherits`, `deprecate`, `isDeepStrictEqual`, `parseArgs` (common cases), `debuglog`, legacy `isX`. No `showHidden` (`%o`), colors, Proxy detection, `MIMEType`, `TextEncoder` streaming options |
+| `console` | partial | e2e spike | `table` prints like `log`. No `Console` class |
+| `process` | partial | e2e | EventEmitter with `exit`, `beforeExit`, `uncaughtException`, `unhandledRejection`, `warning`; `stdin` is a Readable over the kernel pipe, `stdout`/`stderr` are Writables (not TTYs); liveness follows referenced handles (timers, children, stdin while read, watchers, in-flight `fetch`) with `ref`/`unref`. No signals delivered to the process. `arch` reports `x64` |
+| `timers` | partial | e2e | Node `Timeout` objects with `ref`/`unref`/`refresh`/`hasRef`; `setImmediate` is a macrotask. Promise-only work (other than `fetch`) does not keep the process alive |
+| module loading (CommonJS) | full (tested surface) | resolution differential vs `require.resolve` (69 cases), e2e project diffed against real Node | `node_modules` lookup, `main`, `exports`/`imports` (conditions `require`, `node`, `node-addons`), self-reference, symlinks (realpath), JSON, cycles, `require.cache`, `require.extensions`, `createRequire`, `Module._load`/`_resolveFilename`/`_compile` hooks, `NODE_PATH`. **`require()` of ES modules is not supported** (`ERR_REQUIRE_ESM`; Node 24 supports it), so the `module-sync` condition is not used. Native addons (`.node`) fail with `ERR_DLOPEN_FAILED` |
+| module loading (ESM) | full (tested surface) | ESM resolution differential vs Node `import()` (34 cases), lexer differential vs es-module-lexer (793 files), e2e project diffed against real Node | Native browser ESM through the instance service worker (ADR 0006): `exports`/`imports` with `import`/`node`/`module-sync`, CommonJS interop with Node's named exports (cjs-module-lexer, ADR 0009), builtins, `import.meta` (`url`, `filename`, `dirname`, `resolve`, `main`), top-level await, cycles, JSON with `with { type: 'json' }`, `import()` from CommonJS and eval, `type`-less `.js` syntax detection. Not supported: `export * from` a builtin, `--input-type=module`, loader hooks (`module.register`), `.wasm` imports. Errors are Node's codes and messages, but a failed static import throws when its module would evaluate, not before the whole graph links |
+| `buffer` | full (tested surface) | Buffer differential vs `node:buffer` (thousands of cases: encodings, search, numeric reads/writes, errors), e2e | `Buffer` is a callable function sharing `FastBuffer.prototype`, as in Node. `Blob`/`File` are the browser's. No `transcode` for exotic encodings |
+| `events` | full (tested surface) | events differential vs `node:events`, e2e | `EventEmitter` (callable for legacy `EventEmitter.call(this)`), `once`, `on`, captureRejections, errorMonitor, max-listener warnings. `EventTarget` helpers partial |
+| `stream` | full (tested surface) | stream differential vs `node:stream`, e2e | Node's own implementation (readable-stream 4.8, Node 18.19 core; ADR 0010): Readable/Writable/Duplex/Transform/PassThrough, `pipeline`/`finished`/`compose`, iterator helpers, `stream/promises`, `stream/consumers`, `stream/web` (browser globals). `Readable.fromWeb`/`toWeb` not yet |
+| `crypto` | partial | crypto differential vs `node:crypto` | Synchronous `createHash`/`hash` (md5, sha1, sha224, sha256, sha384, sha512 and OpenSSL aliases), `createHmac`, `pbkdf2(Sync)`, `randomBytes`, `randomFill(Sync)`, `randomInt`, `randomUUID`, `getRandomValues`, `timingSafeEqual`; `webcrypto`/`subtle` are the browser's. Not available (throw `ERR_CLIENTVM_UNSUPPORTED`): ciphers, sign/verify, key pairs, scrypt, ECDH. `Hash` is not a stream |
+| `zlib` | partial | zlib differential vs `node:zlib` | pako 2.1 (ADR 0007): sync, callback and stream APIs for deflate/inflate/gzip/gunzip/raw/unzip, `crc32`, Node's error codes, and the `_processChunk`/`_handle` internals minizlib uses. No brotli (absent, so feature detection falls back). `params()` cannot change the level mid-stream |
+| `querystring` | full (tested surface) | modules differential vs `node:querystring` | |
+| `string_decoder` | full (tested surface) | modules differential | utf16le surrogate pairs split at an odd byte decode correctly (Node emits U+FFFD) |
+| `timers/promises` | partial | | `setTimeout`, `setImmediate`, `scheduler` |
+| `http` / `https` | partial | e2e: unmodified Express 4 + ws 8 (golden fixture) | Servers listen on virtual ports; previews reach them on their port origin (ADR 0008). Requests and responses stream; `upgrade` gets a raw socket (WebSockets from previews go through an injected shim). `IncomingMessage`/`ServerResponse`/`Server` are Node-shaped (Express extends their prototypes). Request bodies are buffered by the service worker. `https.createServer` serves plain HTTP (TLS is the browser's). Clients use `fetch`: `localhost`/`127.0.0.1` reach this instance's ports; other hosts are cross-origin fetches that need CORS, follow redirects themselves, and drop headers that force preflights (`user-agent`, `npm-*`, ...); compressed responses arrive decoded. Agents are accepted and ignored |
+| `net` | partial | e2e | `createServer`/`connect` between processes of one instance on virtual ports (half-close supported); `isIP*`; non-local hosts fail with `ECONNREFUSED`. No Unix sockets |
+| `dns` | partial | | `lookup` resolves local names to loopback and other names to `0.0.0.0` (requests go through fetch by name); `resolve*` fail with `ENOTFOUND` |
+| `tls` | partial | | Loadable; `connect` fails (the browser does TLS inside fetch); `createServer` is a plain `net` server |
+| `os` | partial | e2e | A fixed Linux identity (`hostname` `clientvm`, `x64`); CPU count from the browser. Memory figures are nominal |
+| `module` | partial | e2e | `Module` with Node's internal hooks, `createRequire`, `builtinModules`, `isBuiltin`. `register()` (loader hooks) is a no-op |
+| `vm` | partial | | Runs in the process's own realm; `runInNewContext` uses `with` over the sandbox object (no separate globals) |
+| `tty`, `perf_hooks`, `sys` | partial | | `isatty()` is always false |
+| `child_process` | partial | e2e diffed against real Node | `spawn`, `exec`, `execFile` (+ promisified), `spawnSync`, `execSync`, `execFileSync`; stdio `pipe`/`inherit`/`ignore`, `input`, `cwd`, `env`, `timeout`, `killSignal`, `signal`, `maxBuffer`; Node's `exit`/`close` ordering and spawn errors (`ENOENT`, `EACCES`, `ENOEXEC`). Commands resolve like `execve`: `PATH`, exec bits, shebangs incl. `/usr/bin/env -S`, `node_modules/.bin` symlinks. `shell: true` and `exec` run through `/bin/sh`. Not yet: `fork` and IPC, `detached`, signals other than TERM/KILL/INT/HUP |
+| `worker_threads` | none | | |
+| `url` | partial | url differential vs `node:url` | WHATWG `URL` (browser), legacy `parse`/`format`/`resolve`, `fileURLToPath`/`pathToFileURL`, `urlToHttpOptions`. `domainToUnicode` is identity |
+| `assert` | partial | assert differential vs `node:assert` | All common assertions, strict mode, `AssertionError` shape. Diff-style messages for objects are simplified |
+
+## CLI
+
+| Command | Status | Notes |
+|---|---|---|
+| `node -e/-p/--eval/--print <code>` | partial | Runs in global scope with `require`, `module`, `exports` |
+| `node <script.js>` | partial | CommonJS and ESM entry points (`.mjs`, `"type": "module"`, detected ESM syntax) |
+| `node` (REPL) | none | |
+| `sh` / `bash` | partial | See [Shell](#shell) |
+| Linux commands | partial | See [Commands](#commands) |
+| `npm` / `npx` / `pnpm` | none | Phase 3 (real npm, unmodified) |
+
+## Shell
+
+One interpreter serves `sh`, `bash`, `/bin/sh` and `/bin/bash`. It implements POSIX `sh` plus the
+bash extensions agents commonly write. Tested by `test/conformance/shell-differential.test.ts`:
+about 175 scripts run under real bash 5.2 and under ClientVM, and stdout, stderr and exit status
+must match. Parser fuzzing is in `packages/shell/src/parser.test.ts`; e2e coverage, including
+pipes to and from `node`, is in `test/e2e/shell.spec.ts`. Design:
+[ADR 0011](decisions/0011-in-process-shell-commands.md).
+
+| Feature | Status | Notes |
+|---|---|---|
+| Lists, pipelines, `&&` `\|\|` `;` `&`, `!`, `\|&` | full (tested surface) | `set -o pipefail` |
+| Quoting: `'...'`, `"..."`, backslash, `$'...'`, `$"..."` | full (tested surface) | |
+| Expansions: parameters, `${x:-}` `:=` `:?` `:+`, `#` `##` `%` `%%`, `/` `//` `/#` `/%`, `:off:len`, `^^` `,,`, `${#x}`, `${!x}` | full (tested surface) | `${@:n:m}` slices positional parameters |
+| Command substitution `$(...)` and backquotes, arithmetic `$((...))` | full (tested surface) | 64-bit wrapping integers, bash operators and error messages |
+| Field splitting (IFS), pathname expansion (`*` `?` `[...]`, classes), tilde, brace expansion (`{a,b}`, `{1..10..2}`) | full (tested surface) | `shopt -s nullglob dotglob failglob nocasematch`. No `extglob` |
+| Redirections: `<` `>` `>>` `>\|` `<>` `n>&m` `n>&-` `&>` `&>>`, heredocs (`<<`, `<<-`, quoted), `<<<` | full (tested surface) | `/dev/null`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr` |
+| `if` `while` `until` `for` (incl. `for ((;;))`) `case` (`;;` `;&` `;;&`) `{ }` `( )` functions (`f()`, `function f`), `[[ ]]` (incl. `=~`), `(( ))` | full (tested surface) | `BASH_REMATCH` holds only the whole match (no arrays) |
+| `set -euxfCa`, `set -o pipefail`, `trap ... EXIT` | full (tested surface) | Other traps are stored but never fire (no signals are delivered) |
+| Builtins: `cd pwd echo printf test [ true false : export unset readonly local declare typeset set shift exit return break continue read eval source . exec command type hash wait jobs trap umask let getopts alias unalias shopt pushd popd dirs builtin times` | partial | `printf -v`, `read -r -d -n -p -u`. `alias` stores aliases, but non-interactive bash does not expand them, and neither do we |
+| Scripts: `sh file`, `./file` with shebang, `sh -c 'cmd' name args`, script on stdin | full (tested surface) | Run one complete command (line) at a time, like bash. Syntax errors use bash's two-line format |
+| Background jobs `&`, `wait`, `$!` | partial | Run in the shell's worker; they end when the shell exits. Spawned programs keep running |
+| Process substitution `<(cmd)` | partial | Implemented with a temp file (the command finishes first). `>(cmd)` is not supported |
+| Arrays (`a=(...)`, `${a[@]}`), `mapfile`, `select`, `coproc`, `time`, job control, history | none | `declare -a` and `read -a` fail with a clear error |
+| `type`/`declare -f` printing function bodies | none | `type -t` works |
+| Locale | partial | Text is UTF-8 (`LANG=C.UTF-8`). `LC_ALL=C` byte semantics (e.g. `${#x}` in bytes) are not emulated |
+
+## Commands
+
+Commands run in the shell's own worker when invoked from the shell, and as their own process when
+spawned (`child_process.spawn('ls')`). Behavior and messages follow GNU coreutils, grep 3.11,
+sed 4.9, findutils 4.9 and diffutils 3.10; the differential suite compares them with the real
+tools.
+
+| Command | Notes |
+|---|---|
+| `ls` | `-aAlRdFphrtSUi1L`. Output is one name per line (never columns: stdout is not a TTY). `-l` shows `user user` as owner |
+| `cat cp mv rm mkdir rmdir touch ln chmod stat realpath readlink basename dirname mktemp` | Common GNU options. `chmod` takes octal and symbolic modes, `-R`. `stat -c/--printf` formats |
+| `head tail wc sort uniq cut tr tee seq yes rev` | `sort -k -t -n -g -h -V -M -f -r -u -s -c -o`. `tail -f` polls every 250 ms. `tr` is byte-based like GNU's |
+| `grep` (`egrep`, `fgrep`) | `-EFGP -ivwxclLnhHoqsr -e -f -A -B -C -m --include --exclude --exclude-dir`. JS regex engine: matching is leftmost-first, not POSIX leftmost-longest, so a few alternations match differently. `-P` is JS regex syntax |
+| `sed` | Addresses (`N`, `$`, `/re/`, `first~step`, ranges, `addr,+N`, `0,/re/`, `!`), commands `s y d D p P n N g G h H x a i c = q Q l r w b t T : { } z F`, `-n -e -f -E -r -i[SUF] -s -z`, `\U \L \u \l \E` in replacements. No `e` command or `s///e` |
+| `find` | Tests `-name -iname -path -regex -type -size -empty -newer -mtime -mmin -perm -maxdepth -mindepth`; actions `-print -print0 -printf -delete -exec -execdir -prune -quit`; `! -a -o ( ) ,`. Directory entries are visited in sorted order |
+| `xargs` | `-n -L -I -0 -d -r -t`. Runs invocations one at a time (`-P` is accepted and ignored) |
+| `diff` | Normal and unified (`-u`, `-U N`) output, `-q -r -N -i -w -b -B -s --label`. Timestamps in headers are UTC |
+| `env printenv which sleep date uname whoami hostname nproc id true false pwd echo printf test [ clear` | `date` formats in UTC only (`%Z` is `UTC`) |
+| `tar gzip gunzip curl git` | none yet |
+
+## Filesystem semantics
+
+- Linux semantics are the reference (CI runs the differentials on Linux; a few macOS-divergent cases are skipped locally).
+- Symlinks are followed with a 40-hop limit (`ELOOP`); `..` is resolved physically, as the kernel does.
+- Hard links, unlinked-but-open files, `O_APPEND`/`O_EXCL`/`O_TRUNC`, and zero-filled holes behave as on Linux.
+- No access time updates on reads (`noatime`). Every process runs as root: only execute permission is checked (`access(X_OK)`).
+- Per-instance quotas (`quotaBytes`, `maxInodes`) fail with `ENOSPC`; per-process open files are capped at 1024 (`EMFILE`).
+
+- `readdir` returns entries in sorted order (code-unit order). Linux ext4 returns hash order, so
+  don't rely on order in tests.
+- Paths are case-sensitive.
+- Errors carry Linux errno values and Node's `code`, `errno`, `syscall`, and `path`.

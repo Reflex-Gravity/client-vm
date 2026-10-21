@@ -55,12 +55,22 @@ export default defineConfig({
     // service worker never intercepts; all other paths belong to the app.
     assetsDir: '__clientvm/assets',
     rollupOptions: {
-      input: { host: 'index.html', instance: '__clientvm/instance.html', sw: 'src/sw.ts' },
+      input: {
+        host: 'index.html',
+        instance: '__clientvm/instance.html',
+        port: '__clientvm/port.html',
+        sw: 'src/sw.ts',
+        'ws-shim': 'src/ws-shim.ts',
+      },
       output: {
         keepNames: true,
-        // The service worker needs a stable URL so updates replace it in place.
+        // The service worker and the injected WebSocket shim need stable URLs.
         entryFileNames: (chunk) =>
-          chunk.name === 'sw' ? '__clientvm/sw.js' : '__clientvm/assets/[name]-[hash].js',
+          chunk.name === 'sw'
+            ? '__clientvm/sw.js'
+            : chunk.name === 'ws-shim'
+              ? '__clientvm/ws-shim.js'
+              : '__clientvm/assets/[name]-[hash].js',
       },
     },
   },

@@ -36,6 +36,15 @@ interface HostWindow {
       args: string[],
       killAfterMs?: number,
     ): Promise<{ stdout: string[]; stderr: string; code: number; signal?: string }>;
+    startServer(
+      id: string,
+      cmd: string,
+      args: string[],
+      opts: { cwd?: string; env?: Record<string, string> },
+      port: number,
+    ): Promise<{ pid: number; url: string }>;
+    output(pid: number): string;
+    kill(id: string, pid: number): Promise<void>;
     writeFile(id: string, path: string, data: string): Promise<void>;
     readFile(id: string, path: string): Promise<string>;
     readdir(id: string, path: string): Promise<string[]>;

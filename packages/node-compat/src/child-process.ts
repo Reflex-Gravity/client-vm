@@ -87,8 +87,13 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
   const children = new Map<number, ChildProcess>();
 
   ctx.onMessage((msg: KernelToProcess) => {
-    if (!('id' in msg) || msg.t === 'watch-event') return;
-    children.get(msg.id)?._onKernel(msg);
+    if (
+      msg.t === 'child-spawned' ||
+      msg.t === 'child-error' ||
+      msg.t === 'child-output' ||
+      msg.t === 'child-exit'
+    )
+      children.get(msg.id)?._onKernel(msg);
   });
 
   const resolveArgs = (file: string, args: readonly string[], opts: SpawnOptions): string[] => {
