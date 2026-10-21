@@ -18,7 +18,7 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | License | **Apache-2.0** (add LICENSE, NOTICE, and SPDX headers) |
 | Browser target (v1) | **Chromium only** (use OPFS sync access handles, SharedArrayBuffer/Atomics, JSPI where useful) |
 | Language | **TypeScript-first. No Rust/WASM in v1.** Keep perf-sensitive modules behind narrow bytes-in/bytes-out interfaces so they can be swapped to Rust/WASM later if profiling justifies it |
-| Language support (v1) | **JavaScript/Node only** |
+| Language support (v1) | **JavaScript/Node only**, targeting **Node.js 24 LTS** (ADR 0001) |
 | "Linux" support | A **shell plus popular Linux commands implemented in TS** (like StackBlitz's `jsh`). **No CPU emulator / real Linux VM in v1.** Reserve a `vm` process-type interface for the future |
 | Package manager | **Run real npm (then pnpm) unmodified on the Node-compat layer.** No custom installer in v1 (StackBlitz abandoned its custom client, Turbo, for native npm/pnpm/yarn). A fast-path cache can come later |
 | Filesystem model | **Dedicated FS per instance** (isolated, copy-on-write forks and snapshots). Merging is an explicit later operation |
@@ -26,6 +26,8 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | Sandbox hosting | **Wildcard subdomains are available** (static hosting only): `<instance-id>.<sandbox-domain>`. Each instance gets its own origin |
 | Previews | Private, in-browser only. No shareable preview URLs. Optional deploy step is outside this library |
 | Databases | Out of scope for the runtime. SQL (one chosen lib, e.g. SQLite-WASM or PGlite) is the app's concern, not the runtime's |
+| Tooling | pnpm 10 via Corepack (`packageManager` pinned), TypeScript 6, Vitest, Playwright, GitHub Actions CI |
+| Sync syscall wake | Kernel parks on each channel with `Atomics.waitAsync`; postMessage doorbell kept as fallback (ADR 0002, measured in `docs/spike-results.md`) |
 
 ## 3. Non-goals for v1
 
@@ -180,7 +182,7 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 
 **Phase 0: Spec and harness.** Finalize interfaces, define the compatibility matrix (target Node major version, required API list, required frameworks), set up the monorepo, CI, Playwright, Vitest, licensing files, and the threat model doc.
 
-**Phase 1: Spike (do this first).** Prove the foundation: a VFS (memory backend) plus one process worker that does a **synchronous `fs.readFileSync` via `SharedArrayBuffer` + `Atomics.wait`** against the kernel, running `node -e "console.log(require('fs').readdirSync('/'))"`. Verify under COOP/COEP in Chromium via Playwright. Measure per-syscall latency and report numbers. Do not build outward until this works and the numbers are acceptable.
+**Phase 1: Spike (done; see `docs/spike-results.md`).** Prove the foundation: a VFS (memory backend) plus one process worker that does a **synchronous `fs.readFileSync` via `SharedArrayBuffer` + `Atomics.wait`** against the kernel, running `node -e "console.log(require('fs').readdirSync('/'))"`. Verify under COOP/COEP in Chromium via Playwright. Measure per-syscall latency and report numbers. Do not build outward until this works and the numbers are acceptable.
 
 **Phase 2: Host kernel.** Full VFS (OPFS backend, symlinks, watchers, CoW snapshots/forks, quotas), instance manager, process table, sandbox-origin plumbing and service worker.
 
@@ -220,7 +222,9 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 
 ## 12. Open questions
 
-- Exact Node major version to target for compat (suggest current LTS).
+The full, current list lives in `docs/open-questions.md`.
+
+- ~~Exact Node major version~~: decided, Node.js 24 LTS (`docs/decisions/0001-node-24-target.md`).
 - Which single SQL library the *apps* should use (outside runtime scope; defer).
 - CPU-emulator backend for a future `vm` tier (benchmark spike later; consider licensing).
 - Whether to add a pre-resolved install-plan / shared package cache fast path after npm works.
