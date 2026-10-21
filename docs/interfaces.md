@@ -35,6 +35,8 @@ affect decisions, CLAUDE.md.
 | `InstanceOptions.name`, `Instance.name` | done (4a): a DNS label, unique among live instances; the instance's `<name>.internal` host name |
 | `ClientVM.grant`/`revoke`, `Instance.grant`/`revoke`/`capabilities`, `InstanceOptions.capabilities` | done (4a): the controller's capability table. Instances grant what is about themselves or delegate what they hold; children get no more than their parent could grant (docs/phase4-plan.md) |
 | `Instance.mailbox` | done (4a): `send` needs a `channel` capability; JSON values up to 1 MiB; delivery goes to host listeners and to the kernel inbox, which processes read at `http://mailbox.internal/` |
+| `Instance.openPreview(port, opts)` → `Preview` | done (4d): an iframe on the port origin driven through the injected agent: `snapshot` (outline with `[ref=eN]` targets, optional HTML), `click`, `type`, `press`, `waitFor`, `evaluate`, `screenshot` (PNG via SVG `foreignObject`), `console` (captured from the first script of each page, across navigations), `navigate`, `reload`, `close` |
+| `Instance.networkLog(since)` | done (4d): the last 500 requests served on virtual ports (method, path, status, time to headers, requesting instance) |
 | `http://<name>.internal:<port>/` from processes | done (4b): needs a `net` capability for the peer (and port); HTTP only, responses stream |
 
 Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`,

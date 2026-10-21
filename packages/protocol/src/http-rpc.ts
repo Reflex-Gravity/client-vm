@@ -15,6 +15,8 @@ export interface WireRequest {
    * target instance (name or id), or `mailbox` for the instance's mailbox.
    */
   peer?: string;
+  /** For requests forwarded from another instance: its id (set by the controller). */
+  from?: string;
   method: string;
   /** Path plus query string, e.g. `/assets/app.js?v=1`. */
   path: string;

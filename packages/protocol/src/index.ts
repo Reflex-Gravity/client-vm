@@ -61,3 +61,14 @@ export type {
   WireRequest,
   WireResponse,
 } from './http-rpc.ts';
+export { PREVIEW_AGENT_PATH } from './preview-rpc.ts';
+export type {
+  ConsoleEntry,
+  ConsoleLevel,
+  DomSnapshot,
+  NetworkLogEntry,
+  PreviewAgentEvents,
+  PreviewAgentRpc,
+  PreviewConnect,
+  PreviewTarget,
+} from './preview-rpc.ts';

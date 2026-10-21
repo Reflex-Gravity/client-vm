@@ -11,6 +11,7 @@ import type {
   InstanceId,
   InstanceOptions,
   MountSource,
+  Preview,
 } from '@clientvm/clientvm';
 import type { RunResult, SpawnRequest } from '@clientvm/protocol';
 
@@ -59,6 +60,11 @@ export interface HostApi {
   /** Starts recording mailbox deliveries to `id` (host listener). */
   recordMail(id: string): void;
   mail(id: string): { from: string; message: unknown }[];
+  /** Opens a driveable preview; resolves with a handle id. */
+  drive(id: string, port: number, path?: string): Promise<number>;
+  /** Calls a Preview method; Uint8Array results come back as `{ png: base64 }`. */
+  previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
+  networkLog(id: string, since?: number): Promise<unknown[]>;
   destroy(id: string, purge?: boolean): Promise<void>;
   flush(id: string): Promise<void>;
   /** Serves a directory on a port and resolves with the preview URL once it is routable. */
@@ -105,6 +111,8 @@ async function drain(
 }
 
 const mailLogs = new Map<string, { from: string; message: unknown }[]>();
+const previews = new Map<number, Preview>();
+let nextPreview = 1;
 
 window.__clientvm = {
   hostCrossOriginIsolated: globalThis.crossOriginIsolated === true,
@@ -179,6 +187,28 @@ window.__clientvm = {
     get(id).mailbox.onMessage((from, message) => log.push({ from, message }));
   },
   mail: (id) => mailLogs.get(id) ?? [],
+  async drive(id, port, path) {
+    const preview = await get(id).openPreview(port, path ? { path } : {});
+    const handle = nextPreview++;
+    previews.set(handle, preview);
+    return handle;
+  },
+  async previewCall(handle, method, ...args) {
+    const preview = previews.get(handle) as unknown as Record<string, (...a: unknown[]) => unknown>;
+    try {
+      const value = await preview[method]!.call(preview, ...args);
+      if (value instanceof Uint8Array) {
+        let s = '';
+        for (const b of value) s += String.fromCharCode(b);
+        return { png: btoa(s) };
+      }
+      return value;
+    } catch (err) {
+      const e = err as { code?: unknown; message?: unknown };
+      return { error: String(e.code ?? 'Error'), message: String(e.message) };
+    }
+  },
+  networkLog: (id, since) => get(id).networkLog(since),
   async destroy(id, purge) {
     await get(id).destroy(purge ? { purge } : {});
     instances.delete(id);

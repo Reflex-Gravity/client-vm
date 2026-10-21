@@ -47,6 +47,7 @@ Port origins <id>-p<port>.<sandbox-domain> (one per open port, ADR 0008)
 | Process workers get no direct VFS access, only the syscall channel | **done** |
 | Each process gets its own channel SAB, so processes cannot read each other's syscall traffic | **done** |
 | Capabilities for every cross-instance interaction, checked in the **controller** (kernels run hostile code and never see the table) | **done** (4a–4c) for mailbox, `.internal` HTTP, mounts and `spawn-instance`, e2e-tested. Revoking a mount capability stops its sync |
+| The preview agent accepts a connection only from its parent window, and the host validates everything it sends (snapshots, console entries, screenshots). `evaluate` runs in the preview's port origin, which already runs the instance's code. Agent output is untrusted data for an LLM (prompt-injection risk), not instructions | **done** (4d) |
 | Requests a kernel makes of the controller (`mailboxSend`, `netFetch`) are validated and run with that instance's capabilities only; mailbox messages are re-serialized as JSON so instances never share objects | **done** (4a/4b) |
 | Resource limits per instance (processes, memory, FS quota, CPU time via kill on timeout) | Phase 2/5 |
 | The service worker never routes `/__clientvm/*` (ClientVM's own page, workers and SW script) to instance servers, so instance code cannot shadow them | **done** (2d), e2e-tested |

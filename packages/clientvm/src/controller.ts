@@ -21,6 +21,7 @@ import type {
 import { CapabilityTable, parseCapability, subjectOf } from './capabilities.ts';
 import { connectInstance, connectPortBridge } from './connect.ts';
 import { ClientVMError } from './errors.ts';
+import { PreviewImpl } from './preview.ts';
 import { ProcessHandleImpl } from './process.ts';
 import type {
   Capability,
@@ -38,6 +39,9 @@ import type {
   InstanceOptions,
   Mailbox,
   MountSource,
+  NetworkLogEntry,
+  Preview,
+  PreviewOptions,
   Process,
   Signal,
   SnapshotId,
@@ -215,7 +219,9 @@ class Controller implements ClientVM {
     const port = req.port ?? 80;
     if (!this.caps.has(sender.id, { kind: 'net', peer: target.id, ports: [port] }))
       throw noCapability(`${sender.label} has no net capability for ${peer}:${port}`);
-    const res = v.wireResponse(await target.rpc.call('fetchPort', { ...req, port }));
+    const res = v.wireResponse(
+      await target.rpc.call('fetchPort', { ...req, port, from: sender.id }),
+    );
     return res.body instanceof ReadableStream ? withTransfer(res, [res.body]) : res;
   }
 
@@ -266,6 +272,7 @@ class InstanceImpl implements Instance {
   private readonly portListeners = new Set<(port: number, url: string) => void>();
   private readonly portCloseListeners = new Set<(port: number) => void>();
   private readonly mailListeners = new Set<(from: InstanceId, msg: unknown) => void>();
+  private readonly previews = new Set<PreviewImpl>();
   /** Mounts by path: stops the source watch. */
   private readonly mounts = new Map<string, () => void>();
   /** Bridge iframe per port origin (null while linking). */
@@ -417,6 +424,38 @@ class InstanceImpl implements Instance {
   onPortClose(cb: (port: number) => void): Disposable {
     this.portCloseListeners.add(cb);
     return { dispose: () => void this.portCloseListeners.delete(cb) };
+  }
+
+  async openPreview(port: number, opts: PreviewOptions = {}): Promise<Preview> {
+    this.assertAlive();
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+      throw new ClientVMError(`invalid port ${String(port)}`, 'ERR_INVALID_PORT');
+    let url = this.openPorts.get(port);
+    if (url === undefined) {
+      url = await withTimeout(
+        new Promise<string>((resolve) => {
+          const sub = this.onPortOpen((p, u) => {
+            if (p !== port) return;
+            queueMicrotask(() => sub.dispose());
+            resolve(u);
+          });
+        }),
+        this.controller.options.bootTimeoutMs,
+        `waiting for port ${port}`,
+      );
+    }
+    const preview = new PreviewImpl(
+      new URL(opts.path ?? '/', url).href,
+      opts.container ?? this.controller.options.container ?? document.body,
+      opts,
+    );
+    this.previews.add(preview);
+    return preview;
+  }
+
+  async networkLog(since = 0): Promise<NetworkLogEntry[]> {
+    this.assertAlive();
+    return v.networkLog(await this.rpc.call('networkLog', since));
   }
 
   /** Embeds the bridge page on the port's origin and links its service worker to the kernel. */
@@ -651,6 +690,8 @@ class InstanceImpl implements Instance {
     this.mailListeners.clear();
     for (const stop of this.mounts.values()) stop();
     this.mounts.clear();
+    for (const preview of this.previews) preview.close();
+    this.previews.clear();
     for (const bridge of this.portBridges.values()) bridge?.remove();
     this.portBridges.clear();
     this.port.close();

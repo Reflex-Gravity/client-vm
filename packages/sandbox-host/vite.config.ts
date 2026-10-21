@@ -61,15 +61,16 @@ export default defineConfig({
         port: '__clientvm/port.html',
         sw: 'src/sw.ts',
         'ws-shim': 'src/ws-shim.ts',
+        agent: 'src/agent.ts',
       },
       output: {
         keepNames: true,
-        // The service worker and the injected WebSocket shim need stable URLs.
+        // The service worker and the scripts injected into previews need stable URLs.
         entryFileNames: (chunk) =>
           chunk.name === 'sw'
             ? '__clientvm/sw.js'
-            : chunk.name === 'ws-shim'
-              ? '__clientvm/ws-shim.js'
+            : chunk.name === 'ws-shim' || chunk.name === 'agent'
+              ? `__clientvm/${chunk.name}.js`
               : '__clientvm/assets/[name]-[hash].js',
       },
     },

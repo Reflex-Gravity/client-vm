@@ -69,6 +69,21 @@ interface HostWindow {
     capabilities(id: string): Capability[];
     recordMail(id: string): void;
     mail(id: string): { from: string; message: unknown }[];
+    drive(id: string, port: number, path?: string): Promise<number>;
+    previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
+    networkLog(
+      id: string,
+      since?: number,
+    ): Promise<
+      {
+        seq: number;
+        method: string;
+        path: string;
+        status: number;
+        port: number | null;
+        from?: string;
+      }[]
+    >;
     destroy(id: string, purge?: boolean): Promise<void>;
     flush(id: string): Promise<void>;
     serveStatic(id: string, port: number, dir: string): Promise<string>;

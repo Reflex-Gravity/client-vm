@@ -75,6 +75,16 @@ test.describe('Vite + React golden template', () => {
     await host(page, 'writeFile', id, '/home/user/app/src/App.jsx', source);
     await expect(frame.locator('#title')).toHaveText('Hello from Vite', { timeout: 15_000 });
 
+    // An agent drives the same app through the injected preview agent.
+    const p = await host(page, 'drive', id, 5173);
+    expect(await host(page, 'previewCall', p, 'waitFor', { text: 'count is 0' })).toBe(true);
+    await host(page, 'previewCall', p, 'click', { text: 'count is' });
+    await host(page, 'previewCall', p, 'click', { text: 'count is' });
+    expect(await host(page, 'previewCall', p, 'waitFor', { text: 'count is 2' })).toBe(true);
+    const snap = (await host(page, 'previewCall', p, 'snapshot')) as { outline: string };
+    expect(snap.outline).toContain('- heading[1] "Hello from Vite"');
+    expect(snap.outline).toMatch(/- button "count is 2" \[ref=e\d+\]/);
+
     await host(page, 'kill', id, pid);
     expect(await host(page, 'output', pid)).toContain('VITE v6.4.5');
     test.info().annotations.push({

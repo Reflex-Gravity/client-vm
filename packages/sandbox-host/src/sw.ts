@@ -13,6 +13,7 @@ import {
   NET_PATH_PREFIX,
   PORT_BRIDGE_PATH,
   PORT_PATH_PREFIX,
+  PREVIEW_AGENT_PATH,
   RESERVED_PATH_PREFIX,
   RpcEndpoint,
   WS_SHIM_PATH,
@@ -210,11 +211,26 @@ function isHtmlDocument(request: Request, headers: Headers): boolean {
  * module script, so it runs before the page's own module scripts (Vite's
  * client among them) but after classic scripts.
  */
+/**
+ * Runs before any page script (classic, inline, first in <head>) and buffers
+ * console output and errors until the preview agent module takes them over.
+ */
+const CONSOLE_CAPTURE =
+  '(function(){var w=window,c={q:[],sink:null};w.__clientvmConsole=c;' +
+  'function s(l,a){var e=[l,a,Date.now()];if(c.sink)c.sink(e);else if(c.q.length<500)c.q.push(e)}' +
+  "['log','info','warn','error','debug'].forEach(function(l){var o=console[l];" +
+  'console[l]=function(){var a=Array.prototype.slice.call(arguments);s(l,a);return o.apply(this,a)}});' +
+  "w.addEventListener('error',function(e){s('error',[e.error||e.message])});" +
+  "w.addEventListener('unhandledrejection',function(e){s('error',['Unhandled promise rejection:',e.reason])})})();";
+
 async function injectShim(
   body: Uint8Array | ReadableStream<Uint8Array>,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const html = await new Response(body as BodyInit).text();
-  const tag = `<script type="module" src="${WS_SHIM_PATH}"></script>`;
+  const tag =
+    `<script>${CONSOLE_CAPTURE}</script>` +
+    `<script type="module" src="${WS_SHIM_PATH}"></script>` +
+    `<script type="module" src="${PREVIEW_AGENT_PATH}"></script>`;
   const head = /<head(\s[^>]*)?>/i.exec(html);
   const out = head
     ? html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length)

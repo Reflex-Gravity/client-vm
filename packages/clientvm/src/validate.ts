@@ -3,6 +3,7 @@
 // hostile code, so nothing it sends is trusted, even replies to our requests.
 import type {
   FileKind,
+  NetworkLogEntry,
   RunResult,
   Signal,
   WireDirEntry,
@@ -157,4 +158,22 @@ export function wireResponse(v: unknown): WireResponse {
     bad('response');
   }
   return { status: r.status!, statusText: r.statusText, headers: r.headers, body: r.body };
+}
+
+/** A kernel's network log. */
+export function networkLog(v: unknown): NetworkLogEntry[] {
+  if (!Array.isArray(v)) bad('network log');
+  return (v as Partial<NetworkLogEntry>[]).filter(
+    (e): e is NetworkLogEntry =>
+      typeof e === 'object' &&
+      e !== null &&
+      Number.isInteger(e.seq) &&
+      typeof e.time === 'number' &&
+      (e.port === null || Number.isInteger(e.port)) &&
+      typeof e.method === 'string' &&
+      typeof e.path === 'string' &&
+      Number.isInteger(e.status) &&
+      typeof e.durationMs === 'number' &&
+      (e.from === undefined || typeof e.from === 'string'),
+  );
 }

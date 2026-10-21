@@ -117,6 +117,11 @@ tools.
 | `curl` | Uses the browser's `fetch`: `localhost`/`127.0.0.1` reach virtual ports, other origins need CORS. `-s -S -f -i -I -o -O -X -H -d --data-* --json -G -u -A -e -w -m -T -v`. Redirects are always followed (`-L` is implied). A refused local port exits 7, as curl does |
 | `git` | none yet (isomorphic-git planned, see open-questions.md) |
 
+## Previews
+
+- HTML documents on port origins get three injected scripts at the top of `<head>`: an inline console capture, the WebSocket shim and the preview agent. A page with a Content-Security-Policy that forbids inline scripts loses console output from before the agent loads; one that forbids same-origin scripts loses the shim and agent.
+- Screenshots render the DOM through SVG `foreignObject`: same-origin images are inlined; cross-origin images, canvases, video and iframes are blank.
+
 ## Filesystem semantics
 
 - Read-only mounts (`Instance.fs.mount`) fail mutations with `EROFS`; `rm -rf` of a directory containing a mount fails rather than skipping it.

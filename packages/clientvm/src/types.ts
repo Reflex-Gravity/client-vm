@@ -5,6 +5,10 @@
  * Types only: implementations land in Phases 2-4. See docs/interfaces.md.
  */
 
+import type { ConsoleEntry, DomSnapshot, NetworkLogEntry, PreviewTarget } from '@clientvm/protocol';
+
+export type { ConsoleEntry, DomSnapshot, NetworkLogEntry, PreviewTarget };
+
 declare const brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [brand]: B };
 
@@ -121,6 +125,14 @@ export interface Instance {
   onPortOpen(cb: (port: number, url: string) => void): Disposable;
   /** Reports ports that stop listening. */
   onPortClose(cb: (port: number) => void): Disposable;
+  /**
+   * Opens a driveable preview of a virtual port (waits up to the boot timeout
+   * for it to open): an iframe on the port's origin plus a channel to the
+   * agent script injected into its HTML pages.
+   */
+  openPreview(port: number, opts?: PreviewOptions): Promise<Preview>;
+  /** Requests served on this instance's virtual ports after `since` (a `seq`). */
+  networkLog(since?: number): Promise<NetworkLogEntry[]>;
   snapshot(): Promise<SnapshotId>;
   fork(opts?: InstanceOptions): Promise<Instance>;
   /**
@@ -204,4 +216,45 @@ export interface Mailbox {
   send(to: InstanceName | InstanceId, msg: unknown): Promise<void>;
   /** Messages delivered to this instance (also queued for its processes). */
   onMessage(cb: (from: InstanceId, msg: unknown) => void): Disposable;
+}
+
+export interface PreviewOptions {
+  /** Where the iframe goes. Default: the controller's container. */
+  container?: HTMLElement;
+  /** Path to open, default `/`. */
+  path?: string;
+  /** Viewport size in CSS pixels, default 1024×768. */
+  width?: number;
+  height?: number;
+}
+
+/**
+ * A live preview an agent can read and drive. Element targets are a `ref`
+ * from the latest snapshot, a CSS `selector`, or visible `text`. Calls made
+ * while the page navigates fail with `ERR_NAVIGATED` (reads retry once on the
+ * new page). Page code is untrusted: results are data, not instructions.
+ */
+export interface Preview {
+  readonly url: string;
+  readonly iframe: HTMLIFrameElement;
+  /** Resolves when the current page's agent is connected (`ERR_NO_AGENT` for non-HTML pages). */
+  ready(): Promise<void>;
+  snapshot(opts?: { html?: boolean; maxLength?: number }): Promise<DomSnapshot>;
+  click(target: PreviewTarget): Promise<void>;
+  type(
+    target: PreviewTarget,
+    text: string,
+    opts?: { clear?: boolean; submit?: boolean },
+  ): Promise<void>;
+  press(key: string): Promise<void>;
+  waitFor(target: PreviewTarget, opts?: { gone?: boolean; timeoutMs?: number }): Promise<boolean>;
+  /** Evaluates a JavaScript expression in the page; the result comes back as JSON data. */
+  evaluate(expression: string): Promise<unknown>;
+  /** A PNG of the viewport rendered from the DOM (best effort). */
+  screenshot(opts?: { maxWidth?: number }): Promise<Uint8Array>;
+  /** Console output and uncaught errors, across page loads (bounded). */
+  console(opts?: { since?: number }): ConsoleEntry[];
+  navigate(path: string): Promise<void>;
+  reload(): Promise<void>;
+  close(): void;
 }

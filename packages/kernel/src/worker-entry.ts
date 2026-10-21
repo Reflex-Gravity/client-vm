@@ -443,6 +443,7 @@ async function boot(
       if (typeof path !== 'string' || !Array.isArray(ops)) throw new SystemError('EINVAL', 'mount');
       kernel.mounts.update(path, ops);
     },
+    networkLog: (since) => router.networkLog(typeof since === 'number' ? since : 0),
     unmount(path) {
       if (typeof path !== 'string') throw new SystemError('EINVAL', 'umount');
       kernel.mounts.unmount(path);

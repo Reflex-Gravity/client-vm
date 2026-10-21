@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { NO_LISTENER_HEADER, SystemError } from '@clientvm/protocol';
-import type { WireRequest, WireResponse } from '@clientvm/protocol';
+import type { NetworkLogEntry, WireRequest, WireResponse } from '@clientvm/protocol';
+
+const NETWORK_LOG_SIZE = 500;
 import type { MemoryVfs } from '@clientvm/vfs';
 
 /** Handles one HTTP request for a virtual port. */
@@ -143,7 +145,33 @@ export class HttpRouter {
     return { port, server: port === null ? undefined : this.servers.get(port) };
   }
 
+  /** The most recent requests, oldest first (bounded). */
+  private readonly log: NetworkLogEntry[] = [];
+  private nextSeq = 1;
+
+  /** Requests served after `since` (a `seq`), oldest first. */
+  networkLog(since = 0): NetworkLogEntry[] {
+    return this.log.filter((e) => e.seq > since);
+  }
+
   async handle(request: WireRequest): Promise<WireResponse> {
+    const started = performance.now();
+    const res = await this.serve(request);
+    this.log.push({
+      seq: this.nextSeq++,
+      time: Date.now(),
+      port: request.port ?? this.primary,
+      method: request.method,
+      path: request.path,
+      status: res.status,
+      durationMs: Math.round((performance.now() - started) * 10) / 10,
+      ...(request.from ? { from: request.from } : {}),
+    });
+    if (this.log.length > NETWORK_LOG_SIZE) this.log.splice(0, this.log.length - NETWORK_LOG_SIZE);
+    return res;
+  }
+
+  private async serve(request: WireRequest): Promise<WireResponse> {
     const { port, server } = this.resolve(request);
     if (!server) {
       const res = text(

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { WireRequest, WireResponse } from './http-rpc.ts';
+import type { NetworkLogEntry } from './preview-rpc.ts';
 import type { SyscallMode } from './process-messages.ts';
 
 /**
@@ -134,6 +135,8 @@ export type InstanceRpc = {
   mirrorUpdate(path: string, ops: MirrorOp[]): void;
   /** Removes a mount, leaving an empty directory. */
   unmount(path: string): void;
+  /** Requests served on virtual ports after `since` (a `seq`). */
+  networkLog(since: number): NetworkLogEntry[];
 };
 
 /**
