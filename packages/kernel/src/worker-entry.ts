@@ -61,7 +61,23 @@ export type KernelWorkerOptions = Pick<
    * origin's OPFS, guarded by a Web Lock so only one tab owns it.
    */
   openPersistence?: () => Promise<{ backend: PersistenceBackend; release(): void }>;
+  /**
+   * Measures the instance's memory in bytes. Dedicated workers lack
+   * `performance.measureUserAgentSpecificMemory`, so the instance page
+   * measures (its agent cluster: page, kernel and process workers).
+   */
+  measureMemory?: () => Promise<number | null>;
 };
+
+/** Sent by the kernel to the instance page; the page answers on `port` with {@link MemoryReply}. */
+export interface KernelMeasureMemoryMessage {
+  t: 'clientvm:measure-memory';
+  port: MessagePort;
+}
+
+export interface MemoryReply {
+  bytes: number | null;
+}
 
 /** Sent by the instance page when it is being hidden or unloaded. */
 export interface KernelFlushMessage {
@@ -190,7 +206,7 @@ async function boot(
     }
   }
 
-  const { quotaBytes, maxInodes, maxProcesses } = init.limits ?? {};
+  const { quotaBytes, maxInodes, maxProcesses, maxCpuMs } = init.limits ?? {};
 
   // Ports are announced only once a service worker link exists, so a preview
   // opened in response always reaches the kernel.
@@ -211,6 +227,7 @@ async function boot(
       ...(maxInodes === undefined ? {} : { maxInodes }),
     },
     ...(maxProcesses === undefined ? {} : { maxProcesses }),
+    ...(typeof maxCpuMs === 'number' && maxCpuMs > 0 ? { maxCpuMs } : {}),
     net,
     ...(restored ? { snapshot: restored.snapshot } : init.image ? { image: init.image } : {}),
   });
@@ -442,6 +459,21 @@ async function boot(
     mirrorUpdate(path, ops) {
       if (typeof path !== 'string' || !Array.isArray(ops)) throw new SystemError('EINVAL', 'mount');
       kernel.mounts.update(path, ops);
+    },
+    async measureMemory() {
+      if (options.measureMemory) {
+        const bytes = await options.measureMemory();
+        return bytes === null ? null : { bytes };
+      }
+      const perf = performance as Performance & {
+        measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>;
+      };
+      if (!perf.measureUserAgentSpecificMemory) return null;
+      try {
+        return { bytes: (await perf.measureUserAgentSpecificMemory()).bytes };
+      } catch {
+        return null;
+      }
     },
     networkLog: (since) => router.networkLog(typeof since === 'number' ? since : 0),
     unmount(path) {

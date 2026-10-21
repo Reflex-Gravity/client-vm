@@ -8,3 +8,4 @@ playwright-report
 LICENSE
 NOTICE
 packages/node-compat/src/vendor
+test/conformance/node-tests

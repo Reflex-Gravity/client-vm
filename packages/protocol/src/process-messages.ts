@@ -23,6 +23,11 @@ export interface ChildSpawnRequest {
   env: Record<string, string>;
   cwd: string;
   stdio: [StdioMode, StdioMode, StdioMode];
+  /**
+   * A worker thread (`worker_threads.Worker`): the kernel links parent and
+   * child with a MessageChannel (`port` in child-spawned and init).
+   */
+  thread?: boolean;
 }
 
 /** Kernel -> process worker. */
@@ -37,10 +42,14 @@ export type KernelToProcess =
       cwd: string;
       /** False when stdin is closed from the start (no writer). */
       stdinOpen: boolean;
+      /** For worker threads: the channel to the parent thread. */
+      threadPort?: MessagePort;
     }
   /** Data for this process's stdin; null is end-of-file. */
   | { t: 'stdin'; data: Uint8Array | null }
-  | { t: 'child-spawned'; id: number; pid: number }
+  /** Liveness check: the process answers `pong` from its event loop. */
+  | { t: 'ping'; n: number }
+  | { t: 'child-spawned'; id: number; pid: number; port?: MessagePort }
   | { t: 'child-error'; id: number; code: string; message: string }
   | { t: 'child-output'; id: number; fd: 1 | 2; data: Uint8Array }
   | { t: 'child-exit'; id: number; code: number | null; signal: Signal | null }
@@ -50,6 +59,7 @@ export type KernelToProcess =
 /** Process worker -> kernel. */
 export type ProcessToKernel =
   | { t: 'ready' }
+  | { t: 'pong'; n: number }
   | { t: 'doorbell' }
   | { t: 'stdout'; data: Uint8Array }
   | { t: 'stderr'; data: Uint8Array }

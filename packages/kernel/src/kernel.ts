@@ -28,7 +28,7 @@ import type { NetStack } from './net.ts';
 
 /** The subset of `Worker` the kernel needs; lets tests substitute Node worker_threads. */
 export interface ProcessWorkerLike {
-  postMessage(message: KernelToProcess): void;
+  postMessage(message: KernelToProcess, transfer?: Transferable[]): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<ProcessToKernel>) => void): void;
   addEventListener(type: 'error', listener: (event: ErrorEvent) => void): void;
   terminate(): void;
@@ -46,6 +46,11 @@ export interface KernelOptions {
   fsLimits?: VfsLimits;
   /** Maximum concurrently running processes (spawn fails with EAGAIN beyond it). */
   maxProcesses?: number;
+  /**
+   * A process that runs JavaScript this long without returning to its event
+   * loop (time blocked in syscalls does not count) is killed with SIGXCPU.
+   */
+  maxCpuMs?: number;
   /** Boot from a filesystem image (see `exportImage`) instead of seeding directories. */
   image?: readonly Uint8Array[];
   /** Boot from a snapshot (e.g. restored from persistent storage). Takes precedence over `image`. */
@@ -62,6 +67,8 @@ export interface SpawnOptions {
   stdin?: 'pipe' | 'closed';
   onStdout?: (data: Uint8Array) => void;
   onStderr?: (data: Uint8Array) => void;
+  /** For worker threads: the child's end of the channel to its parent thread. */
+  threadPort?: MessagePort;
 }
 
 export interface ProcessTiming {
@@ -177,8 +184,8 @@ export class Kernel {
     const watches = new Map<number, () => void>();
     const timing: ProcessTiming = { spawnedAt: performance.now() };
     const worker = this.options.createProcessWorker();
-    const post = (msg: KernelToProcess) => {
-      if (timing.exitedAt === undefined) worker.postMessage(msg);
+    const post = (msg: KernelToProcess, transfer: Transferable[] = []) => {
+      if (timing.exitedAt === undefined) worker.postMessage(msg, transfer);
     };
     const server = new SyscallServer(
       channel,
@@ -218,6 +225,9 @@ export class Kernel {
           break;
         case 'ready':
           timing.readyAt = performance.now();
+          break;
+        case 'pong':
+          lastSeen = performance.now();
           break;
         case 'exit':
           settle(msg.code);
@@ -273,17 +283,45 @@ export class Kernel {
 
     if (syscallMode === 'waitAsync') void server.listen();
 
+    // CPU watchdog: ping the process; one that neither answers nor waits in a syscall is spinning.
+    let lastSeen = performance.now();
+    const maxCpuMs = this.options.maxCpuMs;
+    if (maxCpuMs !== undefined && maxCpuMs > 0) {
+      let n = 0;
+      const tick = Math.max(20, Math.min(250, maxCpuMs / 4));
+      const watchdog = setInterval(() => {
+        const now = performance.now();
+        if (timing.exitedAt !== undefined) return clearInterval(watchdog);
+        if (server.waiting || timing.readyAt === undefined) lastSeen = now;
+        if (now - lastSeen > maxCpuMs) {
+          clearInterval(watchdog);
+          options.onStderr?.(
+            new TextEncoder().encode(
+              `clientvm: process ${pid} ran ${Math.round(now - lastSeen)} ms without yielding (maxCpuMs ${maxCpuMs}); killed\n`,
+            ),
+          );
+          handle.kill('SIGXCPU');
+          return;
+        }
+        worker.postMessage({ t: 'ping', n: ++n });
+      }, tick);
+    }
+
     const stdinOpen = options.stdin === 'pipe';
-    worker.postMessage({
-      t: 'init',
-      pid,
-      channel,
-      syscallMode,
-      argv: resolvedArgv,
-      env,
-      cwd,
-      stdinOpen,
-    });
+    worker.postMessage(
+      {
+        t: 'init',
+        pid,
+        channel,
+        syscallMode,
+        argv: resolvedArgv,
+        env,
+        cwd,
+        stdinOpen,
+        ...(options.threadPort ? { threadPort: options.threadPort } : {}),
+      },
+      options.threadPort ? [options.threadPort] : [],
+    );
 
     let stdinClosed = !stdinOpen;
     const handle: ProcessHandle = {
@@ -312,7 +350,7 @@ export class Kernel {
     request: ChildSpawnRequest,
     children: Map<number, ProcessHandle>,
     descendants: Set<ProcessHandle>,
-    post: (msg: KernelToProcess) => void,
+    post: (msg: KernelToProcess, transfer?: Transferable[]) => void,
     parent: SpawnOptions,
   ): void {
     const [stdinMode, stdoutMode, stderrMode] = request.stdio;
@@ -323,6 +361,7 @@ export class Kernel {
           ? inherit
           : undefined;
     let child: ProcessHandle;
+    const link = request.thread === true ? new MessageChannel() : null;
     try {
       const onStdout = route(stdoutMode, 1, parent.onStdout);
       const onStderr = route(stderrMode, 2, parent.onStderr);
@@ -332,6 +371,7 @@ export class Kernel {
         stdin: stdinMode === 'pipe' ? 'pipe' : 'closed',
         ...(onStdout ? { onStdout } : {}),
         ...(onStderr ? { onStderr } : {}),
+        ...(link ? { threadPort: link.port2 } : {}),
       });
     } catch (err) {
       const e = err as { code?: string; message?: string };
@@ -340,7 +380,8 @@ export class Kernel {
     }
     children.set(id, child);
     descendants.add(child);
-    post({ t: 'child-spawned', id, pid: child.pid });
+    if (link) post({ t: 'child-spawned', id, pid: child.pid, port: link.port1 }, [link.port1]);
+    else post({ t: 'child-spawned', id, pid: child.pid });
     void child.exit.then(({ code, signal }) => {
       children.delete(id);
       descendants.delete(child);

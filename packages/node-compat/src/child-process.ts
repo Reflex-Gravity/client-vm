@@ -37,6 +37,7 @@ const SIGNALS: Record<string, Signal> = {
   SIGINT: 'SIGINT',
   SIGHUP: 'SIGHUP',
   SIGPIPE: 'SIGPIPE',
+  SIGXCPU: 'SIGXCPU',
 };
 const SIGNAL_BY_NUMBER: Record<number, Signal> = {
   1: 'SIGHUP',
@@ -44,6 +45,7 @@ const SIGNAL_BY_NUMBER: Record<number, Signal> = {
   9: 'SIGKILL',
   13: 'SIGPIPE',
   15: 'SIGTERM',
+  24: 'SIGXCPU',
 };
 
 interface SpawnOptions {
@@ -60,6 +62,102 @@ interface SpawnOptions {
   encoding?: BufferEncoding | 'buffer' | null | undefined;
   input?: string | Uint8Array | undefined;
   maxBuffer?: number | undefined;
+  /** fork(): open an IPC channel. */
+  ipc?: { serialization: 'json' | 'advanced' } | undefined;
+}
+
+/** IPC messages on a fork's channel (the kernel-linked MessagePort). */
+type IpcWire =
+  | { t: 'ipc-init'; serialization: 'json' | 'advanced' }
+  | { t: 'ipc'; v: unknown }
+  | { t: 'ipc-disconnect' };
+
+/** Serializes like Node's 'json' IPC (a JSON round trip) or passes through for 'advanced'. */
+function ipcEncode(value: unknown, serialization: 'json' | 'advanced'): unknown {
+  if (serialization === 'advanced') return value;
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw codeError(
+      TypeError,
+      'ERR_INVALID_ARG_TYPE',
+      'The "message" argument must be serializable',
+    );
+  }
+  return json;
+}
+
+function ipcDecode(value: unknown, serialization: 'json' | 'advanced'): unknown {
+  return serialization === 'json' && typeof value === 'string' ? JSON.parse(value) : value;
+}
+
+/**
+ * The child side of a fork's IPC channel: `process.send`, `'message'`,
+ * `process.connected`, `process.disconnect()`, `process.channel`. The
+ * channel keeps the process alive only while 'message' listeners exist.
+ */
+export function attachIpcToProcess(
+  proc: EventEmitter & Record<string, unknown>,
+  port: MessagePort,
+  serialization: 'json' | 'advanced',
+  hold: () => { close(): void },
+): void {
+  let handle: { close(): void } | null = null;
+  let refed = true;
+  const sync = () => {
+    const want = refed && proc['connected'] === true && proc.listenerCount('message') > 0;
+    if (want && !handle) handle = hold();
+    if (!want && handle) {
+      handle.close();
+      handle = null;
+    }
+  };
+  proc['connected'] = true;
+  proc['send'] = (message: unknown, ...rest: unknown[]) => {
+    const cb = rest.find((r) => typeof r === 'function') as ((e: Error | null) => void) | undefined;
+    if (proc['connected'] !== true) {
+      const err = codeError(Error, 'ERR_IPC_CHANNEL_CLOSED', 'Channel closed');
+      if (cb) queueMicrotask(() => cb(err));
+      else queueMicrotask(() => proc.emit('error', err));
+      return false;
+    }
+    port.postMessage({ t: 'ipc', v: ipcEncode(message, serialization) } satisfies IpcWire);
+    if (cb) queueMicrotask(() => cb(null));
+    return true;
+  };
+  const disconnected = () => {
+    if (proc['connected'] !== true) return;
+    proc['connected'] = false;
+    sync();
+    proc.emit('disconnect');
+  };
+  proc['disconnect'] = () => {
+    if (proc['connected'] !== true) return;
+    port.postMessage({ t: 'ipc-disconnect' } satisfies IpcWire);
+    port.close();
+    disconnected();
+  };
+  proc['channel'] = {
+    ref: () => {
+      refed = true;
+      sync();
+    },
+    unref: () => {
+      refed = false;
+      sync();
+    },
+  };
+  port.addEventListener('message', (e) => {
+    const data = e.data as IpcWire;
+    if (data?.t === 'ipc') proc.emit('message', ipcDecode(data.v, serialization), undefined);
+    else if (data?.t === 'ipc-disconnect') disconnected();
+  });
+  proc.on('newListener', (event: string) => {
+    if (event === 'message') queueMicrotask(sync);
+  });
+  proc.on('removeListener', (event: string) => {
+    if (event === 'message') sync();
+  });
+  port.start();
 }
 
 function normalizeStdio(stdio: SpawnOptions['stdio']): [StdioMode, StdioMode, StdioMode] {
@@ -127,6 +225,9 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
     stderr: ReadableLike | null = null;
     stdio: unknown[];
     private readonly id: number;
+    private ipcPort: MessagePort | null = null;
+    private readonly ipc: { serialization: 'json' | 'advanced' } | undefined;
+    private readonly ipcQueue: unknown[] = [];
     private readonly handle;
     private exited = false;
     private streamsOpen = 0;
@@ -135,6 +236,7 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
     constructor(file: string, args: string[], opts: SpawnOptions) {
       super();
       this.id = nextId++;
+      this.ipc = opts.ipc;
       this.spawnfile = file;
       this.spawnargs = [opts.argv0 ?? file, ...args];
       this.handle = loop.handle();
@@ -177,6 +279,7 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
           env: childEnv(opts),
           cwd: childCwd(opts),
           stdio,
+          ...(opts.ipc ? { thread: true } : {}),
         },
       });
       if (opts.signal) {
@@ -205,6 +308,7 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
       switch (msg.t) {
         case 'child-spawned':
           this.pid = msg.pid;
+          if (this.ipc && msg.port) this.openIpc(msg.port);
           this.emit('spawn');
           break;
         case 'child-error': {
@@ -230,6 +334,11 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
           (msg.fd === 1 ? this.stdout : this.stderr)?.push(Buffer.from(msg.data));
           break;
         case 'child-exit':
+          if (this.connected) {
+            this.connected = false;
+            this.ipcPort?.close();
+            this.emit('disconnect');
+          }
           this.exitCode = msg.code;
           this.signalCode = msg.signal;
           this.exited = true;
@@ -248,6 +357,48 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
           this.maybeClose();
           break;
       }
+    }
+
+    private openIpc(port: MessagePort): void {
+      const { serialization } = this.ipc!;
+      this.ipcPort = port;
+      this.connected = true;
+      port.addEventListener('message', (e) => {
+        const data = e.data as IpcWire;
+        if (data?.t === 'ipc') this.emit('message', ipcDecode(data.v, serialization), undefined);
+        else if (data?.t === 'ipc-disconnect' && this.connected) {
+          this.connected = false;
+          this.emit('disconnect');
+        }
+      });
+      port.start();
+      port.postMessage({ t: 'ipc-init', serialization } satisfies IpcWire);
+      for (const v of this.ipcQueue.splice(0)) port.postMessage({ t: 'ipc', v } satisfies IpcWire);
+    }
+
+    /** IPC (fork): sends a message to the child. */
+    send(message: unknown, ...rest: unknown[]): boolean {
+      const cb = rest.find((r) => typeof r === 'function') as
+        ((e: Error | null) => void) | undefined;
+      if (!this.ipc || this.exited || (this.ipcPort && !this.connected)) {
+        const err = codeError(Error, 'ERR_IPC_CHANNEL_CLOSED', 'Channel closed');
+        if (cb) queueMicrotask(() => cb(err));
+        else queueMicrotask(() => this.emit('error', err));
+        return false;
+      }
+      const v = ipcEncode(message, this.ipc.serialization);
+      if (this.ipcPort) this.ipcPort.postMessage({ t: 'ipc', v } satisfies IpcWire);
+      else this.ipcQueue.push(v);
+      if (cb) queueMicrotask(() => cb(null));
+      return true;
+    }
+
+    disconnect(): void {
+      if (!this.connected || !this.ipcPort) return;
+      this.ipcPort.postMessage({ t: 'ipc-disconnect' } satisfies IpcWire);
+      this.ipcPort.close();
+      this.connected = false;
+      queueMicrotask(() => this.emit('disconnect'));
     }
 
     private maybeClose(): void {
@@ -270,12 +421,6 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
 
     unref(): void {
       this.handle.unref();
-    }
-
-    disconnect(): void {}
-
-    send(): boolean {
-      throw codeError(Error, 'ERR_IPC_CHANNEL_CLOSED', 'Channel closed');
     }
   }
 
@@ -510,12 +655,28 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
     return result.stdout;
   }
 
-  function fork(): never {
-    throw codeError(
-      Error,
-      'ERR_CLIENTVM_UNSUPPORTED',
-      'child_process.fork() (IPC) is not supported in ClientVM yet',
-    );
+  /** fork(modulePath[, args][, options]): a node child with an IPC channel. */
+  function fork(modulePath: string | URL, ...rest: unknown[]): ChildProcess {
+    const args = (Array.isArray(rest[0]) ? rest.shift() : []) as unknown[];
+    const opts = (rest[0] ?? {}) as SpawnOptions & {
+      execPath?: string;
+      execArgv?: string[];
+      silent?: boolean;
+      serialization?: 'json' | 'advanced';
+    };
+    let file = modulePath instanceof URL ? modulePath.href : String(modulePath);
+    if (file.startsWith('file:')) file = decodeURIComponent(new URL(file).pathname);
+    const stdio = Array.isArray(opts.stdio)
+      ? (opts.stdio as unknown[]).filter((s) => s !== 'ipc')
+      : opts.silent
+        ? ['pipe', 'pipe', 'pipe']
+        : ['inherit', 'inherit', 'inherit'];
+    return spawn(opts.execPath ?? 'node', [...(opts.execArgv ?? []), file, ...args.map(String)], {
+      ...opts,
+      stdio: stdio as SpawnOptions['stdio'],
+      shell: false,
+      ipc: { serialization: opts.serialization === 'advanced' ? 'advanced' : 'json' },
+    }) as ChildProcess;
   }
 
   const promisifyCustom = Symbol.for('nodejs.util.promisify.custom');

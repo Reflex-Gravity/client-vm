@@ -56,7 +56,7 @@ export function runResult(v: unknown): {
   return { code: r.code, signal: r.signal ?? null, stdout: r.stdout, stderr: r.stderr };
 }
 
-const SIGNALS = new Set<unknown>(['SIGHUP', 'SIGINT', 'SIGKILL', 'SIGPIPE', 'SIGTERM']);
+const SIGNALS = new Set<unknown>(['SIGHUP', 'SIGINT', 'SIGKILL', 'SIGPIPE', 'SIGTERM', 'SIGXCPU']);
 
 export function chunks(v: unknown): Uint8Array[] {
   return Array.isArray(v) && v.every(isUint8Array) ? v : bad('filesystem image');

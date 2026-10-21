@@ -6,6 +6,8 @@ import type {
   KernelBootMessage,
   KernelFlushMessage,
   KernelHttpPortMessage,
+  KernelMeasureMemoryMessage,
+  MemoryReply,
 } from '@clientvm/kernel';
 import type { HandshakeMessage, ServiceWorkerMessage } from '@clientvm/protocol';
 
@@ -68,6 +70,10 @@ function bootKernel(init: KernelBootMessage['init'], port: MessagePort): void {
   }
   kernel.postMessage(boot, [port, ...buffers]);
   void linkServiceWorker(kernel);
+  kernel.addEventListener('message', (event) => {
+    const msg = event.data as Partial<KernelMeasureMemoryMessage> | null;
+    if (msg?.t === 'clientvm:measure-memory' && msg.port) void measureMemory(msg.port);
+  });
 
   // Best effort: the page may be gone before an async flush completes.
   // Instance.flush() is the durability point.
@@ -76,6 +82,23 @@ function bootKernel(init: KernelBootMessage['init'], port: MessagePort): void {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') kernel.postMessage(flush);
   });
+}
+
+/** Measures this origin's agent cluster (page, kernel, processes) for the kernel. */
+async function measureMemory(port: MessagePort): Promise<void> {
+  const perf = performance as Performance & {
+    measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>;
+  };
+  let bytes: number | null = null;
+  try {
+    if (perf.measureUserAgentSpecificMemory)
+      bytes = (await perf.measureUserAgentSpecificMemory()).bytes;
+  } catch {
+    // Not cross-origin isolated, or the measurement was aborted.
+  }
+  const reply: MemoryReply = { bytes };
+  port.postMessage(reply);
+  port.close();
 }
 
 /**

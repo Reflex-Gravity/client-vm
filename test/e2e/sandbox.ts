@@ -71,7 +71,14 @@ interface HostWindow {
     mail(id: string): { from: string; message: unknown }[];
     drive(id: string, port: number, path?: string): Promise<number>;
     previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
+    pipeThrough(
+      id: string,
+      cmd: string,
+      args: string[],
+      chunks: string[],
+    ): Promise<{ stdout: string; code: number }>;
     agent(id: string): number;
+    memory(id: string): Promise<{ instanceMB: number | null }>;
     agentCall(
       handle: number,
       tool: string,

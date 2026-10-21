@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// `v8` (heap statistics from Chromium's performance.memory where present;
-// serialize/deserialize via a structured-clone-compatible JSON tag format)
-// and a main-thread-only `worker_threads` (Worker is not available yet).
+// `v8`: heap statistics from Chromium's performance.memory where present,
+// serialize/deserialize over JSON, no heap snapshots.
 
 import { Buffer } from './buffer.ts';
 
@@ -59,34 +58,5 @@ export function createV8(): Record<string, unknown> {
     deserialize: (buf: Uint8Array) => JSON.parse(new TextDecoder().decode(buf)) as unknown,
     getHeapSnapshot: unsupported('v8.getHeapSnapshot'),
     writeHeapSnapshot: unsupported('v8.writeHeapSnapshot'),
-  };
-}
-
-export function createWorkerThreads(): Record<string, unknown> {
-  const env = new Map<unknown, unknown>();
-  return {
-    isMainThread: true,
-    isInternalThread: false,
-    threadId: 0,
-    parentPort: null,
-    workerData: null,
-    resourceLimits: {},
-    SHARE_ENV: Symbol.for('nodejs.worker_threads.SHARE_ENV'),
-    Worker: class Worker {
-      constructor() {
-        unsupported('worker_threads.Worker')();
-      }
-    },
-    MessageChannel: globalThis.MessageChannel,
-    MessagePort: globalThis.MessagePort,
-    BroadcastChannel: globalThis.BroadcastChannel,
-    getEnvironmentData: (key: unknown) => env.get(key),
-    setEnvironmentData: (key: unknown, value: unknown) =>
-      value === undefined ? env.delete(key) : env.set(key, value),
-    markAsUntransferable: () => {},
-    isMarkedAsUntransferable: () => false,
-    markAsUncloneable: () => {},
-    moveMessagePortToContext: (port: unknown) => port,
-    receiveMessageOnPort: () => undefined,
   };
 }

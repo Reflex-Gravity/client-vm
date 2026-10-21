@@ -18,6 +18,8 @@ export { serveInstance, startKernelWorker } from './worker-entry.ts';
 export type {
   KernelBootMessage,
   KernelFlushMessage,
+  KernelMeasureMemoryMessage,
+  MemoryReply,
   KernelHttpPortMessage,
   KernelWorkerOptions,
   ServedInstance,

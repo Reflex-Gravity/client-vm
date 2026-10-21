@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createTestModule } from './test-runner.ts';
 import { installStdioFds } from './fs-stdio.ts';
-import { createV8, createWorkerThreads } from './v8.ts';
+import { createV8 } from './v8.ts';
 import { createHttp2 } from './http2.ts';
 import { createReadline } from './readline.ts';
 import { assertModule } from './assert.ts';
@@ -37,6 +38,8 @@ export interface BuiltinDeps {
   ctx: ProcessContext;
   loop: EventLoop;
   cwd: () => string;
+  /** The `worker_threads` module (created up front: a thread needs it before any require). */
+  workerThreads: Record<string, unknown>;
 }
 
 /**
@@ -199,9 +202,21 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   lazy('readline', () => (readline ??= createReadline()).readline);
   lazy('readline/promises', () => (readline ??= createReadline()).promises);
   let v8: Record<string, unknown> | undefined;
-  let workerThreads: Record<string, unknown> | undefined;
   lazy('v8', () => (v8 ??= createV8()));
-  lazy('worker_threads', () => (workerThreads ??= createWorkerThreads()));
+  table['worker_threads'] = deps.workerThreads;
+  let testModule: Record<string, unknown> | undefined;
+  lazy(
+    'test',
+    () =>
+      (testModule ??= createTestModule({
+        write: (text) =>
+          (process as unknown as { stdout: { write(s: string): void } }).stdout.write(text),
+        setExitCode: (code) => ((process as unknown as { exitCode?: number }).exitCode = code),
+        hold: () => deps.loop.handle(),
+        assert: assertModule,
+        setImmediate: (fn) => (deps.timers['setImmediate'] as (f: () => void) => unknown)(fn),
+      })),
+  );
   let http2: Record<string, unknown> | undefined;
   lazy('http2', () => (http2 ??= createHttp2()));
   let zlib: Record<string, unknown> | undefined;

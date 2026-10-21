@@ -109,7 +109,8 @@ class EventEmitterImpl {
     let doError = type === 'error';
     const events = this._events;
     if (events !== undefined) {
-      if (doError && events[errorMonitor] !== undefined) this.emit(errorMonitor, ...args);
+      if (doError && events[errorMonitor] !== undefined)
+        Reflect.apply(this.emit, this, [errorMonitor, ...args]);
       doError = doError && events['error'] === undefined;
     } else if (!doError) {
       return false;
@@ -129,9 +130,10 @@ class EventEmitterImpl {
       const result = Reflect.apply(handler, this, args);
       if (result !== undefined && result !== null) addCatch(this, result, type, args);
     } else {
+      // Index loops, as Node's own: user code may have replaced Array iteration.
       const listeners = handler.slice();
-      for (const listener of listeners) {
-        const result = Reflect.apply(listener, this, args);
+      for (let i = 0; i < listeners.length; i++) {
+        const result = Reflect.apply(listeners[i]!, this, args);
         if (result !== undefined && result !== null) addCatch(this, result, type, args);
       }
     }

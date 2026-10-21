@@ -16,7 +16,7 @@ export interface InstanceInit {
   id: string;
   /** The instance's name (its `.internal` host name besides the id), if it has one. */
   name?: string;
-  limits?: { quotaBytes?: number; maxInodes?: number; maxProcesses?: number };
+  limits?: { quotaBytes?: number; maxInodes?: number; maxProcesses?: number; maxCpuMs?: number };
   /** Boot from a filesystem image (fork) instead of the default seed. */
   image?: Uint8Array[];
   /** Files to write after boot: path -> contents (directories are created). Ignored when restoring persisted state. */
@@ -56,7 +56,7 @@ export type TreeEntry =
 export type MirrorOp =
   { op: 'put'; at: string; entries: TreeEntry[] } | { op: 'delete'; at: string };
 
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE';
+export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE' | 'SIGXCPU';
 
 export interface SpawnRequest {
   argv: string[];
@@ -137,6 +137,12 @@ export type InstanceRpc = {
   unmount(path: string): void;
   /** Requests served on virtual ports after `since` (a `seq`). */
   networkLog(since: number): NetworkLogEntry[];
+  /**
+   * Memory used by this instance's origin (kernel and processes), from
+   * `performance.measureUserAgentSpecificMemory()`; null where the browser
+   * cannot measure it. May wait for a garbage collection.
+   */
+  measureMemory(): Promise<{ bytes: number } | null>;
 };
 
 /**
@@ -181,5 +187,6 @@ export const SIGNAL_NUMBERS: Record<Signal, number> = {
   SIGINT: 2,
   SIGKILL: 9,
   SIGPIPE: 13,
+  SIGXCPU: 24,
   SIGTERM: 15,
 };

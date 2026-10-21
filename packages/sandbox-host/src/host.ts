@@ -67,7 +67,16 @@ export interface HostApi {
   /** Calls a Preview method; Uint8Array results come back as `{ png: base64 }`. */
   previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
   networkLog(id: string, since?: number): Promise<unknown[]>;
+  /** `{ instanceMB }` from measureMemory (page + kernel worker; null when unavailable), waiting at most 30 s. */
+  memory(id: string): Promise<{ instanceMB: number | null }>;
   /** Agent tools for an instance (`@clientvm/agent-api`); resolves with a handle. */
+  /** Spawns via the public API, writes `chunks` to stdin, closes it, and collects stdout. */
+  pipeThrough(
+    id: string,
+    cmd: string,
+    args: string[],
+    chunks: string[],
+  ): Promise<{ stdout: string; code: number }>;
   agent(id: string): number;
   agentCall(handle: number, tool: string, input: unknown): Promise<ToolResult>;
   destroy(id: string, purge?: boolean): Promise<void>;
@@ -215,6 +224,23 @@ window.__clientvm = {
     }
   },
   networkLog: (id, since) => get(id).networkLog(since),
+  async memory(id) {
+    const bytes = await Promise.race([
+      get(id).measureMemory(),
+      new Promise<null>((r) => setTimeout(() => r(null), 30_000)),
+    ]);
+    return { instanceMB: bytes === null ? null : Math.round((bytes / 2 ** 20) * 10) / 10 };
+  },
+  async pipeThrough(id, cmd, args, chunks) {
+    const proc = await get(id).spawn(cmd, args);
+    let stdout = '';
+    const done = drain(proc.stdout, (s) => (stdout += s));
+    const writer = proc.stdin.getWriter();
+    for (const c of chunks) await writer.write(new TextEncoder().encode(c));
+    await writer.close();
+    await done;
+    return { stdout, code: (await proc.exit).code };
+  },
   agent(id) {
     const handle = nextPreview++;
     agents.set(handle, createAgentTools({ instance: get(id), onSpawn: (child) => keep(child) }));

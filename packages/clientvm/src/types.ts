@@ -20,7 +20,8 @@ export interface Disposable {
   dispose(): void;
 }
 
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE';
+/** `SIGXCPU` is sent by the kernel when a process exceeds `limits.maxCpuMs`. */
+export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE' | 'SIGXCPU';
 
 /** Process tiers. Only `js` and `builtin` exist in v1; the others are reserved. */
 export type ProcessType = 'js' | 'builtin' | 'wasi' | 'vm';
@@ -32,10 +33,18 @@ export interface FileTree {
 
 export interface Limits {
   maxProcesses?: number;
+  /**
+   * Accepted and passed on to children, but not enforced yet: Chromium cannot
+   * measure process workers (see docs/open-questions.md).
+   */
   maxMemoryMB?: number;
   /** Total bytes the instance's filesystem may hold. */
   quotaBytes?: number;
-  /** CPU time budget per process, in milliseconds. */
+  /**
+   * How long a process may run JavaScript without yielding to its event loop
+   * (time blocked in syscalls does not count) before it is killed with
+   * SIGXCPU. Stops runaway loops; not an accounting of total CPU time.
+   */
   maxCpuMs?: number;
 }
 
@@ -133,6 +142,13 @@ export interface Instance {
   openPreview(port: number, opts?: PreviewOptions): Promise<Preview>;
   /** Requests served on this instance's virtual ports after `since` (a `seq`). */
   networkLog(since?: number): Promise<NetworkLogEntry[]>;
+  /**
+   * JavaScript and DOM bytes of the instance page and its kernel worker, or
+   * null where Chromium cannot measure. Process workers are nested workers,
+   * which Chromium does not attribute, so they are not included. The
+   * measurement waits for a garbage collection (up to about 20 seconds).
+   */
+  measureMemory(): Promise<number | null>;
   snapshot(): Promise<SnapshotId>;
   fork(opts?: InstanceOptions): Promise<Instance>;
   /**

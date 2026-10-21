@@ -133,6 +133,7 @@ class Controller implements ClientVM {
       ...(opts.limits?.maxProcesses === undefined
         ? {}
         : { maxProcesses: opts.limits.maxProcesses }),
+      ...(opts.limits?.maxCpuMs === undefined ? {} : { maxCpuMs: opts.limits.maxCpuMs }),
     };
     if (Object.keys(limits).length > 0) init.limits = limits;
     if (opts.fs?.persist) init.persist = true;
@@ -373,7 +374,11 @@ class InstanceImpl implements Instance {
     const pid = await this.rpc.call('spawn', request);
     if (!v.isPid(pid))
       throw new ClientVMError('instance sent a malformed pid', 'ERR_INSTANCE_PROTOCOL');
-    const proc = new ProcessHandleImpl(pid, (signal) => this.rpc.call('kill', pid, signal));
+    const proc = new ProcessHandleImpl(
+      pid,
+      (signal) => this.rpc.call('kill', pid, signal),
+      (data) => this.rpc.call('writeStdin', pid, data),
+    );
     this.processes.set(pid, proc);
     return proc;
   }
@@ -453,6 +458,12 @@ class InstanceImpl implements Instance {
     );
     this.previews.add(preview);
     return preview;
+  }
+
+  async measureMemory(): Promise<number | null> {
+    this.assertAlive();
+    const r = (await this.rpc.call('measureMemory')) as { bytes?: unknown } | null;
+    return r && typeof r.bytes === 'number' && r.bytes >= 0 ? r.bytes : null;
   }
 
   async networkLog(since = 0): Promise<NetworkLogEntry[]> {
@@ -797,7 +808,14 @@ class InstanceFs implements FileSystem {
 }
 
 function isSignal(s: unknown): s is Signal {
-  return s === 'SIGTERM' || s === 'SIGKILL' || s === 'SIGINT' || s === 'SIGHUP' || s === 'SIGPIPE';
+  return (
+    s === 'SIGTERM' ||
+    s === 'SIGKILL' ||
+    s === 'SIGINT' ||
+    s === 'SIGHUP' ||
+    s === 'SIGPIPE' ||
+    s === 'SIGXCPU'
+  );
 }
 
 function flattenTree(tree: FileTree, prefix = ''): Record<string, string | Uint8Array> {

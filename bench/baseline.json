@@ -1,0 +1,17 @@
+{
+  "note": "Regenerate with: pnpm bench && node scripts/bench-gate.mjs --update",
+  "from": "2026-10-21T21:41:18.047Z",
+  "browser": "chromium 141.0.7390.37",
+  "metrics": {
+    "kernelBootMs": 163,
+    "instanceCreateMs.p50": 134,
+    "syscalls.waitAsync.noop.perCallUs.p50": 30,
+    "syscalls.waitAsync.stat.perCallUs.p50": 35,
+    "spawn.waitAsync.spawnToReadyMs.p50": 48.02,
+    "spawn.waitAsync.nodeEvalZeroTotalMs.p50": 56.52,
+    "shellLoop10kMs": 253,
+    "persistence.fullFlushMs_5000files": 1357,
+    "persistence.restoreBootMs_5000files": 968,
+    "memory.instanceMB": 1.6
+  }
+}

@@ -14,6 +14,8 @@ import { createProcessObject } from './process-object.ts';
 import { createModuleSystem, requireOf } from './module/cjs-loader.ts';
 import { EsmResolver } from './module/esm-resolve.ts';
 import { installEsmRuntime } from './module/esm-runtime.ts';
+import { createWorkerThreads, receiveLinkInit } from './worker-threads.ts';
+import type { WorkerThreads } from './worker-threads.ts';
 import { analyzeEsm, tokenize } from './module/lexer.ts';
 import type { EsmRuntime } from './module/esm-runtime.ts';
 import type { ResolverFs } from './module/resolve.ts';
@@ -21,6 +23,8 @@ import type { NodeFs } from './fs.ts';
 import { createBuiltins } from './builtins.ts';
 import { bufferModule } from './buffer.ts';
 import { warningHook } from './events.ts';
+import type { EventEmitter } from './events.ts';
+import { attachIpcToProcess } from './child-process.ts';
 import { deprecationHook } from './util.ts';
 
 type Invocation =
@@ -131,6 +135,25 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
   warningHook.emit = (w) => emitWarning(w);
   deprecationHook.emit = (msg, code) => emitWarning(msg, 'DeprecationWarning', code);
   const env = () => proc['env'] as Record<string, string>;
+  // A linked child (worker thread or fork) hears from its parent before running anything.
+  const link = ctx.threadPort ? await receiveLinkInit(ctx.threadPort) : null;
+  const thread = link?.t === 'init' && ctx.threadPort ? { port: ctx.threadPort, init: link } : null;
+  if (link?.t === 'ipc-init' && ctx.threadPort) {
+    attachIpcToProcess(
+      proc as unknown as EventEmitter & Record<string, unknown>,
+      ctx.threadPort,
+      link.serialization,
+      () => loop.handle(),
+    );
+  }
+  const workerThreads = createWorkerThreads({
+    ctx,
+    loop,
+    path,
+    cwd: () => state.cwd,
+    env: () => proc.env as Record<string, string>,
+    thread,
+  });
   const builtins = createBuiltins({
     fs,
     path,
@@ -141,6 +164,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     ctx,
     loop,
     cwd: () => state.cwd,
+    workerThreads: workerThreads.module,
   });
   const resolverFs = resolverFsFrom(fs);
   const esm = new EsmResolver(resolverFs);
@@ -181,6 +205,17 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     setImmediate: loop.timers.setImmediate,
     clearImmediate: loop.timers.clearImmediate,
   });
+  // In Node the globals are the buffer module's functions. (Defined, not assigned:
+  // the worker's own atob/btoa are inherited and assignment may not shadow them.)
+  for (const name of ['atob', 'btoa'] as const) {
+    Object.defineProperty(g, name, {
+      value: bufferModule[name],
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+  matchNodeGlobalEnumerability(globalThis);
 
   /** Runs 'exit' listeners once (Node emits it on normal exit and on process.exit()). */
   const finish = (code: number): number => {
@@ -190,7 +225,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
         proc.emit('exit', proc.exitCode ?? code);
       } catch (err) {
         if (err instanceof ExitSignal) return err.code;
-        reportUncaught(ctx, err);
+        reportUncaught(ctx, err, workerThreads);
         return 7;
       }
     }
@@ -213,7 +248,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
         if (err instanceof ExitSignal) return resolve(err.code);
         error = err;
       }
-      reportUncaught(ctx, error);
+      reportUncaught(ctx, error, workerThreads);
       resolve(finish(1));
     };
     globalThis.addEventListener('error', (e) => {
@@ -273,7 +308,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
       err = inner;
     }
     if (!handled) {
-      reportUncaught(ctx, err);
+      reportUncaught(ctx, err, workerThreads);
       return finish(1);
     }
   }
@@ -283,7 +318,12 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     proc.emit('beforeExit', proc.exitCode ?? 0);
     return loop.drain();
   });
-  return Promise.race([drained.then(() => finish(0)), fatal]);
+  // Not Promise.race: it iterates its argument, and user code may have
+  // replaced Array iteration by now (Node's shutdown never calls user code).
+  return new Promise<number>((resolve, reject) => {
+    drained.then(() => finish(0)).then(resolve, reject);
+    fatal.then(resolve, reject);
+  });
 }
 
 /**
@@ -325,7 +365,54 @@ async function syntaxCheck(source: string, isModule: boolean): Promise<Error | n
   }
 }
 
-function reportUncaught(ctx: ProcessContext, err: unknown): void {
+/** The globals Node reports from `Object.keys(globalThis)` (everything else is non-enumerable). */
+const NODE_ENUMERABLE_GLOBALS = new Set([
+  'global',
+  'clearImmediate',
+  'setImmediate',
+  'clearInterval',
+  'clearTimeout',
+  'setInterval',
+  'setTimeout',
+  'queueMicrotask',
+  'structuredClone',
+  'atob',
+  'btoa',
+  'performance',
+  'fetch',
+  'crypto',
+  'navigator',
+]);
+
+/**
+ * Worker-only globals (`postMessage`, `onmessage`, `name`, ...) stay usable
+ * but stop showing up in `for (k in globalThis)`, and Node's own enumerable
+ * globals are enumerable, so code that inspects the global object (test
+ * harnesses, leak checks) sees what it would in Node.
+ */
+function matchNodeGlobalEnumerability(scope: object): void {
+  for (let o: object | null = scope; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+    for (const key of Object.getOwnPropertyNames(o)) {
+      const d = Object.getOwnPropertyDescriptor(o, key);
+      if (!d) continue;
+      const enumerable = NODE_ENUMERABLE_GLOBALS.has(key);
+      if (d.enumerable === enumerable) continue;
+      if (d.configurable) Object.defineProperty(o, key, { ...d, enumerable });
+      // A fixed inherited constant: a non-enumerable own copy hides it from for-in.
+      else if (o !== scope && !Object.hasOwn(scope, key))
+        Object.defineProperty(scope, key, {
+          value: (scope as Record<string, unknown>)[key],
+          enumerable: false,
+          configurable: true,
+          writable: true,
+        });
+    }
+  }
+}
+
+function reportUncaught(ctx: ProcessContext, err: unknown, threads?: WorkerThreads): void {
+  // In a worker thread the error goes to the parent's Worker 'error' event.
+  if (threads?.reportError(err)) return;
   const text = err instanceof Error ? inspect(err) : `Uncaught ${inspect(err)}`;
   ctx.stderr.write(`${text}\n\nNode.js ${NODE_VERSION}\n`);
 }
