@@ -6,10 +6,14 @@ import { createConsole } from './console.ts';
 import { NODE_EXEC_PATH, NODE_VERSION } from './constants.ts';
 import { createEventLoop } from './event-loop.ts';
 import { createFs } from './fs.ts';
-import { format, inspect } from './inspect.ts';
+import { inspect } from './inspect.ts';
 import { createPosixPath } from './path.ts';
 import { createProcessObject } from './process-object.ts';
 import { createRequire } from './require.ts';
+import { createBuiltins } from './builtins.ts';
+import { bufferModule } from './buffer.ts';
+import { warningHook } from './events.ts';
+import { deprecationHook } from './util.ts';
 
 type Invocation =
   | { kind: 'eval'; code: string; print: boolean; rest: string[] }
@@ -66,7 +70,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     return BAD_OPTION_EXIT_CODE;
   }
 
-  const state = { cwd: ctx.cwd };
+  const state = { cwd: ctx.cwd, exiting: false };
   const path = createPosixPath(() => state.cwd);
   const fs = createFs(ctx.syscall, path);
   const scriptPath = invocation.kind === 'script' ? path.resolve(invocation.script) : undefined;
@@ -83,28 +87,74 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
   const proc = createProcessObject(ctx, state, argv, chdir);
   const console = createConsole(ctx.stdout, ctx.stderr);
   const loop = createEventLoop(globalThis);
-  const util = { format, inspect };
-  const builtins = { fs, path, process: proc, util, timers: loop.timers };
+  const emitWarning = proc['emitWarning'] as (
+    w: string | Error,
+    type?: string,
+    code?: string,
+  ) => void;
+  warningHook.emit = (w) => emitWarning(w);
+  deprecationHook.emit = (msg, code) => emitWarning(msg, 'DeprecationWarning', code);
+  const env = () => proc['env'] as Record<string, string>;
+  const builtins = createBuiltins({ fs, path, process: proc, console, timers: loop.timers, env });
   const require = createRequire(builtins);
 
   // One process per worker, so the worker's globals are this process's globals.
   const g = globalThis as unknown as Record<string, unknown>;
-  Object.assign(g, loop.timers, { global: globalThis, process: proc, console });
+  Object.assign(g, loop.timers, {
+    global: globalThis,
+    process: proc,
+    console,
+    Buffer: bufferModule.Buffer,
+    setImmediate: loop.timers.setImmediate,
+    clearImmediate: loop.timers.clearImmediate,
+  });
+
+  /** Runs 'exit' listeners once (Node emits it on normal exit and on process.exit()). */
+  const finish = (code: number): number => {
+    if (!state.exiting) {
+      state.exiting = true;
+      try {
+        proc.emit('exit', proc.exitCode ?? code);
+      } catch (err) {
+        if (err instanceof ExitSignal) return err.code;
+        reportUncaught(ctx, err);
+        return 7;
+      }
+    }
+    return proc.exitCode ?? code;
+  };
+  /** Gives 'uncaughtException' listeners a chance to handle an error, as Node does. */
+  const handledByListener = (error: unknown, origin: string): boolean => {
+    if (proc.listenerCount('uncaughtException') === 0) return false;
+    proc.emit('uncaughtException', error, origin);
+    return true;
+  };
 
   // Async failures (timer callbacks, rejected promises) end the process like in Node.
   const fatal = new Promise<number>((resolve) => {
-    const onFatal = (error: unknown) => {
+    const onFatal = (error: unknown, origin: string) => {
       if (error instanceof ExitSignal) return resolve(error.code);
+      try {
+        if (handledByListener(error, origin)) return;
+      } catch (err) {
+        if (err instanceof ExitSignal) return resolve(err.code);
+        error = err;
+      }
       reportUncaught(ctx, error);
-      resolve(1);
+      resolve(finish(1));
     };
     globalThis.addEventListener('error', (e) => {
       e.preventDefault();
-      onFatal(e.error);
+      onFatal(e.error, 'uncaughtException');
     });
     globalThis.addEventListener('unhandledrejection', (e) => {
       e.preventDefault();
-      onFatal(e.reason);
+      if (e.reason instanceof ExitSignal) return onFatal(e.reason, 'unhandledRejection');
+      if (proc.listenerCount('unhandledRejection') > 0) {
+        proc.emit('unhandledRejection', e.reason, e.promise);
+        return;
+      }
+      onFatal(e.reason, 'unhandledRejection');
     });
   });
 
@@ -131,14 +181,28 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
       wrapper.call(module.exports, module.exports, require, module, file, path.dirname(file));
       module.loaded = true;
     }
-  } catch (err) {
-    if (err instanceof ExitSignal) return err.code;
-    reportUncaught(ctx, err);
-    return 1;
+  } catch (thrown) {
+    if (thrown instanceof ExitSignal) return thrown.code;
+    let err: unknown = thrown;
+    let handled = false;
+    try {
+      handled = handledByListener(err, 'uncaughtException');
+    } catch (inner) {
+      if (inner instanceof ExitSignal) return inner.code;
+      err = inner;
+    }
+    if (!handled) {
+      reportUncaught(ctx, err);
+      return finish(1);
+    }
   }
 
-  const code = await Promise.race([loop.drain().then(() => proc.exitCode ?? 0), fatal]);
-  return code;
+  const drained = loop.drain().then(() => {
+    // Node emits 'beforeExit' when the loop empties; listeners may schedule more work.
+    proc.emit('beforeExit', proc.exitCode ?? 0);
+    return loop.drain();
+  });
+  return Promise.race([drained.then(() => finish(0)), fatal]);
 }
 
 function reportUncaught(ctx: ProcessContext, err: unknown): void {

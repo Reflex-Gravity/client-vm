@@ -63,10 +63,21 @@ log('final', () => fs.readdirSync('.').sort());
 function runOnRealNode(): string {
   const dir = mkdtempSync(join(tmpdir(), 'clientvm-e2e-fs-'));
   try {
-    return execFileSync(process.execPath, ['-e', SCRIPT], { cwd: dir, encoding: 'utf8' });
+    return execFileSync(process.execPath, ['-e', SCRIPT], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: plainEnv(),
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Reference Node runs without a TTY or forced colors, like a ClientVM process. */
+function plainEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
+  delete env['FORCE_COLOR'];
+  return env;
 }
 
 test('fs syscalls inside a ClientVM process match real Node', async ({ page }) => {

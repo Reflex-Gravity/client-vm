@@ -39,6 +39,11 @@ const values: [string, unknown][] = [
     ],
   ],
   ['typed array', new Uint8Array([1, 2, 3, 250])],
+  ['custom inspect', { [Symbol.for('nodejs.util.inspect.custom')]: () => 'CUSTOM', other: 1 }],
+  [
+    'nested custom inspect',
+    { inner: { [Symbol.for('nodejs.util.inspect.custom')]: () => ({ replaced: true }) } },
+  ],
   ['class instance', new Point()],
   ['null prototype', Object.assign(Object.create(null), { a: 1 })],
   ['functions', [function named() {}, () => {}, class Foo {}, async function af() {}]],
@@ -46,6 +51,16 @@ const values: [string, unknown][] = [
   ['array with extra key', Object.assign([1, 2], { extra: true })],
   ['nested arrays', [[1, [2, [3, [4, [5]]]]], { a: [{ b: [{ c: 1 }] }] }]],
 ];
+
+describe('Buffer inspect', () => {
+  it('matches Node for short and long buffers', async () => {
+    const { Buffer: Ours } = await import('@clientvm/node-compat');
+    for (const bytes of [[], [0x68, 0x69], Array.from({ length: 60 }, (_, i) => i)]) {
+      expect(inspect(Ours.from(bytes))).toBe(nodeInspect(Buffer.from(bytes)));
+      expect(inspect({ data: Ours.from(bytes) })).toBe(nodeInspect({ data: Buffer.from(bytes) }));
+    }
+  });
+});
 
 describe('inspect differential: node-compat vs node:util', () => {
   for (const [name, value] of values) {

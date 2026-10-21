@@ -7,20 +7,21 @@ import {
   decodeStat,
   decodeUtf8,
   encode,
-  encodeUtf8,
   errnoCode,
 } from '@clientvm/protocol';
 import type { StatData, Value } from '@clientvm/protocol';
 import type { SyscallClient } from '@clientvm/protocol';
 import type { PosixPath } from './path.ts';
+import { Buffer, toBuffer } from './buffer.ts';
+import type { Buffer as BufferT, BufferEncoding } from './buffer.ts';
 
 const S_IFMT = 0o170000;
 const S_IFREG = 0o100000;
 const S_IFDIR = 0o040000;
 const S_IFLNK = 0o120000;
 
-type PathLike = string | URL;
-type Encoding = 'utf8' | 'utf-8';
+type PathLike = string | URL | Uint8Array;
+type Encoding = BufferEncoding | 'buffer';
 type EncodingOption = Encoding | { encoding?: Encoding | null; flag?: string } | null | undefined;
 
 export class Stats implements StatData {
@@ -136,6 +137,7 @@ function invalidArg(name: string, expected: string, actual: unknown): TypeError 
 
 function toPathString(path: PathLike): string {
   if (typeof path === 'string') return path;
+  if (path instanceof Uint8Array) return decodeUtf8(path);
   if (path instanceof URL) {
     if (path.protocol !== 'file:')
       throw invalidArg('path', 'of type string or an instance of URL with scheme file:', path);
@@ -144,10 +146,37 @@ function toPathString(path: PathLike): string {
   throw invalidArg('path', 'of type string or an instance of URL', path);
 }
 
-function encodingOf(options: EncodingOption): Encoding | null {
-  if (options === null || options === undefined) return null;
-  if (typeof options === 'string') return options;
-  return options.encoding ?? null;
+function encodingOf(options: EncodingOption): BufferEncoding | null {
+  const enc =
+    options === null || options === undefined
+      ? null
+      : typeof options === 'string'
+        ? options
+        : (options.encoding ?? null);
+  if (enc === null || enc === 'buffer') return null;
+  if (!Buffer.isEncoding(enc)) {
+    throw Object.assign(
+      new TypeError(`The argument 'encoding' is invalid encoding. Received '${enc}'`),
+      {
+        code: 'ERR_INVALID_ARG_VALUE',
+      },
+    );
+  }
+  return enc;
+}
+
+/** Converts string or ArrayBufferView data to bytes, as fs write APIs accept. */
+function toBytes(data: unknown, encoding: BufferEncoding | null, argName = 'data'): Uint8Array {
+  if (typeof data === 'string')
+    return Buffer.from(data, encoding ?? 'utf8') as unknown as Uint8Array;
+  if (data instanceof Uint8Array) return data;
+  if (ArrayBuffer.isView(data))
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  throw invalidArg(
+    argName,
+    'of type string or an instance of Buffer, TypedArray, or DataView',
+    data,
+  );
 }
 
 type OpenFlags = string | number;
@@ -233,29 +262,60 @@ export function createFs(syscall: SyscallClient, path: PosixPath) {
     call(op, [path.resolve(f), path.resolve(t), ...rest], syscallName, f, t);
   };
 
-  function readFileSync(file: PathLike, options?: EncodingOption): string | Uint8Array {
-    const p = toPathString(file);
-    const data = call(Op.READ_FILE, [path.resolve(p)], 'open', p);
+  function readFileSync(file: PathLike | number, options?: EncodingOption): string | BufferT {
     const encoding = encodingOf(options);
-    return encoding ? decodeUtf8(data) : data;
+    let data: Uint8Array;
+    if (typeof file === 'number') {
+      data = readAllFromFd(file);
+    } else {
+      const p = toPathString(file);
+      data = call(Op.READ_FILE, [path.resolve(p)], 'open', p);
+    }
+    const buf = toBuffer(data);
+    return encoding ? buf.toString(encoding) : buf;
   }
 
-  function writeFileSync(
-    file: PathLike,
-    data: string | Uint8Array,
-    options?: Encoding | { encoding?: Encoding | null; mode?: number; flag?: string } | null,
-  ): void {
-    const p = toPathString(file);
-    if (typeof data !== 'string' && !(data instanceof Uint8Array)) {
-      throw invalidArg(
-        'data',
-        'of type string or an instance of Buffer, TypedArray, or DataView',
-        data,
-      );
+  function readAllFromFd(fd: number): Uint8Array {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const chunk = call(Op.READ, [fd, 64 * 1024, null], 'read');
+      if (chunk.length === 0) break;
+      chunks.push(chunk);
+      total += chunk.length;
     }
-    const bytes = typeof data === 'string' ? encodeUtf8(data) : data;
-    const mode = typeof options === 'object' && options !== null ? options.mode : undefined;
-    call(Op.WRITE_FILE, [path.resolve(p), bytes, mode ?? null], 'open', p);
+    return Buffer.concat(chunks, total) as unknown as Uint8Array;
+  }
+
+  type WriteOptions =
+    Encoding | { encoding?: Encoding | null; mode?: number; flag?: string } | null;
+
+  function writeFileSync(file: PathLike | number, data: unknown, options?: WriteOptions): void {
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    const bytes = toBytes(data, encodingOf(options));
+    const flag = opts.flag ?? 'w';
+    if (typeof file === 'number') {
+      writeAll(file, bytes);
+      return;
+    }
+    if (flag !== 'w') {
+      const fd = openSync(file, flag, opts.mode ?? 0o666);
+      try {
+        writeAll(fd, bytes);
+      } finally {
+        closeSync(fd);
+      }
+      return;
+    }
+    const p = toPathString(file);
+    call(Op.WRITE_FILE, [path.resolve(p), bytes, opts.mode ?? null], 'open', p);
+  }
+
+  function writeAll(fd: number, bytes: Uint8Array): void {
+    let offset = 0;
+    do {
+      offset += decode(call(Op.WRITE, [fd, bytes.subarray(offset), null], 'write')) as number;
+    } while (offset < bytes.length);
   }
 
   function readdirSync(
@@ -433,7 +493,9 @@ export function createFs(syscall: SyscallClient, path: PosixPath) {
     let bytes: Uint8Array;
     let pos: number | null | undefined;
     if (typeof data === 'string') {
-      bytes = encodeUtf8(data);
+      const enc =
+        typeof lengthOrEncoding === 'string' ? encodingOf(lengthOrEncoding as Encoding) : null;
+      bytes = toBytes(data, enc);
       pos = offsetOrPosition;
     } else {
       const offset = offsetOrPosition ?? 0;
@@ -454,13 +516,9 @@ export function createFs(syscall: SyscallClient, path: PosixPath) {
     call(Op.FTRUNCATE, [fd, len], 'ftruncate');
   }
 
-  function appendFileSync(file: PathLike, data: string | Uint8Array): void {
-    const fd = openSync(file, 'a');
-    try {
-      writeSync(fd, data);
-    } finally {
-      closeSync(fd);
-    }
+  function appendFileSync(file: PathLike | number, data: unknown, options?: WriteOptions): void {
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    writeFileSync(file, data, { ...opts, encoding: encodingOf(options), flag: opts.flag ?? 'a' });
   }
 
   const constants = {

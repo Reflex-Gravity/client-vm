@@ -8,7 +8,8 @@
  */
 
 export interface InspectOptions {
-  depth?: number;
+  /** null or Infinity means unlimited. */
+  depth?: number | null;
   breakLength?: number;
   maxArrayLength?: number;
   maxStringLength?: number;
@@ -30,9 +31,19 @@ const enum_kArrayExtrasType = 1;
 
 const IDENTIFIER = /^[a-zA-Z_][a-zA-Z_0-9]*$/;
 
-export function inspect(value: unknown, options: InspectOptions = {}): string {
+/** `util.inspect.custom`: objects define this method to control their inspect output. */
+export const customInspectSymbol = Symbol.for('nodejs.util.inspect.custom');
+
+export function inspect(
+  value: unknown,
+  options: InspectOptions | boolean = {},
+  legacyDepth?: number | null,
+): string {
+  // Legacy signature inspect(obj, showHidden, depth): only depth is honored.
+  if (typeof options === 'boolean')
+    options = { depth: legacyDepth === undefined ? 2 : legacyDepth };
   const ctx: Ctx = {
-    depth: options.depth ?? 2,
+    depth: options.depth === null ? Infinity : (options.depth ?? 2),
     breakLength: options.breakLength ?? 80,
     compact: 3,
     maxArrayLength: options.maxArrayLength ?? 100,
@@ -49,6 +60,22 @@ function formatValue(ctx: Ctx, value: unknown, recurseTimes: number): string {
     return formatPrimitive(ctx, value);
   }
   if (value === null) return 'null';
+  const custom = (value as Record<symbol, unknown>)[customInspectSymbol];
+  if (typeof custom === 'function' && custom !== inspect) {
+    const depth = ctx.depth - recurseTimes;
+    const opts = {
+      depth,
+      breakLength: ctx.breakLength,
+      maxArrayLength: ctx.maxArrayLength,
+      stylize: (s: string) => s,
+    };
+    const result: unknown = custom.call(value, depth, opts, inspect);
+    if (result !== value) {
+      if (typeof result === 'string')
+        return result.replaceAll('\n', `\n${' '.repeat(ctx.indentationLvl)}`);
+      return formatValue(ctx, result, recurseTimes);
+    }
+  }
   if (ctx.seen.includes(value)) return '[Circular *1]';
   return formatRaw(ctx, value as object, recurseTimes);
 }

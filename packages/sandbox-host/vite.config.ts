@@ -46,7 +46,9 @@ export default defineConfig({
   plugins: [isolationHeaders()],
   // Resolve workspace packages to their TypeScript sources; no prebuild needed.
   resolve: { conditions: ['@clientvm/source', ...defaultClientConditions] },
-  worker: { format: 'es' },
+  // Function and class names are observable inside processes (`<Buffer ...>`,
+  // `Stats {}`, constructor.name checks), so minification must keep them.
+  worker: { format: 'es', rollupOptions: { output: { keepNames: true } } },
   build: {
     target: 'es2023',
     // Everything ClientVM serves lives under /__clientvm/, which the instance
@@ -55,6 +57,7 @@ export default defineConfig({
     rollupOptions: {
       input: { host: 'index.html', instance: '__clientvm/instance.html', sw: 'src/sw.ts' },
       output: {
+        keepNames: true,
         // The service worker needs a stable URL so updates replace it in place.
         entryFileNames: (chunk) =>
           chunk.name === 'sw' ? '__clientvm/sw.js' : '__clientvm/assets/[name]-[hash].js',

@@ -17,26 +17,29 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 
 | Module | Status | Tested by | Known gaps |
 |---|---|---|---|
-| `fs` (sync) | partial | e2e fs differential vs real Node, fs differential + seeded random-op fuzz vs `node:fs` | Paths: `readFileSync writeFileSync appendFileSync readdirSync statSync lstatSync existsSync mkdirSync rmdirSync unlinkSync rmSync renameSync linkSync symlinkSync readlinkSync realpathSync(.native) accessSync chmodSync utimesSync truncateSync copyFileSync`. Fds: `openSync closeSync readSync writeSync fstatSync ftruncateSync`. Returns `Uint8Array`, not `Buffer`; only `utf8`; no `opendirSync`, `cpSync`, `watch` (VFS watchers exist, not yet exposed), `fchmod`/`futimes`, `fsync` |
+| `fs` (sync) | partial | e2e fs differential vs real Node, fs differential + seeded random-op fuzz vs `node:fs` | Paths: `readFileSync writeFileSync appendFileSync readdirSync statSync lstatSync existsSync mkdirSync rmdirSync unlinkSync rmSync renameSync linkSync symlinkSync readlinkSync realpathSync(.native) accessSync chmodSync utimesSync truncateSync copyFileSync`. Fds: `openSync closeSync readSync writeSync fstatSync ftruncateSync`. Returns `Buffer`; all Buffer encodings; fds accepted by `readFileSync`/`writeFileSync`; no `opendirSync`, `cpSync`, `watch` (VFS watchers exist, not yet exposed), `fchmod`/`futimes`, `fsync` |
 | `fs` (callback / promises) | none | | |
 | `path` | partial (posix full) | path differential vs `node:path.posix` | `win32` not provided |
-| `util` | partial | inspect differential vs `node:util` | Only `format` and `inspect`. No `showHidden` (`%o`), colors, custom inspect symbol, Proxy detection, or getters option |
+| `util` | partial | inspect + events + modules differentials vs `node:util`, e2e | `format`, `inspect` (custom inspect, depth), `types`, `promisify`/`callbackify`, `inherits`, `deprecate`, `isDeepStrictEqual`, `parseArgs` (common cases), `debuglog`, legacy `isX`. No `showHidden` (`%o`), colors, Proxy detection, `MIMEType`, `TextEncoder` streaming options |
 | `console` | partial | e2e spike | `table` prints like `log`. No `Console` class |
-| `process` | partial | e2e spike | No EventEmitter (`on` is a no-op), no stdin, no signals. `memoryUsage` missing. `arch` reports `x64` |
+| `process` | partial | e2e | EventEmitter with `exit`, `beforeExit`, `uncaughtException`, `unhandledRejection`, `warning`; `emitWarning`, `hrtime`, `nextTick`, `memoryUsage`, `stdout`/`stderr` (minimal writables). No stdin data, signals, or `stream`-based stdio yet (3b). `arch` reports `x64` |
 | `timers` | partial | e2e spike | Process exit waits for timers. Pending promises (e.g. `fetch`) do not keep the process alive |
 | module loading | partial | e2e spike | `require` of builtins only. No filesystem modules, no ESM, no `exports` maps |
-| `buffer` | none | | |
-| `events` | none | | |
+| `buffer` | full (tested surface) | Buffer differential vs `node:buffer` (thousands of cases: encodings, search, numeric reads/writes, errors), e2e | `Buffer` is a callable function sharing `FastBuffer.prototype`, as in Node. `Blob`/`File` are the browser's. No `transcode` for exotic encodings |
+| `events` | full (tested surface) | events differential vs `node:events`, e2e | `EventEmitter` (callable for legacy `EventEmitter.call(this)`), `once`, `on`, captureRejections, errorMonitor, max-listener warnings. `EventTarget` helpers partial |
 | `stream` | none | | |
 | `crypto` | none | | |
 | `zlib` | none | | |
+| `querystring` | full (tested surface) | modules differential vs `node:querystring` | |
+| `string_decoder` | full (tested surface) | modules differential | utf16le surrogate pairs split at an odd byte decode correctly (Node emits U+FFFD) |
+| `timers/promises` | partial | | `setTimeout`, `setImmediate`, `scheduler` |
 | `http` / `https` | none | | Virtual ports, the service-worker route and static serving exist (Phase 2); `http.createServer` is Phase 3 |
 | `net` | none | | |
-| `os` | none | | |
+| `os` | partial | e2e | A fixed Linux identity (`hostname` `clientvm`, `x64`); CPU count from the browser. Memory figures are nominal |
 | `child_process` | none | | |
 | `worker_threads` | none | | |
-| `url` | none | | Global `URL` works (browser built-in) |
-| `assert` | none | | |
+| `url` | partial | url differential vs `node:url` | WHATWG `URL` (browser), legacy `parse`/`format`/`resolve`, `fileURLToPath`/`pathToFileURL`, `urlToHttpOptions`. `domainToUnicode` is identity |
+| `assert` | partial | assert differential vs `node:assert` | All common assertions, strict mode, `AssertionError` shape. Diff-style messages for objects are simplified |
 
 ## CLI
 
