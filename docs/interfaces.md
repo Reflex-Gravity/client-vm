@@ -25,7 +25,10 @@ affect decisions, CLAUDE.md.
 | `InstanceOptions.fs.from` (`FileTree` or `SnapshotId`), `fs.quotaBytes`, `limits.maxProcesses` | done |
 | `Instance.fs`: `readFile writeFile readdir stat mkdir rm rename symlink watch` | done (`watch` is recursive) |
 | `Instance.fs.mount`/`unmount` | done (4c): read-only mirrors of another instance's directory (kept in step from its watch events) or of a snapshot; needs a `mount` capability; writes under a mount fail with `EROFS`, including through symlinks; writable mounts reject with `ERR_NOT_SUPPORTED` |
-| `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `kill`, `exit` | done. `stdin` writes reject until node-compat reads stdin. Output is buffered without bound until read |
+| `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `stdin`, `kill`, `exit` | done. `stdin` writes reach the process (`process.stdin`, `fs.read(0)`); closing it sends EOF. Unread output is buffered up to 8 MiB per stream, then dropped with a note on that stream (5c) |
+| `Limits.maxCpuMs` | done (5c): a watchdog pings each process; one that runs JavaScript for `maxCpuMs` without yielding (time blocked in syscalls does not count) is killed with `SIGXCPU` (exit 152) |
+| `Limits.maxMemoryMB` | accepted, not enforced (open-questions.md) |
+| `Instance.measureMemory()` | done (5c): bytes for the instance page and kernel worker via `performance.measureUserAgentSpecificMemory()` on the instance origin; process workers are not attributed by Chromium. Tracked by the benchmark gate |
 | `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
 | `Instance.createChild(opts)` | done (4e): a child instance with a fresh filesystem; needs `spawn-instance` like `fork` |
 | `@clientvm/agent-api` `createAgentTools({ instance })` | done (4e): LLM tool definitions and a dispatcher ([agent-api.md](agent-api.md)) |

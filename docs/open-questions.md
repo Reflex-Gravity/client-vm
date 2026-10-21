@@ -39,9 +39,14 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   dangling symlink but does not remove it. `MemoryVfs.rmTree` removes it, as `rm -rf` and POSIX do.
   When `rmSync` lands in node-compat (Phase 3), decide whether to replicate the quirk.
 
-- Should the kernel enforce per-process CPU budgets by terminating workers, and how does a process
-  get a `SIGINT`-style signal while it is blocked in `Atomics.wait`? A signal slot in the channel
-  header is one option.
+- ~~Per-process CPU budgets~~: `limits.maxCpuMs` kills a process that runs without yielding
+  (5c). Still open: how a process gets a `SIGINT`-style signal while it is blocked in
+  `Atomics.wait`. A signal slot in the channel header is one option.
+- **`maxMemoryMB` is not enforced.** `performance.measureUserAgentSpecificMemory()` on the
+  instance page counts the page and the kernel worker but not process workers (nested workers
+  are not attributed), and each measurement waits for a GC (10–60 s). Options: estimate from
+  `performance.memory` in each process (non-standard, coarse), have each process report its own
+  heap, or rely on Chromium's per-tab OOM handling and document it.
 - `Buffer`: implement it in node-compat (TS) or vendor the `buffer` package? The latter is a
   runtime dependency, so it would need justification.
 - Event-loop liveness: how to keep a process alive for pending promises (`fetch`, streams) without
@@ -57,11 +62,17 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **Shell arrays** (`a=(...)`, `"${a[@]}"`) are not implemented. Add them if agent scripts need
   them (common in hand-written bash, rare in generated build scripts).
 - **Brotli** is absent from `zlib`. Add a decoder if a package needs it (most feature-detect).
-- **git.** CLAUDE.md §7 lists `git` via isomorphic-git or equivalent. That would be a runtime
-  dependency (MIT) of about 300 KB. Options: bundle it, or fetch it on first use as npm is
-  (ADR 0012). Remote operations need a CORS proxy for most hosts, which conflicts with "no
-  server-side component", so only local operations (`init add commit status log diff branch
-  checkout`) would work out of the box.
+- ~~git~~: isomorphic-git, fetched on first use (ADR 0014). Still open: remote operations need
+  a CORS proxy for most hosts (`GIT_CORS_PROXY`), which ClientVM does not provide. Should the
+  docs recommend one, or should hosts be told to run their own?
+- **pnpm.** pnpm 10 is a single bundled file that uses `worker_threads` for tarball extraction
+  and linking. Now that threads work, it should run like npm (fetched on first use). Not yet
+  tested end to end.
+- **Top-1,000 npm smoke test (§9).** A curated 50-package list runs in CI (`test/e2e/smoke.spec.ts`).
+  The full list needs about an hour of registry traffic per run; make it an opt-in scheduled job.
+- **Node test pass rates.** 592 of 1,889 non-skipped `test/parallel` tests pass (compatibility.md).
+  The largest gaps are `http`/`net` internals, `fs` permission and watch tests, and exact
+  `util.inspect`/`assert` message formats.
 - **npm without network.** npm is fetched on first use (ADR 0012). Offline or air-gapped hosts
   need `CLIENTVM_NPM_TARBALL` pointing at a copy they serve. Should the sandbox host offer a
   same-origin copy as an optional asset?

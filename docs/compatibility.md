@@ -23,8 +23,8 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 |---|---|---|---|
 | `fs` (sync) | partial | e2e fs differential vs real Node, fs differential + seeded random-op fuzz vs `node:fs` | Paths: `readFileSync writeFileSync appendFileSync readdirSync statSync lstatSync existsSync mkdirSync rmdirSync unlinkSync rmSync renameSync linkSync symlinkSync readlinkSync realpathSync(.native) accessSync chmodSync utimesSync truncateSync copyFileSync`. Fds: `openSync closeSync readSync writeSync fstatSync ftruncateSync`. Returns `Buffer`; all Buffer encodings; fds accepted by `readFileSync`/`writeFileSync`; no `opendirSync`, `cpSync`, `watch` (VFS watchers exist, not yet exposed), `fchmod`/`futimes`, `fsync` |
 | `fs` (callback / promises) | partial | e2e diffed against real Node | Callback and `fs.promises` APIs for every sync API, `FileHandle`, `Dir`/`opendir`, `mkdtemp`, `cp`, recursive `readdir`, `createReadStream`/`createWriteStream` (ranges, `fd`, events). Operations run synchronously and complete on a later tick. `watch`, `watchFile`, `fs.promises.watch` via kernel VFS watchers. Not yet: `glob`; `statfs` returns fixed values |
-| `path` | full (tested surface) | path differential vs `node:path.posix` and `node:path.win32` | `path.win32` and `path/win32` follow Node's algorithms, including the CVE-2024-36139 drive-letter guard |
-| `util` | partial | inspect + events + modules differentials vs `node:util`, e2e | `format`, `inspect` (custom inspect, depth), `types`, `promisify`/`callbackify`, `inherits`, `deprecate`, `isDeepStrictEqual`, `parseArgs` (common cases), `debuglog`, legacy `isX`. No `showHidden` (`%o`), colors, Proxy detection, `MIMEType`, `TextEncoder` streaming options |
+| `path` | full | path differential and seeded fuzzing vs `node:path.posix` and `node:path.win32`, Node's own `test-path-*` | Node 24.11's `lib/path.js`, vendored unmodified (`scripts/vendor-node-path.mjs`, checked by SHA-256) and run with a primordials shim, so `posix`, `win32`, `matchesGlob` and the Windows reserved-name rules are Node's code |
+| `util` | partial | inspect + events + modules differentials vs `node:util`, e2e | `format`, `inspect` (custom inspect, depth), `types`, `promisify`/`callbackify`, `inherits`, `deprecate`, `isDeepStrictEqual`, `parseArgs` (common cases), `debuglog`, `getCallSites`, legacy `isX`. No `showHidden` (`%o`), colors, Proxy detection, `MIMEType`, `TextEncoder` streaming options |
 | `console` | partial | e2e spike | `table` prints like `log`. No `Console` class |
 | `process` | partial | e2e | EventEmitter with `exit`, `beforeExit`, `uncaughtException`, `unhandledRejection`, `warning`; `stdin` is a Readable over the kernel pipe, `stdout`/`stderr` are Writables (not TTYs); liveness follows referenced handles (timers, children, stdin while read, watchers, in-flight `fetch`) with `ref`/`unref`. No signals delivered to the process. `arch` reports `x64` |
 | `timers` | partial | e2e | Node `Timeout` objects with `ref`/`unref`/`refresh`/`hasRef`; `setImmediate` is a macrotask. Promise-only work (other than `fetch`) does not keep the process alive |
@@ -47,8 +47,9 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | `module` | partial | e2e | `Module` with Node's internal hooks, `createRequire`, `builtinModules`, `isBuiltin`. `register()` (loader hooks) is a no-op |
 | `vm` | partial | | Runs in the process's own realm; `runInNewContext` uses `with` over the sandbox object (no separate globals) |
 | `tty`, `perf_hooks`, `sys` | partial | | `isatty()` is always false |
-| `child_process` | partial | e2e diffed against real Node | `spawn`, `exec`, `execFile` (+ promisified), `spawnSync`, `execSync`, `execFileSync`; stdio `pipe`/`inherit`/`ignore`, `input`, `cwd`, `env`, `timeout`, `killSignal`, `signal`, `maxBuffer`; Node's `exit`/`close` ordering and spawn errors (`ENOENT`, `EACCES`, `ENOEXEC`). Commands resolve like `execve`: `PATH`, exec bits, shebangs incl. `/usr/bin/env -S`, `node_modules/.bin` symlinks. `shell: true` and `exec` run through `/bin/sh`. Not yet: `fork` and IPC, `detached`, signals other than TERM/KILL/INT/HUP |
-| `worker_threads` | partial | | Main-thread view only: `isMainThread`, `threadId` 0, `MessageChannel`, environment data. `new Worker()` throws `ERR_CLIENTVM_UNSUPPORTED` |
+| `child_process` | partial | e2e diffed against real Node, Node's `test-child-process-*` | `spawn`, `exec`, `execFile` (+ promisified), `spawnSync`, `execSync`, `execFileSync`, `fork`; stdio `pipe`/`inherit`/`ignore`/`ipc`, `input`, `cwd`, `env`, `timeout`, `killSignal`, `signal`, `maxBuffer`; Node's `exit`/`close` ordering and spawn errors (`ENOENT`, `EACCES`, `ENOEXEC`). Commands resolve like `execve`: `PATH`, exec bits, shebangs incl. `/usr/bin/env -S`, `node_modules/.bin` symlinks. `shell: true` and `exec` run through `/bin/sh`. IPC (`fork`, `stdio: 'ipc'`): `send`/`message`/`disconnect` both ways with `json` or `advanced` (structured clone) serialization; handles (sockets, servers) cannot be sent. Not yet: `detached`, signals other than TERM/KILL/INT/HUP/XCPU |
+| `worker_threads` | partial | e2e, Node's `test-worker-*` | `Worker` (file, `eval: true`, `data:` URLs), `workerData`, `parentPort`, `MessageChannel`/`MessagePort` (ports can be transferred), `SharedArrayBuffer` and `Atomics` across threads, `terminate()` (exit code 1), `error`/`exit`/`online` events, `env` and `SHARE_ENV`, environment data. A thread is a process in the kernel (one Web Worker) linked to its parent by a `MessagePort`. Not supported: `receiveMessageOnPort` (returns `undefined`), `resourceLimits` enforcement, `getHeapSnapshot`, `BroadcastChannel` across instances |
+| `test` (`node:test`) | partial | e2e | `test`/`it`/`describe`/`suite` with hooks, `skip`/`todo`/`only`, subtests, `t.assert`, `mock.fn`/`mock.method`, TAP output, non-zero exit on failure. No `--test` runner CLI, coverage, snapshot tests or `mock.timers` |
 | `readline` / `readline/promises` | partial | e2e (npm) | `createInterface` over any readable: `line`/`close` events, `question` (callback and promise), `prompt`, async iteration, `\r\n` handling; cursor helpers write ANSI codes. No line editing, history or completion (stdio is never a TTY) |
 | `http2` | partial | | `constants` only (header, method and status names). `connect`/`createServer` throw `ERR_CLIENTVM_UNSUPPORTED` |
 | `v8` | partial | | `getHeapStatistics` from Chromium's `performance.memory`; `serialize`/`deserialize` use JSON, not V8's wire format; no heap snapshots |
@@ -61,12 +62,43 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 |---|---|---|
 | `node -e/-p/--eval/--print <code>` | partial | Runs in global scope with `require`, `module`, `exports` |
 | `node <script.js>` | partial | CommonJS and ESM entry points (`.mjs`, `"type": "module"`, detected ESM syntax) |
-| `node --check` / `-c` | partial | Parses without running. Errors show the file and the message; the source line and caret are not shown |
+| `node --check` / `-c` | partial | Parses without running (CommonJS with `Function`, ESM by linking a copy with its imports blanked). Errors show the file and the message; the source line and caret are not shown |
 | `node` (REPL) | none | |
 | `sh` / `bash` | partial | See [Shell](#shell) |
 | Linux commands | partial | See [Commands](#commands) |
 | `npm` / `npx` | partial | npm 11.6.1, unmodified, fetched and integrity-checked on first use (ADR 0012). Tested in e2e: `init`, `pkg`, `install` from the public registry (110-package tree), `ci`, `ls`, `run`, lifecycle scripts, bin links, `npx`. Registry traffic is CORS `fetch` (the registry allows it). Not yet tested: git dependencies, private registries with auth, `npm publish` |
-| `pnpm` | none | Phase 5 |
+| `pnpm` | none | See open-questions.md |
+
+## Node's own tests
+
+`test/conformance/node-tests` holds the tests from Node 24.11's `test/parallel` that pass inside
+an instance, unmodified, with the real `test/common` (MIT; see that directory's LICENSE).
+`test/e2e/node-tests.spec.ts` runs all of them in CI; a test that stops passing fails the build.
+A discovery run (`scripts/vendor-node-tests.mjs` documents it) re-runs every test for the
+prefixes below and refreshes the set. Tests that skip themselves (`1..0 # Skipped`, for example
+because there is no OpenSSL) count as skipped, not passed.
+
+| Prefix | Pass / run | Skipped | Notes |
+|---|---|---|---|
+| `path` | 13 / 15 | 1 | |
+| `stream`, `stream2`, `stream3` | 165 / 199 | 1 | |
+| `event`, `events` | 25 / 35 | | |
+| `fs` | 105 / 307 | 8 | Many use `fs.watch` timing, permissions or `/proc` |
+| `buffer` | 29 / 64 | | |
+| `http` | 66 / 365 | 7 | Many need real sockets (`net.Socket` internals, `server.address()` details) |
+| `net` | 18 / 143 | 3 | |
+| `child-process` | 19 / 105 | 2 | Many spawn `process.execPath` with flags we do not support |
+| `worker` | 41 / 128 | 7 | |
+| `timers` | 22 / 58 | | |
+| `zlib` | 14 / 58 | 1 | No brotli |
+| `vm` | 18 / 92 | | Contexts share the process realm |
+| `process` | 17 / 88 | 4 | |
+| `require`, `module` | 20 / 48 | 3 | |
+| `url`, `querystring`, `string` | 7 / 21 | | |
+| `util`, `assert`, `console` | 8 / 67 | | Mostly exact `inspect` output and assertion message formats |
+| `readline`, `tty`, `os`, `dns` | 5 / 59 | | No TTY; `dns` has no resolver |
+| `crypto`, `https` | 0 / 0 | 178 | All skip: no OpenSSL |
+| **Total** | **592 / 1889** | **215** | Of 2104 tests matched by these prefixes |
 
 ## Shell
 
@@ -116,7 +148,7 @@ tools.
 | `tar` | `-c -x -t -z -v -f -C -O -k -a --strip-components --exclude`, old-style bundles (`tar xzf a.tgz`). Reads ustar, pax and GNU long names; writes ustar with pax headers. gzip is detected on extract. Members containing `..` are skipped, as in GNU tar. Archives are built in memory |
 | `gzip gunzip zcat` | `-c -d -k -f -t -q`; levels are accepted and ignored |
 | `curl` | Uses the browser's `fetch`: `localhost`/`127.0.0.1` reach virtual ports, other origins need CORS. `-s -S -f -i -I -o -O -X -H -d --data-* --json -G -u -A -e -w -m -T -v`. Redirects are always followed (`-L` is implied). A refused local port exits 7, as curl does |
-| `git` | none yet (isomorphic-git planned, see open-questions.md) |
+| `git` | isomorphic-git 1.44.3, fetched and integrity-checked on first use (ADR 0014). Diffed against real git in `test/e2e/git.spec.ts` (stdout and exit codes, fixed dates): commit ids are identical. `init config status add rm mv commit log show diff branch checkout switch restore reset merge stash tag rev-parse ls-files cat-file remote clone fetch pull push`. `log` follows git's date order; `diff`/`show` print unified patches and `--stat`; `merge` fast-forwards or creates merge commits and leaves conflict markers (resolved with `git add` + `git commit`). No editor (`commit` needs `-m`, `-F` or a pending merge message), no rebase, cherry-pick, blame, submodules, hooks, `.gitattributes` or rename detection. Remotes go through `fetch`: most hosts need a CORS proxy (`GIT_CORS_PROXY`); `GIT_TOKEN` authenticates |
 
 ## Previews
 

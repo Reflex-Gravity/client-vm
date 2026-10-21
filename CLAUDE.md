@@ -33,6 +33,8 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | Native packages | Native addons/binaries still do not run. **esbuild and rollup are swapped for their official WebAssembly builds** of the same version, fetched and integrity-checked on first use, so stock Vite projects work unchanged (ADR 0013) |
 | npm | The unmodified npm release Node 24 bundles, fetched and SHA-512-verified on first use into `/usr/local/lib/node_modules/npm` (ADR 0012) |
 | Shell commands | Builtins and Linux commands run **in-process in the shell's worker** when `PATH` resolves to their marker file; anything else is spawned. Every command is also a standalone runtime. One interpreter for `sh`/`bash`, diffed against real bash (ADR 0011) |
+| git | **isomorphic-git, fetched and integrity-checked on first use** like npm; porcelain output diffed against real git. Remotes need a CORS proxy (ADR 0014) |
+| Node conformance | Node 24.11's `lib/path.js` and the passing subset of Node's `test/parallel` are **vendored unmodified** and run in CI (ADR 0015) |
 
 ## 3. Non-goals for v1
 
