@@ -17,7 +17,7 @@ on:
       min_pass:
         description: 'Fail below this share of loadable packages (0 to 1)'
         required: false
-        default: '0.9'
+        default: '0.97'
 
 permissions:
   contents: read
@@ -39,7 +39,7 @@ jobs:
         env:
           CLIENTVM_SMOKE_FULL: '1'
           CLIENTVM_SMOKE_LIMIT: ${{ inputs.limit }}
-          CLIENTVM_SMOKE_MIN_PASS: ${{ inputs.min_pass || '0.9' }}
+          CLIENTVM_SMOKE_MIN_PASS: ${{ inputs.min_pass || '0.97' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -101,9 +101,13 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **Top-1,000 npm smoke test (§9).** A curated 50-package list runs in CI (`test/e2e/smoke.spec.ts`).
   The full run (`test/e2e/smoke-full.spec.ts`, the 1,000 most-downloaded packages from
   npm-high-impact in `test/conformance/npm-top.json`) is a weekly and on-demand workflow
-  (`.github/workflows/smoke-full.yml`) that uploads a per-package report. Measured locally on
-  the top 200 (2026-10-22): all 189 loadable packages load; 11 are types-only, subpath-only or
-  have no entry. The full 1,000 has not been run yet; its first report sets the `min_pass` bar.
+  (`.github/workflows/smoke-full.yml`) that uploads a per-package report. First full run
+  (2026-10-23): 919 of 936 loadable packages install and load (98.2%); 64 are types-only,
+  data-only, subpath-only or another platform's binary. Of the 17 failures, `console.Console`
+  (@jest/console) and `node:repl` (ts-node) are fixed since; the rest are native (`sharp`), peer
+  conflicts between packages of one batch (now retried with `--legacy-peer-deps`), or fail on
+  real Node too (`ts-api-utils` with TypeScript 7, `@noble/hashes`' root import, Jest-only
+  packages). The workflow fails below 97%.
   The curated test failed twice in nine local runs without a captured error; watch CI for it.
 - **Node test pass rates.** 591 of 1,889 non-skipped `test/parallel` tests pass (compatibility.md).
   The largest gaps are `http`/`net` internals, `fs` permission and watch tests, and exact
