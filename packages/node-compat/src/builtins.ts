@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createTestModule } from './test-runner.ts';
 import { installStdioFds } from './fs-stdio.ts';
+import { createInspector } from './inspector.ts';
 import { createV8 } from './v8.ts';
 import { createWasi } from './wasi.ts';
 import type { WasiFs } from './wasi.ts';
@@ -214,6 +215,9 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   lazy('readline/promises', () => (readline ??= createReadline()).promises);
   let v8: Record<string, unknown> | undefined;
   lazy('v8', () => (v8 ??= createV8()));
+  let inspector: ReturnType<typeof createInspector> | undefined;
+  lazy('inspector', () => (inspector ??= createInspector()).inspector);
+  lazy('inspector/promises', () => (inspector ??= createInspector()).promises);
   let wasi: Record<string, unknown> | undefined;
   lazy('wasi', () => (wasi ??= createWasi({ fs: fsFull as unknown as WasiFs, path })));
   table['worker_threads'] = deps.workerThreads;
@@ -284,7 +288,28 @@ function createVm() {
     const fn = new Function('__ctx', `with (__ctx) { return eval(${JSON.stringify(code)}); }`) as (
       c: object,
     ) => unknown;
-    return fn(context);
+    // While the code runs, `globalThis` in it is the sandbox, so
+    // `globalThis.x = 1` lands there (Next.js reads its manifests this way).
+    // `in` rather than a descriptor read, so a Proxy sandbox's traps are not queried.
+    const ctx = context as Record<string, unknown>;
+    let added = false;
+    if (!('globalThis' in ctx)) {
+      try {
+        Object.defineProperty(ctx, 'globalThis', {
+          value: ctx,
+          writable: true,
+          configurable: true,
+        });
+        added = true;
+      } catch {
+        // A non-extensible sandbox keeps the realm's globalThis.
+      }
+    }
+    try {
+      return fn(context);
+    } finally {
+      if (added) delete ctx['globalThis'];
+    }
   };
   class Script {
     readonly code: string;

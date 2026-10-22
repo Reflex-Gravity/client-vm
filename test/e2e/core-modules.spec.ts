@@ -46,6 +46,15 @@ const d = new StringDecoder('utf8');
 const euro = Buffer.from('€');
 console.log(JSON.stringify(d.write(euro.subarray(0, 1)) + d.write(euro.subarray(1))));
 
+// vm: a new context's globalThis is the sandbox (how Next.js reads its manifests).
+const vm = require('vm');
+const sandbox = {};
+vm.runInNewContext('globalThis.m = (globalThis.m || {}); globalThis.m.page = JSON.stringify([1])', sandbox);
+console.log('vm', JSON.stringify(sandbox), typeof globalThis.m, vm.runInNewContext('a + 1', { a: 41 }));
+
+// inspector: no debugger attached.
+console.log('inspector', require('inspector').url(), typeof require('inspector').Session);
+
 // process events and async
 process.on('exit', (code) => console.log('exit event', code));
 (async () => {

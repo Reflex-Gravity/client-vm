@@ -86,8 +86,13 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   docs recommend one, or should hosts be told to run their own?
 - ~~pnpm~~: pnpm 10 runs unmodified, fetched on first use like npm (5e, `test/e2e/pnpm.spec.ts`).
 - **`AsyncLocalStorage` across `await`.** Context does not survive promise continuations, which
-  frameworks that keep per-request context (Next.js, some loggers) rely on. Revisit when
-  Chromium ships TC39 AsyncContext; patching `Promise.prototype.then` would not cover `await`.
+  frameworks that keep per-request context (Next.js, some loggers) rely on. Chromium 156 has no
+  `AsyncContext` global, in windows or workers (measured 2026-10-22). Patching
+  `Promise.prototype.then` would not cover `await`. The remaining route is a source transform:
+  rewrite each `await x` so the continuation restores the context captured before it, and bind
+  the context through `then` callbacks, timers and `nextTick`. That rewrites all executed code
+  (CommonJS compile hook and ES modules from the service worker); decision needed before it is
+  built. It is the blocker for Next.js.
 - **`require()` of ES modules** (Node 22.12+) works by rewriting the module as CommonJS
   (`module/esm-to-cjs.ts`), so a module that is both required and imported runs twice (Node
   shares one instance). Sharing would need the CommonJS loader to read the ESM runtime's module
@@ -104,7 +109,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   `npm install` exited 1 with no message, though `node -e` reports the same error. Find out why
   npm's exit handler printed nothing.
 - **More native stand-ins (ADR 0013).** rolldown, lightningcss (Vite 8) and Tailwind 4's oxide
-  are covered. Next.js uses SWC (`@swc/wasm`) and needs a stand-in mapping and an e2e test.
+  are covered. Next.js 16 needs none for SWC: with `--webpack` it downloads its own
+  `@next/swc-wasm-nodejs` and compiles (Turbopack, its default, has no WebAssembly build).
+  `next build --webpack` then stops prerendering at "Expected workStore to be initialized":
+  Next keeps request state in `AsyncLocalStorage`, which loses its store across `await` (below).
   WASI bindings built by napi-rs load the same way as rolldown's (node:wasi plus
   `worker_threads`).
 - **Stand-in install needs the registry at first use.** rolldown's, lightningcss's and oxide's
