@@ -30,7 +30,7 @@ const names = JSON.parse(fs.readFileSync('names.json', 'utf8'));
     try {
       pkg = JSON.parse(fs.readFileSync(path.join('node_modules', name, 'package.json'), 'utf8'));
     } catch {
-      out[name] = { status: 'not-installed' };
+      out[name] = { status: 'fail', error: 'not installed (npm reported success)' };
       continue;
     }
     if (!pkg.main && !pkg.exports && !pkg.module && !fs.existsSync(path.join('node_modules', name, 'index.js'))) {
@@ -63,7 +63,7 @@ const names = JSON.parse(fs.readFileSync('names.json', 'utf8'));
 })();
 `;
 
-type Result = { status: 'pass' | 'fail' | 'skip' | 'not-installed'; error?: string };
+type Result = { status: 'pass' | 'fail' | 'skip'; error?: string; reason?: string };
 
 test('npm smoke: the most-downloaded packages install and load', async ({ page }) => {
   test.skip(env['CLIENTVM_SMOKE_FULL'] !== '1', 'opt-in: set CLIENTVM_SMOKE_FULL=1');
@@ -73,7 +73,9 @@ test('npm smoke: the most-downloaded packages install and load', async ({ page }
   await openHost(page);
   const results: Record<string, Result> = {};
   const install = (id: string, specs: string[]) =>
-    host(page, 'exec', id, `npm install --no-fund --no-audit --no-save ${specs.join(' ')}`, {
+    // Saved to package.json: a later install in the same directory keeps earlier ones (npm
+    // prunes packages that are neither dependencies nor being installed).
+    host(page, 'exec', id, `npm install --no-fund --no-audit ${specs.join(' ')}`, {
       cwd: '/home/user/app',
       timeoutMs: 600_000,
     });
@@ -88,11 +90,14 @@ test('npm smoke: the most-downloaded packages install and load', async ({ page }
       // Find which packages fail to install, so the rest still count.
       for (const name of batch) {
         const one = await install(id, [name]);
-        if (one.code !== 0)
-          results[name] = {
-            status: 'fail',
-            error: `install: ${one.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`,
-          };
+        if (one.code === 0) continue;
+        // Another platform's binary (the musl builds): npm on Node refuses it too.
+        results[name] = /EBADPLATFORM|notsup/.test(one.stderr)
+          ? { status: 'skip', reason: 'another platform (npm EBADPLATFORM)' }
+          : {
+              status: 'fail',
+              error: `install: ${one.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`,
+            };
       }
     }
     await host(page, 'writeFile', id, '/home/user/app/names.json', JSON.stringify(batch));
