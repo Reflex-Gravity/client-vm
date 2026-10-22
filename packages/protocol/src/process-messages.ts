@@ -41,6 +41,13 @@ export interface ChildSpawnRequest {
    * child with a MessageChannel (`port` in child-spawned and init).
    */
   thread?: boolean;
+  /**
+   * The child's end of a channel the parent made itself (instead of the
+   * kernel's). The parent can post on its end at once, and the thread gets
+   * those messages even while the parent is blocked (a WASI thread pool whose
+   * caller waits on shared memory). child-spawned then carries no port.
+   */
+  threadPort?: MessagePort;
 }
 
 /** Kernel -> process worker. */

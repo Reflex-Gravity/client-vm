@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// `worker_threads`. A Worker is a child process (its own Web Worker) that
-// the kernel links to its parent with a MessageChannel; the child's node
-// runtime receives `workerData` over it and exposes it as `parentPort`.
+// `worker_threads`. A Worker is a child process (its own Web Worker) linked
+// to its parent by a MessageChannel the parent makes and hands the kernel with
+// the spawn request; the child's node runtime receives `workerData` over it
+// and exposes it as `parentPort`.
 // Threads share the instance's filesystem (as threads share a process's),
 // and SharedArrayBuffers are shared, not copied.
 
@@ -14,7 +15,6 @@ import type { PosixPath } from './path.ts';
 /** Sent by the parent as the first message on a new thread's port. */
 export interface ThreadInit {
   t: 'init';
-  threadId: number;
   workerData: unknown;
   environmentData: [unknown, unknown][];
   resourceLimits: Record<string, number>;
@@ -267,8 +267,7 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
       eventLoopUtilization: () => ({ idle: 0, active: 0, utilization: 0 }),
     };
     private readonly id: number;
-    private port: MessagePort | null = null;
-    private readonly queue: [unknown, Transferable[]][] = [];
+    private readonly port: MessagePort;
     private handle: Handle | null;
     private exitCode: number | null = null;
     private readonly exited: Promise<number>;
@@ -277,8 +276,6 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
     private sawExit = false;
     private pendingExit: number | null = null;
     private exitFallback: ReturnType<typeof setTimeout> | undefined;
-    private readonly init: Omit<ThreadInit, 'threadId'>;
-    private readonly initTransfer: Transferable[];
 
     constructor(filename: string | URL, options: Record<string, unknown> = {}) {
       super();
@@ -312,41 +309,46 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
               ]),
             );
       this.resourceLimits = (options['resourceLimits'] as Record<string, number>) ?? {};
-      this.init = {
+      // The parent posts on its end of the link at once (init, then any
+      // postMessage), so the thread gets them without waiting for this
+      // thread's event loop: emnapi spawns WASI threads and then blocks on
+      // shared memory until they start.
+      const link = new globalThis.MessageChannel();
+      this.port = link.port1;
+      this.port.addEventListener('message', (e) => this.onPortMessage(e.data as Wire));
+      this.port.start();
+      const init: ThreadInit = {
         t: 'init',
         workerData: wrapPorts(options['workerData']),
         environmentData: [...environmentData],
         resourceLimits: this.resourceLimits,
       };
-      this.initTransfer = rawTransfers(options['transferList'] as unknown[] | undefined);
+      this.port.postMessage(init, rawTransfers(options['transferList'] as unknown[] | undefined));
       this.exited = new Promise((r) => (this.resolveExit = r));
       this.id = ID_BASE + nextId++;
       this.handle = hold();
       workers.set(this.id, this);
-      ctx.send({
-        t: 'spawn',
-        id: this.id,
-        request: {
-          argv,
-          env,
-          cwd: deps.cwd(),
-          stdio: ['ignore', 'inherit', 'inherit'],
-          thread: true,
+      ctx.send(
+        {
+          t: 'spawn',
+          id: this.id,
+          request: {
+            argv,
+            env,
+            cwd: deps.cwd(),
+            stdio: ['ignore', 'inherit', 'inherit'],
+            thread: true,
+            threadPort: link.port2,
+          },
         },
-      });
+        [link.port2],
+      );
     }
 
     /** @internal */
     _onKernel(msg: KernelToProcess): void {
       if (msg.t === 'child-spawned') {
         this.threadId = msg.pid;
-        const port = msg.port;
-        if (!port) return;
-        this.port = port;
-        port.addEventListener('message', (e) => this.onPortMessage(e.data as Wire));
-        port.start();
-        port.postMessage({ ...this.init, threadId: msg.pid }, this.initTransfer);
-        for (const [v, t] of this.queue.splice(0)) port.postMessage({ t: 'message', v }, t);
       } else if (msg.t === 'child-error') {
         const err = Object.assign(new Error(msg.message), { code: msg.code });
         queueMicrotask(() => {
@@ -360,7 +362,7 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
         // Node emits everything the thread posted (an 'error' above all) before
         // 'exit', so wait for the thread's last message; one killed outright
         // never sends it.
-        if (this.port && !this.sawExit && !this.terminated) {
+        if (!this.sawExit && !this.terminated) {
           this.pendingExit = code;
           this.exitFallback = setTimeout(() => this.finish(code), 500);
         } else this.finish(code);
@@ -389,7 +391,7 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
       clearTimeout(this.exitFallback);
       this.exitCode = this.terminated ? 1 : code;
       workers.delete(this.id);
-      this.port?.close();
+      this.port.close();
       this.handle?.close();
       this.handle = null;
       this.resolveExit(this.exitCode);
@@ -397,10 +399,8 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
     }
 
     postMessage(value: unknown, transferList?: readonly unknown[]): void {
-      const v = wrapPorts(value);
-      const t = rawTransfers(transferList);
-      if (this.port) this.port.postMessage({ t: 'message', v }, t);
-      else if (this.exitCode === null) this.queue.push([v, t]);
+      if (this.exitCode !== null) return;
+      this.port.postMessage({ t: 'message', v: wrapPorts(value) }, rawTransfers(transferList));
     }
 
     terminate(): Promise<number> {
@@ -445,7 +445,8 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
   const module: Record<string, unknown> = {
     isMainThread: thread === null,
     isInternalThread: false,
-    threadId: thread?.init.threadId ?? 0,
+    // A thread's id is its pid (what the parent's Worker reports as threadId).
+    threadId: thread ? ctx.pid : 0,
     parentPort,
     workerData: thread ? unwrapPorts(thread.init.workerData, hold) : null,
     resourceLimits: thread?.init.resourceLimits ?? {},

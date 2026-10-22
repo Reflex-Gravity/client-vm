@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test';
 
 test('terminal page: interactive shell, Ctrl+C, history, and the agent tab', async ({ page }) => {
   test.setTimeout(120_000);
-  await page.goto('http://localhost:5180/terminal.html');
+  await page.goto(`http://localhost:${process.env['CLIENTVM_E2E_EXAMPLE_PORT']}/terminal.html`);
   await expect(page.locator('#status')).toContainText('instance', { timeout: 30_000 });
   const shell = page.locator('#terminal .xterm-rows');
   await expect(shell).toContainText('user@clientvm:~/app$');

@@ -99,10 +99,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **npm swallowed an uncaught error once.** While minipass recursed infinitely (since fixed),
   `npm install` exited 1 with no message, though `node -e` reports the same error. Find out why
   npm's exit handler printed nothing.
-- **More native stand-ins (ADR 0013).** rolldown and lightningcss are covered (Vite 8). Next.js
-  uses SWC (`@swc/wasm`) and Tailwind 4's oxide has `@tailwindcss/oxide-wasm32-wasi`; each needs
-  a stand-in mapping and an e2e test. WASI bindings built by napi-rs now load the same way as
-  rolldown's (node:wasi plus `worker_threads`).
+- **More native stand-ins (ADR 0013).** rolldown, lightningcss (Vite 8) and Tailwind 4's oxide
+  are covered. Next.js uses SWC (`@swc/wasm`) and needs a stand-in mapping and an e2e test.
+  WASI bindings built by napi-rs load the same way as rolldown's (node:wasi plus
+  `worker_threads`).
 - **Stand-in install needs the registry at first use.** rolldown's and lightningcss's stand-ins
   install with npm inside the instance (they have dependencies). One e2e run saw npm fail with a
   `network error` mid-install; the next run passed. The warning names the package, and the next

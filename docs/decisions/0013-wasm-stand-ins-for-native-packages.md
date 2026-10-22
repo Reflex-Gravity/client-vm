@@ -1,6 +1,6 @@
 # ADR 0013: WebAssembly stand-ins for native toolchain packages
 
-- **Status:** accepted (2026-10-21); extended to rolldown and lightningcss (2026-10-22)
+- **Status:** accepted (2026-10-21); extended to rolldown and lightningcss (2026-10-22) and Tailwind's oxide (2026-10-22)
 - **Context:** Native addons and binaries are a v1 non-goal (CLAUDE.md §3). The golden template
   is a stock Vite + React project, and Vite depends on two native packages:
   - **esbuild:** a Go binary, spawned as a child process.
@@ -32,6 +32,17 @@
     It is napi-rs's WASI build: it needs `node:wasi` (ClientVM implements preview1 over the
     instance's `fs`) and `worker_threads` carrying a shared `WebAssembly.Memory` (rolldown's
     async work runs on a pool of four threads).
+  - **Tailwind CSS 4's oxide** (`@tailwindcss/oxide`, the class scanner): the same fallback, to
+    `@tailwindcss/oxide-wasm32-wasi`. That package declares `"cpu": ["wasm32"]`, so its npm
+    install passes `--force` (into an empty staging directory, where it skips only that check).
+    Its WASI build has an upstream bug: a rescan reports no changed files, on real Node too, so
+    the dev server never picked up new classes. The install adds a small `clientvm-scanner.cjs`
+    as the package's `main`: each `scan()` uses a fresh Scanner and returns every candidate seen
+    so far, as the native build does.
+  - WASI thread pools spawn worker threads and then block on shared memory until they start.
+    A `worker_threads.Worker` therefore makes its own MessageChannel, posts `init` on it at once,
+    and hands the child's end to the kernel with the spawn request (`threadPort`), so a thread
+    starts without waiting for its parent's event loop.
   - Stand-ins with dependencies (rolldown's needs `@napi-rs/wasm-runtime` and `@emnapi/*`;
     lightningcss-wasm needs `napi-wasm`) are installed by running npm in the instance, into
     `standins/<name>@<version>/node_modules`. `@emnapi/*` ship only ES modules but are loaded with
@@ -54,5 +65,7 @@
     changes. The first use costs about 11 MB for rolldown's WebAssembly build and 16 MB for
     lightningcss's, plus an npm run; the WebAssembly memory for rolldown is a 1 GiB (initial)
     shared reservation, as on Node.
-  - These two stand-ins need the registry at first use through npm, not a single fetch, so a
+  - Tailwind 4 with Vite 8 works unchanged (dev server picking up new classes, `vite build`).
+    Each rescan is a full scan of the sources, which is fast for agent-sized projects.
+  - These npm-installed stand-ins need the registry at first use through npm, not a single fetch, so a
     flaky network shows up as npm's error followed by the native-binding error.

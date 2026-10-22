@@ -10,10 +10,10 @@ works, how it is tested, and the known gaps.
   be pinned by testing older Chromium builds (see open-questions.md).
 - **Required frameworks (v1 goal):** Vite + React dev server with HMR, Express. Both work as
   golden fixtures: Express 4 + ws 8, a stock Vite 6 + React 18 project (dev server, React Fast
-  Refresh, CSS HMR, error overlay, `vite build`), and a stock Vite 8 + React 19 project (rolldown;
-  dev server, HMR, `vite build`).
-- **Native packages:** native addons and binaries do not run. esbuild, rollup, rolldown and
-  lightningcss are replaced by their official WebAssembly builds of the same version (ADR 0013);
+  Refresh, CSS HMR, error overlay, `vite build`), a stock Vite 8 + React 19 project (rolldown;
+  dev server, HMR, `vite build`), and Vite 8 with Tailwind CSS 4 (`@tailwindcss/vite`).
+- **Native packages:** native addons and binaries do not run. esbuild, rollup, rolldown,
+  lightningcss and Tailwind's oxide are replaced by their official WebAssembly builds of the same version (ADR 0013);
   other native addons fail with `ERR_DLOPEN_FAILED`.
 
 Status legend: **none** = not implemented · **partial** = subset, see gaps · **full** = matches Node for all tested behavior.

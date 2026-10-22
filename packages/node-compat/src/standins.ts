@@ -89,6 +89,63 @@ function convertEsmPackages(fs: Fs, nodeModules: string): void {
 }
 
 /**
+ * Tailwind's oxide Scanner, WASI build: a rescan (`scan()` after the first)
+ * reports no changes, on real Node too, so Tailwind's Vite plugin never sees a
+ * class added while the dev server runs. Each scan here uses a fresh Scanner
+ * (a first scan is correct) and returns every candidate seen so far, as the
+ * native build's rescans do.
+ */
+const OXIDE_SCANNER = `'use strict'
+// Written by ClientVM (ADR 0013): see OXIDE_SCANNER in node-compat/src/standins.ts.
+const binding = require('./tailwindcss-oxide.wasi.cjs')
+
+class Scanner {
+  #opts
+  #inner
+  #seen = new Set()
+  constructor(opts) {
+    this.#opts = opts
+    this.#inner = new binding.Scanner(opts)
+  }
+  scan() {
+    if (this.#seen.size > 0) this.#inner = new binding.Scanner(this.#opts)
+    for (const c of this.#inner.scan()) this.#seen.add(c)
+    return [...this.#seen]
+  }
+  scanFiles(input) {
+    return this.#inner.scanFiles(input)
+  }
+  getCandidatesWithPositions(input) {
+    return this.#inner.getCandidatesWithPositions(input)
+  }
+  get files() {
+    return this.#inner.files
+  }
+  get scannedFiles() {
+    return this.#inner.scannedFiles
+  }
+  get globs() {
+    return this.#inner.globs
+  }
+  get normalizedSources() {
+    return this.#inner.normalizedSources
+  }
+}
+
+module.exports = { ...binding, Scanner }
+`;
+
+/** Fixes applied to a stand-in package after install, keyed by package name. */
+const PATCHES: Record<string, (fs: Fs, pkgDir: string) => void> = {
+  '@tailwindcss/oxide-wasm32-wasi': (fs, pkgDir) => {
+    fs.writeFileSync(`${pkgDir}/clientvm-scanner.cjs`, OXIDE_SCANNER);
+    const pkg = readJson(fs, `${pkgDir}/package.json`)!;
+    const patched = { ...pkg, main: 'clientvm-scanner.cjs' };
+    fs.writeFileSync(`${pkgDir}/package.json`, JSON.stringify(patched, null, 2));
+  },
+};
+
+/**
  * Installs `name@version` with its dependencies at `standinDir(name, version)`
  * (as `node_modules/<name>`), using npm, which checks each package's registry
  * integrity. Their ES module helpers are rewritten as CommonJS, since the
@@ -112,13 +169,23 @@ function installWithNpm(
     fs.rmSync(staging, { recursive: true, force: true });
     fs.mkdirSync(staging, { recursive: true });
     fs.writeFileSync(`${staging}/package.json`, '{"private":true}\n');
-    const args = ['install', '--no-save', '--no-package-lock', '--no-audit', '--no-fund'];
+    // --force: some WASI builds declare `"cpu": ["wasm32"]` (Tailwind's oxide), which npm
+    // refuses on x64. The staging directory is empty, so it skips only that check.
+    const args = [
+      'install',
+      '--no-save',
+      '--no-package-lock',
+      '--no-audit',
+      '--no-fund',
+      '--force',
+    ];
     const r = host.spawnSync('npm', [...args, '--ignore-scripts', '--loglevel=error', spec], {
       cwd: staging,
     });
     if (r.error) throw r.error;
     if (r.status !== 0) throw new Error(`npm exited with ${r.status}: ${String(r.stderr).trim()}`);
     convertEsmPackages(fs, `${staging}/node_modules`);
+    PATCHES[name]?.(fs, `${staging}/node_modules/${name}`);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.renameSync(staging, dir);
     return pkgDir;
@@ -169,6 +236,7 @@ export function nativeStandIn(
  */
 const WASI_BINDINGS: Record<string, string> = {
   '@rolldown/binding-wasm32-wasi': 'rolldown',
+  '@tailwindcss/oxide-wasm32-wasi': '@tailwindcss/oxide',
 };
 
 /**

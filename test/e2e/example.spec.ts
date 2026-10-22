@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 
 test('agent playground: shell, agent tools and preview', async ({ page }) => {
   test.setTimeout(120_000);
-  await page.goto('http://localhost:5180/');
+  await page.goto(`http://localhost:${process.env['CLIENTVM_E2E_EXAMPLE_PORT']}/`);
   await expect(page.locator('#status')).toContainText('instance', { timeout: 30_000 });
 
   await page.locator('#cmd').fill('cat package.json | grep start && node -v');

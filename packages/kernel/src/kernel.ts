@@ -522,7 +522,9 @@ export class Kernel {
           ? inherit
           : undefined;
     let child: ProcessHandle;
-    const link = request.thread === true ? new MessageChannel() : null;
+    const own = request.threadPort;
+    const link = request.thread === true && !own ? new MessageChannel() : null;
+    const threadPort = own ?? link?.port2;
     try {
       const onStdout = route(stdoutMode, 1, parent.onStdout);
       const onStderr = route(stderrMode, 2, parent.onStderr);
@@ -534,7 +536,7 @@ export class Kernel {
           stdin: stdinMode === 'pipe' ? 'pipe' : 'closed',
           ...(onStdout ? { onStdout } : {}),
           ...(onStderr ? { onStderr } : {}),
-          ...(link ? { threadPort: link.port2 } : {}),
+          ...(threadPort ? { threadPort } : {}),
         },
         {
           entry: parentEntry,

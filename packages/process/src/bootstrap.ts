@@ -6,7 +6,7 @@ import type { InputStream, OutputStream, ProcessContext, RuntimeTable, Tty } fro
 
 /** The subset of `DedicatedWorkerGlobalScope` the bootstrap uses. */
 export interface ProcessScopeLike {
-  postMessage(message: ProcessToKernel): void;
+  postMessage(message: ProcessToKernel, transfer?: Transferable[]): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<KernelToProcess>) => void): void;
   close?(): void;
 }
@@ -174,7 +174,7 @@ async function run(
     stdout: stream('stdout'),
     stderr: stream('stderr'),
     stdin,
-    send: (message) => scope.postMessage(message),
+    send: (message, transfer = []) => scope.postMessage(message, transfer),
     ...(init.threadPort ? { threadPort: init.threadPort } : {}),
     ...(tty ? { tty } : {}),
     onMessage(listener) {
