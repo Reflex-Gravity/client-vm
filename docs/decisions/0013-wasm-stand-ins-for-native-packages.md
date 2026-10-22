@@ -1,6 +1,6 @@
 # ADR 0013: WebAssembly stand-ins for native toolchain packages
 
-- **Status:** accepted (2026-10-21)
+- **Status:** accepted (2026-10-21); extended to rolldown and lightningcss (2026-10-22)
 - **Context:** Native addons and binaries are a v1 non-goal (CLAUDE.md §3). The golden template
   is a stock Vite + React project, and Vite depends on two native packages:
   - **esbuild:** a Go binary, spawned as a child process.
@@ -24,6 +24,20 @@
     with `ERR_DLOPEN_FAILED`. A rollup binding gets `@rollup/wasm-node`'s `dist/native.js`.
     `require()` is synchronous, so this download uses synchronous XHR, which dedicated workers
     allow.
+  - **lightningcss** (Vite 8's CSS minifier): its `.node` binding gets `lightningcss-wasm`'s
+    `wasm-node.cjs`, the synchronous Node build with the same exports.
+  - **rolldown** (Vite 7+): its loader falls back to `require('@rolldown/binding-wasm32-wasi')`
+    when the platform binding fails. That package is not among rolldown's dependencies, so the
+    CommonJS resolver, when it cannot find it from inside rolldown, resolves it to the stand-in.
+    It is napi-rs's WASI build: it needs `node:wasi` (ClientVM implements preview1 over the
+    instance's `fs`) and `worker_threads` carrying a shared `WebAssembly.Memory` (rolldown's
+    async work runs on a pool of four threads).
+  - Stand-ins with dependencies (rolldown's needs `@napi-rs/wasm-runtime` and `@emnapi/*`;
+    lightningcss-wasm needs `napi-wasm`) are installed by running npm in the instance, into
+    `standins/<name>@<version>/node_modules`. `@emnapi/*` ship only ES modules but are loaded with
+    `require()`, which ClientVM cannot do for ES modules, so the install rewrites the ES modules of
+    `"type": "module"` packages in that tree as CommonJS (`module/esm-to-cjs.ts`, static modules
+    only).
   - The table is deliberately short: only packages whose authors publish a drop-in WebAssembly
     build. Other native addons still fail with `ERR_DLOPEN_FAILED`.
 - **Consequences:**
@@ -36,5 +50,9 @@
   - The integrity of a stand-in comes from the registry's own metadata, not from a value pinned
     in ClientVM as npm's is (ADR 0012). It is as trustworthy as the registry over TLS, which is
     the same trust `npm install` already places in it.
-  - Vite 7+ moves to rolldown, whose WebAssembly build needs WASI threads. That stand-in is not
-    covered yet (docs/open-questions.md).
+  - A stock Vite 8 project (rolldown, lightningcss) installs, serves with HMR and builds without
+    changes. The first use costs about 11 MB for rolldown's WebAssembly build and 16 MB for
+    lightningcss's, plus an npm run; the WebAssembly memory for rolldown is a 1 GiB (initial)
+    shared reservation, as on Node.
+  - These two stand-ins need the registry at first use through npm, not a single fetch, so a
+    flaky network shows up as npm's error followed by the native-binding error.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-import { nativeStandIn } from './standins.ts';
+import { nativeStandIn, packageStandIn } from './standins.ts';
+import type { StandInHost } from './standins.ts';
 import { NO_LISTENER_HEADER, SystemError } from '@clientvm/protocol';
 import { ExitSignal } from '@clientvm/process';
 import type { ProcessContext } from '@clientvm/process';
@@ -14,7 +15,7 @@ import { createProcessObject } from './process-object.ts';
 import { createModuleSystem, requireOf } from './module/cjs-loader.ts';
 import { EsmResolver } from './module/esm-resolve.ts';
 import { installEsmRuntime } from './module/esm-runtime.ts';
-import { createWorkerThreads, receiveLinkInit } from './worker-threads.ts';
+import { createWorkerThreads, installPortRefs, receiveLinkInit } from './worker-threads.ts';
 import type { WorkerThreads } from './worker-threads.ts';
 import { analyzeEsm, tokenize } from './module/lexer.ts';
 import type { EsmRuntime } from './module/esm-runtime.ts';
@@ -182,6 +183,7 @@ async function runNode(
     thread,
   });
   onThreads(workerThreads);
+  installPortRefs(() => loop.handle());
   const builtins = createBuiltins({
     fs,
     path,
@@ -195,6 +197,16 @@ async function runNode(
     workerThreads: workerThreads.module,
   });
   const resolverFs = resolverFsFrom(fs);
+  const standInHost: StandInHost = {
+    pid: ctx.pid,
+    spawnSync: (file, args, options) =>
+      (builtins['child_process'] as { spawnSync: StandInHost['spawnSync'] }).spawnSync(
+        file,
+        args,
+        options,
+      ),
+    warn: (message) => ctx.stderr.write(message),
+  };
   const esm = new EsmResolver(resolverFs);
   let mainFile: string | undefined;
   // eslint-disable-next-line prefer-const -- the loader's compile hook needs the runtime created after it
@@ -206,7 +218,8 @@ async function runNode(
     cwd: () => state.cwd,
     env,
     emitWarning: (msg, type, code) => emitWarning(msg, type, code),
-    nativeStandIn: (filename, requireFile) => nativeStandIn(fs, filename, ctx.pid, requireFile),
+    nativeStandIn: (filename, requireFile) => nativeStandIn(fs, filename, standInHost, requireFile),
+    packageStandIn: (request, parentFile) => packageStandIn(fs, request, parentFile, standInHost),
     compile: (source, filename) =>
       (0, eval)(`${esmRuntime.rewriteDynamicImports(source)}\n//# sourceURL=${filename}`) as (
         ...args: unknown[]
@@ -242,6 +255,18 @@ async function runNode(
       enumerable: true,
       configurable: true,
     });
+  }
+  // Node has no `self` or worker message handlers, so code may assign them as
+  // plain globals (napi-rs WASI workers do). Own data properties take those
+  // assignments instead of the worker's getter-only `self` and the handlers
+  // that would hear kernel messages.
+  for (const [name, value] of [
+    ['self', globalThis],
+    ['onmessage', null],
+    ['onmessageerror', null],
+    ['onerror', null],
+  ] as const) {
+    Object.defineProperty(g, name, { value, writable: true, enumerable: true, configurable: true });
   }
   matchNodeGlobalEnumerability(globalThis);
 

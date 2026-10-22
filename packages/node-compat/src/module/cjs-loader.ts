@@ -22,6 +22,8 @@ export interface ModuleSystemDeps {
   compile: (source: string, filename: string) => (...args: unknown[]) => unknown;
   /** A replacement for a native addon (ADR 0013), or undefined. */
   nativeStandIn?: (filename: string, requireFile: (file: string) => unknown) => unknown;
+  /** Extra node_modules directories holding a stand-in for a missing package (ADR 0013). */
+  packageStandIn?: (request: string, parentFile: string | null) => string[] | undefined;
   /** Called when a .mjs or "type": "module" file is required. */
   requireEsm?: (filename: string, parent: string | undefined) => unknown;
 }
@@ -225,7 +227,14 @@ export function createModuleSystem(deps: ModuleSystemDeps): ModuleConstructor {
             ...Module.globalPaths,
           ];
     }
-    return resolver().resolve(request, parentFile, parentDir, requireStackOf(parent), paths);
+    try {
+      return resolver().resolve(request, parentFile, parentDir, requireStackOf(parent), paths);
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      const standIn = code === 'MODULE_NOT_FOUND' && deps.packageStandIn?.(request, parentFile);
+      if (!standIn) throw err;
+      return resolver().resolve(request, parentFile, parentDir, requireStackOf(parent), standIn);
+    }
   };
 
   Module._load = (request, parent, isMain = false) => {

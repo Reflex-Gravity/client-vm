@@ -84,7 +84,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   Chromium ships TC39 AsyncContext; patching `Promise.prototype.then` would not cover `await`.
 - **`require()` of ES modules** (Node 22.12+). ESM loads asynchronously through the service
   worker, so a synchronous `require` of an ES module fails with `ERR_REQUIRE_ESM`. Packages that
-  only ship ESM under the `require` condition (svelte 4's main entry) need `import()`.
+  only ship ESM under the `require` condition (svelte 4's main entry) need `import()`. Stand-ins
+  work around it: their ESM-only helpers (`@emnapi/*`) are rewritten as CommonJS at install
+  (`module/esm-to-cjs.ts`); that converter covers static modules only and is not used for
+  project code.
 - **Top-1,000 npm smoke test (§9).** A curated 50-package list runs in CI (`test/e2e/smoke.spec.ts`).
   The full list needs about an hour of registry traffic per run; make it an opt-in scheduled job.
 - **Node test pass rates.** 592 of 1,889 non-skipped `test/parallel` tests pass (compatibility.md).
@@ -96,10 +99,14 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **npm swallowed an uncaught error once.** While minipass recursed infinitely (since fixed),
   `npm install` exited 1 with no message, though `node -e` reports the same error. Find out why
   npm's exit handler printed nothing.
-- **More native stand-ins (ADR 0013).** Vite 7+/8 use rolldown (`@rolldown/binding-wasm32-wasi`
-  needs WASI and `worker_threads`); Next.js uses SWC (`@swc/wasm`); Tailwind 4 and Vite's CSS use
-  lightningcss (`lightningcss-wasm`). Each needs a stand-in mapping and an e2e test. Real
-  `worker_threads` would unlock the WASI ones.
+- **More native stand-ins (ADR 0013).** rolldown and lightningcss are covered (Vite 8). Next.js
+  uses SWC (`@swc/wasm`) and Tailwind 4's oxide has `@tailwindcss/oxide-wasm32-wasi`; each needs
+  a stand-in mapping and an e2e test. WASI bindings built by napi-rs now load the same way as
+  rolldown's (node:wasi plus `worker_threads`).
+- **Stand-in install needs the registry at first use.** rolldown's and lightningcss's stand-ins
+  install with npm inside the instance (they have dependencies). One e2e run saw npm fail with a
+  `network error` mid-install; the next run passed. The warning names the package, and the next
+  run retries, but an offline or flaky host gets the native-binding error.
 - **Unused native downloads.** npm fetches platform binaries (`@esbuild/linux-x64`, about 10 MB)
   that ClientVM never runs. Reporting a platform no native package targets would skip them, but
   it would also break packages that pick a binding by platform (rollup throws before `require`).

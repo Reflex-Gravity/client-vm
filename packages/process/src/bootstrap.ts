@@ -14,7 +14,14 @@ export interface ProcessScopeLike {
 const COMMAND_NOT_FOUND = 127;
 
 /** Waits for the kernel's init message, then runs the matching runtime to completion. */
-export function startProcessWorker(scope: ProcessScopeLike, runtimes: RuntimeTable): void {
+export function startProcessWorker(worker: ProcessScopeLike, runtimes: RuntimeTable): void {
+  // The kernel channel is bound once: code running in this worker may replace
+  // the global postMessage (Node has none, so libraries define their own).
+  const scope: ProcessScopeLike = {
+    postMessage: worker.postMessage.bind(worker),
+    addEventListener: worker.addEventListener.bind(worker),
+    ...(worker.close ? { close: worker.close.bind(worker) } : {}),
+  };
   let started = false;
   const listeners = new Set<(m: KernelToProcess) => void>();
   const signals = createSignals(scope);

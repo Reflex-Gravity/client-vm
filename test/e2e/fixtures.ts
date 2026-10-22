@@ -37,6 +37,13 @@ function contents(bytes: Buffer): string | Uint8Array {
   return new Uint8Array(bytes);
 }
 
+/**
+ * The platform ClientVM reports (process.platform/arch, glibc), so optional
+ * native packages are the ones npm would pick inside an instance, whatever the
+ * host running the tests is.
+ */
+const PLATFORM = ['--os=linux', '--cpu=x64', '--libc=glibc'];
+
 /** Returns the path of an installed copy of fixture `name`. */
 export function installFixture(name: string): string {
   const src = join(ROOT, 'test', 'fixtures', name);
@@ -44,6 +51,7 @@ export function installFixture(name: string): string {
   const hash = createHash('sha256')
     .update(lock)
     .update(readFileSync(join(src, 'package.json')))
+    .update(PLATFORM.join(' '))
     .digest('hex')
     .slice(0, 12);
   const dest = join(CACHE, `${name}-${hash}`);
@@ -52,10 +60,11 @@ export function installFixture(name: string): string {
     rmSync(tmp, { recursive: true, force: true });
     mkdirSync(tmp, { recursive: true });
     cpSync(src, tmp, { recursive: true });
-    execFileSync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error'], {
-      cwd: tmp,
-      stdio: 'inherit',
-    });
+    execFileSync(
+      'npm',
+      ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error', ...PLATFORM],
+      { cwd: tmp, stdio: 'inherit' },
+    );
     rmSync(dest, { recursive: true, force: true });
     renameSync(tmp, dest);
   }

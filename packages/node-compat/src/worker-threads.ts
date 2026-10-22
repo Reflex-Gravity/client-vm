@@ -68,6 +68,13 @@ class NodeMessagePort extends EventEmitter {
   private handle: Handle | null = null;
   private refed = true;
   private readonly hold: () => Handle;
+  /**
+   * Messages that arrived before any 'message' listener. Node queues them on
+   * the port until one is attached; a browser port may already be started (a
+   * thread's port is, to read its init), and would drop them. An ES module
+   * worker attaches its listener only after its graph loads.
+   */
+  private pending: unknown[] = [];
 
   constructor(port: MessagePort, hold: () => Handle) {
     super();
@@ -75,14 +82,25 @@ class NodeMessagePort extends EventEmitter {
     this.hold = hold;
     port.addEventListener('message', (e) => {
       const data = e.data as Wire;
-      if (data?.t === 'message') this.emit('message', unwrapPorts(data.v, hold));
+      if (data?.t !== 'message') return;
+      const value = unwrapPorts(data.v, hold);
+      if (this.listenerCount('message') > 0) this.emit('message', value);
+      else this.pending.push(value);
     });
     port.addEventListener('messageerror', (e) => this.emit('messageerror', e));
     this.on('newListener', (event: string) => {
       if (event !== 'message') return;
       port.start();
       if (this.refed) this.handle ??= this.hold();
+      // 'newListener' fires before the listener is added.
+      if (this.pending.length > 0) queueMicrotask(() => this.flush());
     });
+  }
+
+  private flush(): void {
+    while (this.pending.length > 0 && this.listenerCount('message') > 0) {
+      this.emit('message', this.pending.shift());
+    }
   }
 
   postMessage(value: unknown, transferList?: readonly unknown[]): void {
@@ -165,6 +183,55 @@ function serializeError(err: unknown): {
     };
   }
   return { name: 'Error', message: String(err) };
+}
+
+/**
+ * Node's `ref()`/`unref()`/`hasRef()` on the global MessagePort (one process
+ * per worker, so these are this process's ports): a ref'd port keeps the
+ * process alive until it is unref'd or closed. emnapi holds the event loop
+ * open this way while native async work runs.
+ */
+export function installPortRefs(hold: () => Handle): void {
+  const handles = new WeakMap<MessagePort, Handle>();
+  const release = (port: MessagePort) => {
+    handles.get(port)?.close();
+    handles.delete(port);
+  };
+  const proto = MessagePort.prototype as MessagePort & Record<string, unknown>;
+  const close = proto.close;
+  Object.defineProperties(proto, {
+    ref: {
+      configurable: true,
+      writable: true,
+      value(this: MessagePort) {
+        if (!handles.has(this)) handles.set(this, hold());
+        return this;
+      },
+    },
+    unref: {
+      configurable: true,
+      writable: true,
+      value(this: MessagePort) {
+        release(this);
+        return this;
+      },
+    },
+    hasRef: {
+      configurable: true,
+      writable: true,
+      value(this: MessagePort) {
+        return handles.has(this);
+      },
+    },
+    close: {
+      configurable: true,
+      writable: true,
+      value(this: MessagePort) {
+        release(this);
+        close.call(this);
+      },
+    },
+  });
 }
 
 export interface WorkerThreads {

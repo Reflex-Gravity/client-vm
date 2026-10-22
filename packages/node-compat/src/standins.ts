@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // WebAssembly stand-ins for native packages that dev toolchains depend on
-// (ADR 0013). ClientVM cannot run native binaries or addons, but esbuild and
-// rollup publish official WebAssembly builds with the same API. When a stock
-// project reaches for the native part, the matching WebAssembly build of the
-// same version is fetched from the registry (integrity-checked) into
-// /usr/local/lib/clientvm/standins and used instead.
+// (ADR 0013). ClientVM cannot run native binaries or addons, but esbuild,
+// rollup, rolldown and lightningcss publish official WebAssembly builds with
+// the same API. When a stock project reaches for the native part, the
+// matching WebAssembly build of the same version is fetched from the registry
+// (integrity-checked) into /usr/local/lib/clientvm/standins and used instead.
 
 import type { ProcessContext } from '@clientvm/process';
 import { createFs } from './fs.ts';
 import { nodeRuntime } from './node-main.ts';
 import { createPosixPath } from './path.ts';
+import { esmToCjs } from './module/esm-to-cjs.ts';
+import { analyzeEsm } from './module/lexer.ts';
 import { installFromRegistry, installFromRegistrySync } from './registry.ts';
 
 export const STANDIN_ROOT = '/usr/local/lib/clientvm/standins';
@@ -40,7 +42,96 @@ function owningVersion(fs: Fs, file: string): string | undefined {
   return undefined;
 }
 
+/** What stand-ins installed with npm need from the process: a synchronous child, and stderr. */
+export interface StandInHost {
+  pid: number;
+  /** Runs a command to completion (child_process.spawnSync). */
+  spawnSync(
+    file: string,
+    args: string[],
+    options: { cwd: string },
+  ): { status: number | null; stderr: unknown; error?: Error };
+  warn(message: string): void;
+}
+
+/** Rewrites the ES modules of `"type": "module"` packages under `nodeModules` as CommonJS. */
+function convertEsmPackages(fs: Fs, nodeModules: string): void {
+  const packages: string[] = [];
+  for (const name of fs.readdirSync(nodeModules) as string[]) {
+    if (name.startsWith('.')) continue;
+    if (!name.startsWith('@')) packages.push(`${nodeModules}/${name}`);
+    else
+      for (const sub of fs.readdirSync(`${nodeModules}/${name}`) as string[])
+        packages.push(`${nodeModules}/${name}/${sub}`);
+  }
+  for (const dir of packages) {
+    const pkg = readJson(fs, `${dir}/package.json`);
+    if (pkg?.['type'] !== 'module') continue;
+    const walk = (d: string) => {
+      for (const name of fs.readdirSync(d) as string[]) {
+        const file = `${d}/${name}`;
+        if (name === 'node_modules') continue;
+        if (fs.lstatSync(file)!.isDirectory()) walk(file);
+        else if (name.endsWith('.js')) {
+          const source = fs.readFileSync(file, 'utf8') as string;
+          if (!analyzeEsm(source).hasModuleSyntax) continue;
+          try {
+            fs.writeFileSync(file, esmToCjs(source));
+          } catch {
+            // Left as it was: a form esmToCjs does not cover (a browser or build file, so far).
+          }
+        }
+      }
+    };
+    walk(dir);
+    fs.writeFileSync(`${dir}/package.json`, JSON.stringify({ ...pkg, type: 'commonjs' }, null, 2));
+  }
+}
+
+/**
+ * Installs `name@version` with its dependencies at `standinDir(name, version)`
+ * (as `node_modules/<name>`), using npm, which checks each package's registry
+ * integrity. Their ES module helpers are rewritten as CommonJS, since the
+ * native loaders they stand in for load them with require(). Returns the
+ * package directory, or undefined (after a warning) if the install failed.
+ */
+function installWithNpm(
+  fs: Fs,
+  name: string,
+  version: string,
+  owner: string,
+  host: StandInHost,
+): string | undefined {
+  const dir = standinDir(name, version);
+  const pkgDir = `${dir}/node_modules/${name}`;
+  if (installed(fs, pkgDir)) return pkgDir;
+  const spec = `${name}@${version}`;
+  host.warn(`ClientVM: installing ${spec}, the WebAssembly build of ${owner} (first use)\n`);
+  const staging = `${dir}.staging-${host.pid}`;
+  try {
+    fs.rmSync(staging, { recursive: true, force: true });
+    fs.mkdirSync(staging, { recursive: true });
+    fs.writeFileSync(`${staging}/package.json`, '{"private":true}\n');
+    const args = ['install', '--no-save', '--no-package-lock', '--no-audit', '--no-fund'];
+    const r = host.spawnSync('npm', [...args, '--ignore-scripts', '--loglevel=error', spec], {
+      cwd: staging,
+    });
+    if (r.error) throw r.error;
+    if (r.status !== 0) throw new Error(`npm exited with ${r.status}: ${String(r.stderr).trim()}`);
+    convertEsmPackages(fs, `${staging}/node_modules`);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(staging, dir);
+    return pkgDir;
+  } catch (err) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    host.warn(`ClientVM: cannot install ${spec}: ${(err as Error).message}\n`);
+    return undefined;
+  }
+}
+
 const ROLLUP_NATIVE = /\/(?:@rollup\/rollup-[^/]+|rollup\/dist)\/rollup\.[^/]+\.node$/;
+// The platform package's binary (`lightningcss-linux-x64-gnu/…`), or one built into the main package.
+const LIGHTNINGCSS_NATIVE = /\/node_modules\/lightningcss(?:-[^/]+)?\/lightningcss\.[^/]+\.node$/;
 
 /**
  * For the CommonJS loader's `.node` handler: the exports that replace a native
@@ -49,16 +140,57 @@ const ROLLUP_NATIVE = /\/(?:@rollup\/rollup-[^/]+|rollup\/dist)\/rollup\.[^/]+\.
 export function nativeStandIn(
   fs: Fs,
   filename: string,
-  pid: number,
+  host: StandInHost,
   requireFile: (file: string) => unknown,
 ): unknown {
-  if (!ROLLUP_NATIVE.test(filename)) return undefined;
-  const version = owningVersion(fs, filename);
-  if (!version) return undefined;
-  const dir = standinDir('@rollup/wasm-node', version);
-  if (!installed(fs, dir)) installFromRegistrySync(fs, '@rollup/wasm-node', version, dir, pid);
-  // Same exports as rollup's native binding (parse, parseAsync, xxhash*).
-  return requireFile(`${dir}/dist/native.js`);
+  if (ROLLUP_NATIVE.test(filename)) {
+    const version = owningVersion(fs, filename);
+    if (!version) return undefined;
+    const dir = standinDir('@rollup/wasm-node', version);
+    if (!installed(fs, dir))
+      installFromRegistrySync(fs, '@rollup/wasm-node', version, dir, host.pid);
+    // Same exports as rollup's native binding (parse, parseAsync, xxhash*).
+    return requireFile(`${dir}/dist/native.js`);
+  }
+  if (LIGHTNINGCSS_NATIVE.test(filename)) {
+    const version = owningVersion(fs, filename);
+    const dir = version && installWithNpm(fs, 'lightningcss-wasm', version, 'lightningcss', host);
+    // The synchronous Node build: the same exports as lightningcss's own index.
+    return dir ? requireFile(`${dir}/wasm-node.cjs`) : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * WebAssembly binding packages that a native loader falls back to when its
+ * platform binding fails, keyed by name, with the package that requires them
+ * (whose version they must match). They are not in the owner's dependencies,
+ * so npm never installs them.
+ */
+const WASI_BINDINGS: Record<string, string> = {
+  '@rolldown/binding-wasm32-wasi': 'rolldown',
+};
+
+/**
+ * For the CommonJS resolver, when `request` was not found: the extra
+ * node_modules directories that hold its stand-in, or undefined when it has
+ * none. The stand-in (with its dependencies) is installed by npm on first use.
+ */
+export function packageStandIn(
+  fs: Fs,
+  request: string,
+  parentFile: string | null,
+  host: StandInHost,
+): string[] | undefined {
+  const name = /^(@[^/]+\/[^/]+|[^@/][^/]*)/.exec(request)?.[1];
+  const owner = name === undefined ? undefined : WASI_BINDINGS[name];
+  if (!name || !owner || !parentFile) return undefined;
+  const ownerDir = new RegExp(`^(.*/node_modules/${owner})/`).exec(parentFile)?.[1];
+  const version = ownerDir && readJson(fs, `${ownerDir}/package.json`)?.['version'];
+  if (typeof version !== 'string') return undefined;
+  return installWithNpm(fs, name, version, owner, host)
+    ? [`${standinDir(name, version)}/node_modules`]
+    : undefined;
 }
 
 /** The esbuild version a launcher call is for: `--service=<v>`, else the project's esbuild. */
