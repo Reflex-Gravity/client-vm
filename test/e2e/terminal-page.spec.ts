@@ -57,10 +57,41 @@ test('terminal page: interactive shell, Ctrl+C, history, and the agent tab', asy
   await expect(page.frameLocator('#preview').locator('h1')).toHaveText('Hello from ClientVM', {
     timeout: 30_000,
   });
+  // The page learns the server's process id when start_process returns, which can be after the preview loads.
+  await expect(page.locator('#agent-result')).toContainText(/process \d+ running/);
   await page.getByRole('button', { name: 'Stop server' }).click();
   await expect(page.locator('#agent-result')).toContainText('stopped');
 
   // Back to the shell tab: it kept its state.
-  await page.getByRole('tab', { name: 'Terminal' }).click();
+  await page.getByRole('tab', { name: 'Terminal 1' }).click();
   await expect(shell).toContainText('user@clientvm:/tmp$');
+
+  // Search the visible terminal.
+  await page.locator('#search').fill('status=130');
+  await page.locator('#search').press('Enter');
+  await expect(page.locator('#search-status')).toHaveText('found');
+  await page.locator('#search').fill('no such text anywhere');
+  await page.locator('#search').press('Enter');
+  await expect(page.locator('#search-status')).toHaveText('not found');
+
+  // A second shell in its own tab, with its own working directory.
+  await page.getByTitle('New shell').click();
+  const second = page.locator('#terminal-2 .xterm-rows');
+  await expect(second).toContainText('user@clientvm:~/app$');
+  await page.locator('#terminal-2 .xterm-helper-textarea').focus();
+  await page.keyboard.type('echo second-tab');
+  await page.keyboard.press('Enter');
+  await expect(second).toContainText('second-tab');
+  await expect(shell).not.toContainText('second-tab');
+
+  // After a reload both tabs come back with their scrollback (a new instance behind them).
+  await page.reload();
+  await expect(page.locator('#status')).toContainText('instance', { timeout: 30_000 });
+  await expect(page.getByRole('tab', { name: 'Terminal 2' })).toBeVisible();
+  await expect(shell).toContainText('status=130');
+  await expect(shell).toContainText('restored from before the page reloaded');
+  await page.getByRole('tab', { name: 'Terminal 2' }).click();
+  await expect(second).toContainText('second-tab');
+  await page.getByRole('tab', { name: /Agent/ }).click();
+  await expect(agent).toContainText('$ node build.js');
 });

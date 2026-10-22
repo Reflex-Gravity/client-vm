@@ -36,7 +36,7 @@ describe('attachActivityView', () => {
   it('writes each command, its output with CRLF line ends, and its status', () => {
     const vm = fakeInstance();
     let screen = '';
-    attachActivityView({ write: (d) => void (screen += d) }, vm);
+    attachActivityView({ write: (d) => void (screen += d) }, vm, { throttle: false });
     vm.spawn(1, ['sh', '-c', 'npm install']);
     vm.out(1, 'added 1 package\n');
     vm.out(1, 'warn\r\n', 2);
@@ -51,7 +51,7 @@ describe('attachActivityView', () => {
   it('labels output when it switches between running processes', () => {
     const vm = fakeInstance();
     let screen = '';
-    attachActivityView({ write: (d) => void (screen += d) }, vm);
+    attachActivityView({ write: (d) => void (screen += d) }, vm, { throttle: false });
     vm.spawn(1, ['sh', '-c', 'npm run dev']);
     vm.out(1, 'ready');
     vm.spawn(2, ['ls']);
@@ -82,6 +82,7 @@ describe('attachActivityView', () => {
     vm.spawn(2, ['sh', '-c', 'user thing'], { source: 'user' });
     let screen = '';
     const sub = attachActivityView({ write: (d) => void (screen += d) }, vm, {
+      throttle: false,
       filter: (p) => p.tag?.['source'] === 'agent',
       label: (p) => (p.tag?.['source'] === 'agent' ? '[agent] ' : undefined),
     });
@@ -96,7 +97,7 @@ describe('attachActivityView', () => {
   it('draws control characters in commands harmlessly', () => {
     const vm = fakeInstance();
     let screen = '';
-    attachActivityView({ write: (d) => void (screen += d) }, vm);
+    attachActivityView({ write: (d) => void (screen += d) }, vm, { throttle: false });
     vm.spawn(1, ['sh', '-c', 'cat <<EOF\n\x1b]52;c;AA\x07hi\nEOF']);
     expect(plain(screen)).toBe('$ cat <<EOF\r\n> ]52;c;AAhi\r\n> EOF\r\n');
   });

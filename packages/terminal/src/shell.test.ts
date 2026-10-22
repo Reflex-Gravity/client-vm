@@ -57,7 +57,8 @@ function fakeTerminal() {
   return term;
 }
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
+/** Output is drawn once a frame (setTimeout 16 ms outside a browser). */
+const frame = () => new Promise((r) => setTimeout(r, 20));
 
 describe('attachShell', () => {
   it('spawns bash -i on a pty sized to the terminal and connects keys, output and resizes', async () => {
@@ -73,7 +74,7 @@ describe('attachShell', () => {
     term.type('ls\r');
     p.print('a.txt\r\n\x1b]52;c;AAAA\x07\x1b[32mok\x1b[0m');
     term.resizeTo(120, 40);
-    await tick();
+    await frame();
     expect(p.typed).toEqual(['ls\r']);
     expect(term.screen).toBe('a.txt\r\n\x1b[32mok\x1b[0m');
     expect(p.calls).toEqual(['resize 120x40']);

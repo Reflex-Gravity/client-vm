@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// The terminal page, like StackBlitz's: a real interactive shell (`bash -i`
-// on a pseudo-terminal, through @clientvm/terminal's attachShell) in one tab,
-// and everything the agent's tool calls run (attachActivityView) in another.
-// Both are drawn by xterm.js.
+// The terminal page, like StackBlitz's: real interactive shells (`bash -i` on
+// pseudo-terminals, through @clientvm/terminal's attachShell) in tabs (`+`
+// opens another), and everything the agent's tool calls run
+// (attachActivityView) in another tab. All are drawn by xterm.js, with search;
+// scrollback survives a reload, and port URLs in output open the preview.
 import { createAgentTools } from '@clientvm/agent-api';
 import { attachActivityView, attachShell } from '@clientvm/terminal';
 import { STARTER, vm } from './sandbox.ts';
@@ -12,9 +13,18 @@ import { STARTER, vm } from './sandbox.ts';
 // map in terminal.html pins their hashes, so altered files do not load.
 const XTERM = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.mjs';
 const FIT = 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.mjs';
+const SEARCH = 'https://cdn.jsdelivr.net/npm/@xterm/addon-search@0.16.0/lib/addon-search.mjs';
+/** sessionStorage: how many shell tabs were open, and each tab's scrollback (`persist`). */
+const STORE = 'clientvm-playground:terminal';
 
 interface Disposable {
   dispose(): void;
+}
+
+interface SearchAddon {
+  findNext(term: string): boolean;
+  findPrevious(term: string): boolean;
+  clearDecorations(): void;
 }
 
 /** The parts of xterm.js this page uses. */
@@ -64,19 +74,39 @@ const AGENT_ACTIONS: { label: string; tool: string; input: Record<string, unknow
 ];
 
 async function main(): Promise<void> {
-  const [{ Terminal }, { FitAddon }] = (await Promise.all([
+  const [{ Terminal }, { FitAddon }, { SearchAddon }] = (await Promise.all([
     import(/* @vite-ignore */ XTERM),
     import(/* @vite-ignore */ FIT),
-  ])) as [{ Terminal: new (opts: object) => XTerm }, { FitAddon: new () => { fit(): void } }];
+    import(/* @vite-ignore */ SEARCH),
+  ])) as [
+    { Terminal: new (opts: object) => XTerm },
+    { FitAddon: new () => { fit(): void } },
+    { SearchAddon: new () => SearchAddon },
+  ];
+  const searches = new Map<string, SearchAddon>();
+  const previewUrls = new Map<number, string>();
+  // Port links in output (attachShell's linkPorts) open in the preview pane.
+  const linkHandler = {
+    activate: (_event: MouseEvent, uri: string) => {
+      if ([...previewUrls.values()].some((u) => uri.startsWith(u)))
+        $<HTMLIFrameElement>('preview').src = uri;
+      else window.open(uri, '_blank', 'noopener');
+    },
+  };
   const open = (id: string, extra: object = {}) => {
     const term = new Terminal({
       fontFamily: 'ui-monospace, Menlo, monospace',
       fontSize: 13,
       scrollback: 5000,
+      allowProposedApi: true,
+      linkHandler,
       ...extra,
     });
     const fit = new FitAddon();
+    const search = new SearchAddon();
     term.loadAddon(fit);
+    term.loadAddon(search);
+    searches.set(id, search);
     term.open($(id));
     // Hidden tabs have no size; fit when they are shown.
     new ResizeObserver(() => {
@@ -84,20 +114,33 @@ async function main(): Promise<void> {
     }).observe($(id));
     return term;
   };
-  const shellTerm = open('terminal', { cursorBlink: true });
   const agentTerm = open('agent-terminal', { disableStdin: true });
-  shellTerm.write('\x1b[2mBooting a ClientVM instance…\x1b[0m\r\n');
 
-  // Tabs: the user's shell, and what the agent runs.
-  const tabs = document.querySelectorAll<HTMLButtonElement>('[data-tab]');
-  for (const tab of tabs)
-    tab.addEventListener('click', () => {
-      for (const t of tabs) {
-        t.setAttribute('aria-selected', String(t === tab));
-        $(t.dataset['tab']!).hidden = t !== tab;
-      }
-      (tab.dataset['tab'] === 'terminal' ? shellTerm : agentTerm).focus();
-    });
+  // Tabs: the user's shells, and what the agent runs.
+  const terms = new Map<string, XTerm>([['agent-terminal', agentTerm]]);
+  let active = 'terminal';
+  const select = (id: string) => {
+    active = id;
+    for (const t of document.querySelectorAll<HTMLButtonElement>('[data-tab]')) {
+      t.setAttribute('aria-selected', String(t.dataset['tab'] === id));
+      $(t.dataset['tab']!).hidden = t.dataset['tab'] !== id;
+    }
+    terms.get(id)?.focus();
+  };
+  $('tabs').addEventListener('click', (e) => {
+    const tab = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
+    if (tab) select(tab.dataset['tab']!);
+  });
+
+  // Search in the visible terminal.
+  $('search').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const query = $<HTMLInputElement>('search').value;
+    const search = searches.get(active);
+    if (!search || !query) return;
+    const found = e.shiftKey ? search.findPrevious(query) : search.findNext(query);
+    $('search-status').textContent = found ? 'found' : 'not found';
+  });
 
   const instance = await vm.createInstance({
     fs: { from: { home: { user: { app: { ...STARTER, ...DEMO_FILES } } } } },
@@ -105,24 +148,52 @@ async function main(): Promise<void> {
   });
   $('status').textContent = `instance ${instance.id}`;
   instance.onPortOpen((port, url) => {
+    previewUrls.set(port, url);
     $('url').textContent = `port ${port}`;
     $<HTMLIFrameElement>('preview').src = url;
   });
+  instance.onPortClose((port) => previewUrls.delete(port));
 
-  // A real shell: prompt, history (↑/↓), Tab completion, Ctrl+C, programs that
-  // read keys (npm's progress, prompts, Vite's shortcuts). Exits restart it.
-  const startShell = async (): Promise<void> => {
-    const session = await attachShell(shellTerm, instance, { cwd: APP });
-    void session.exit.then(() => {
-      shellTerm.write('\x1b[2mStarting a new shell…\x1b[0m\r\n');
-      void startShell();
-    });
+  // A real shell per tab: prompt, history (↑/↓), Tab completion, Ctrl+C,
+  // programs that read keys (npm's progress, prompts, Vite's shortcuts).
+  // Exits restart it.
+  let shells = 0;
+  const addShell = async (): Promise<void> => {
+    const n = ++shells;
+    const id = n === 1 ? 'terminal' : `terminal-${n}`;
+    const pane = $('terminals').insertBefore(document.createElement('div'), $('agent-terminal'));
+    pane.id = id;
+    pane.className = 'term';
+    const tab = $('tabs').insertBefore(document.createElement('button'), $('agent-terminal-tab'));
+    tab.setAttribute('role', 'tab');
+    tab.dataset['tab'] = id;
+    tab.textContent = `Terminal ${n}`;
+    const term = open(id, { cursorBlink: true });
+    terms.set(id, term);
+    select(id);
+    sessionStorage.setItem(`${STORE}:tabs`, String(shells));
+    const start = async (): Promise<void> => {
+      const session = await attachShell(term, instance, {
+        cwd: APP,
+        persist: { key: `${STORE}:shell-${n}` },
+      });
+      void session.exit.then(() => {
+        term.write('\x1b[2mStarting a new shell…\x1b[0m\r\n');
+        void start();
+      });
+    };
+    await start();
   };
-  await startShell();
+  $('tabs').querySelector('[data-tab="agent-terminal"]')!.id = 'agent-terminal-tab';
+  $('new-tab').addEventListener('click', () => void addShell());
+  const restoredTabs = Number(sessionStorage.getItem(`${STORE}:tabs`) ?? '1') || 1;
+  for (let i = 0; i < restoredTabs; i++) await addShell();
+  select('terminal');
 
   // The agent's commands, each with its output and how it ended.
   attachActivityView(agentTerm, instance, {
     filter: (p) => p.tag?.['source'] === 'agent',
+    persist: { key: `${STORE}:agent` },
   });
   agentTerm.write('\x1b[2mCommands the agent runs appear here.\x1b[0m\r\n');
 
@@ -152,7 +223,7 @@ async function main(): Promise<void> {
     else void call('stop_process', { process_id: serverProcess });
   });
 
-  shellTerm.focus();
+  terms.get('terminal')?.focus();
 }
 
 main().catch((err: unknown) => {

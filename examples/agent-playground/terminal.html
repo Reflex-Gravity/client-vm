@@ -10,7 +10,8 @@
         "imports": {},
         "integrity": {
           "https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.mjs": "sha384-8Xik+BkzF4UFDtZa8HkUiQ0FE/Xl+03xMuv69uQB3ichDzm8dWs4kPRihQxSZDiY",
-          "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.mjs": "sha384-0/1EW6dUPoaun7dgdlOtb5Wk8x5UQRW6hYM3ihuCCnaA2Xd4HwMFcn378RpxmoAc"
+          "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.mjs": "sha384-0/1EW6dUPoaun7dgdlOtb5Wk8x5UQRW6hYM3ihuCCnaA2Xd4HwMFcn378RpxmoAc",
+          "https://cdn.jsdelivr.net/npm/@xterm/addon-search@0.16.0/lib/addon-search.mjs": "sha384-6fzeg4FW5+buVGJyAfTNU52K/BvMebbt+9KaCwcurJO0rjgWbw0ayrm5f9nVPHgL"
         }
       }
     </script>
@@ -82,6 +83,31 @@
       [role='tab'][aria-selected='true'] {
         background: #000;
       }
+      #new-tab {
+        padding: 6px 10px;
+      }
+      #terminals {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      #search-bar {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 12px;
+      }
+      #search {
+        flex: 1;
+        max-width: 280px;
+        font: inherit;
+        padding: 3px 6px;
+        background: #000;
+        color: inherit;
+        border: 1px solid #ffffff2a;
+        border-radius: 4px;
+      }
       #actions {
         display: flex;
         flex-wrap: wrap;
@@ -113,12 +139,21 @@
         ClientVM <small id="status">booting…</small>
         <small>· <a href="./">agent playground</a></small>
       </h2>
-      <div role="tablist">
-        <button role="tab" data-tab="terminal" aria-selected="true">Terminal</button>
-        <button role="tab" data-tab="agent-terminal" aria-selected="false">🤖 Agent</button>
+      <div id="search-bar">
+        <input
+          id="search"
+          type="search"
+          placeholder="Search (Enter: next, Shift+Enter: previous)"
+        />
+        <small id="search-status"></small>
       </div>
-      <div id="terminal" class="term"></div>
-      <div id="agent-terminal" class="term" hidden></div>
+      <div role="tablist" id="tabs">
+        <button role="tab" data-tab="agent-terminal" aria-selected="false">🤖 Agent</button>
+        <button id="new-tab" title="New shell">+</button>
+      </div>
+      <div id="terminals">
+        <div id="agent-terminal" class="term" hidden></div>
+      </div>
     </main>
     <aside>
       <h2>Agent actions <small>(tagged 🤖 tool calls)</small></h2>

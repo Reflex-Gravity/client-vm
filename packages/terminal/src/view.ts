@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Disposable, Instance, ProcessEvent, ProcessInfo } from '@clientvm/clientvm';
 import { displayCommand } from './command.ts';
+import { createTerminalWriter } from './output.ts';
+import type { OutputOptions, PortSource } from './output.ts';
 import { createSanitizer } from './sanitize.ts';
 
 /**
@@ -11,7 +13,7 @@ export interface TerminalLike {
   write(data: string): void;
 }
 
-export interface ActivityViewOptions {
+export interface ActivityViewOptions extends OutputOptions {
   /** Which processes to show, e.g. `(p) => p.tag?.source === 'agent'`. Default: all. */
   filter?: (process: ProcessInfo) => boolean;
   /** Text put before a command's `$` line, e.g. `🤖 ` for agent commands. Written as is. */
@@ -48,11 +50,13 @@ function commandText(command: string): string {
  * line per command, its output, and a line with its exit status and run
  * time. Output from concurrent processes is labelled when it switches
  * between them. Escape sequences that could reach outside the terminal
- * (clipboard, links) are removed. Recent history is replayed first.
+ * (clipboard, links) are removed. Recent history is replayed first. Drawing
+ * is throttled, port URLs become links and scrollback can persist, as for
+ * attachShell (OutputOptions).
  */
 export function attachActivityView(
   term: TerminalLike,
-  instance: Pick<Instance, 'onProcess'>,
+  instance: Pick<Instance, 'onProcess'> & PortSource,
   opts: ActivityViewOptions = {},
 ): Disposable {
   const shown = new Map<
@@ -64,6 +68,7 @@ export function attachActivityView(
       sanitize: { 1: (s: string) => string; 2: (s: string) => string };
     }
   >();
+  const out = createTerminalWriter(term, instance, opts);
   /** Process whose output was written last, so a switch can be labelled. */
   let current: number | null = null;
   let atLineStart = true;
@@ -71,11 +76,11 @@ export function attachActivityView(
   const write = (text: string) => {
     if (!text) return;
     // Output is not from a TTY, so lines end in a bare \n; a terminal also needs \r.
-    term.write(text.replace(/(?<!\r)\n/g, '\r\n'));
+    out.write(text.replace(/(?<!\r)\n/g, '\r\n'));
     atLineStart = text.endsWith('\n');
   };
   const line = (text: string) => {
-    term.write(`${atLineStart ? '' : '\r\n'}${text}\r\n`);
+    out.write(`${atLineStart ? '' : '\r\n'}${text}\r\n`);
     atLineStart = true;
   };
 
@@ -117,5 +122,11 @@ export function attachActivityView(
     current = null;
   };
 
-  return instance.onProcess(onEvent);
+  const sub = instance.onProcess(onEvent);
+  return {
+    dispose() {
+      sub.dispose();
+      out.dispose();
+    },
+  };
 }

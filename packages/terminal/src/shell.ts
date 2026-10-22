@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Disposable, Instance, Process, ProcessTag, Signal } from '@clientvm/clientvm';
+import { createTerminalWriter } from './output.ts';
+import type { OutputOptions, PortSource } from './output.ts';
 import { createSanitizer } from './sanitize.ts';
 import type { TerminalLike } from './view.ts';
 
@@ -14,7 +16,7 @@ export interface InteractiveTerminalLike extends TerminalLike {
   onResize?(listener: (size: { cols: number; rows: number }) => void): Disposable;
 }
 
-export interface AttachShellOptions {
+export interface AttachShellOptions extends OutputOptions {
   /** The program to run (default `bash`, with `-i`). */
   command?: string;
   args?: string[];
@@ -35,12 +37,15 @@ export interface ShellSession extends Disposable {
  * Runs an interactive shell on a pseudo-terminal (ADR 0017) and connects it
  * to `term`: keys go to the shell, its output is drawn, and resizes reach it
  * as SIGWINCH. Escape sequences that could reach outside the terminal
- * (clipboard writes, hyperlinks) are removed from the output.
+ * (clipboard writes, hyperlinks) are removed from the output. Output is
+ * drawn at most once a frame with a bounded backlog, local URLs of the
+ * instance's open ports become links to their previews, and `persist` keeps
+ * the scrollback across a page reload (OutputOptions).
  * `dispose()` disconnects and hangs up the shell (SIGHUP).
  */
 export async function attachShell(
   term: InteractiveTerminalLike,
-  instance: Pick<Instance, 'spawn'>,
+  instance: Pick<Instance, 'spawn'> & PortSource,
   opts: AttachShellOptions = {},
 ): Promise<ShellSession> {
   const command = opts.command ?? 'bash';
@@ -54,6 +59,7 @@ export async function attachShell(
   const stdin = proc.stdin.getWriter();
   const encoder = new TextEncoder();
   const sanitize = createSanitizer();
+  const writer = createTerminalWriter(term, instance, opts);
   let attached = true;
 
   const pumping = (async () => {
@@ -61,7 +67,7 @@ export async function attachShell(
     for await (const chunk of proc.stdout as unknown as AsyncIterable<Uint8Array>) {
       if (!attached) continue;
       const text = sanitize(decoder.decode(chunk, { stream: true }));
-      if (text) term.write(text);
+      if (text) writer.write(text);
     }
   })();
   // stderr is empty on a terminal (its output is the terminal's); drain it anyway.
@@ -85,8 +91,9 @@ export async function attachShell(
       const message =
         opts.exitMessage?.(e) ??
         `\r\n\x1b[2m[process exited with ${e.signal ?? `code ${e.code}`}]\x1b[0m\r\n`;
-      if (message) term.write(message);
+      if (message) writer.write(message);
     }
+    writer.dispose();
     for (const s of subs) s.dispose();
     return e;
   });
@@ -97,6 +104,7 @@ export async function attachShell(
     dispose() {
       if (!attached) return;
       attached = false;
+      writer.dispose();
       for (const s of subs) s.dispose();
       proc.kill('SIGHUP');
     },
