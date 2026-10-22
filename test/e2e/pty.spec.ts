@@ -189,6 +189,25 @@ rl.question('name? ', (a) => { console.log('hi ' + a); rl.close(); });`,
     await t.expect(/\[1\]\+ {2}Done {20}node -e "setTimeout\(\(\) => \{\}, 1500\)"\n/);
   });
 
+  test('history builtin: numbered list, a count, -c, and ~/.bash_history', async ({ page }) => {
+    await openHost(page);
+    const id = await host(page, 'createInstance');
+    const t = await terminal(page, id);
+    await t.run('echo one');
+    await t.run(' echo hidden');
+    await t.run('echo two');
+    expect(await t.run('history')).toMatch(
+      /\n {4}1 {2}echo one\n {4}2 {2}echo two\n {4}3 {2}history\n[^\n]*\$ $/,
+    );
+    expect(await t.run('history 2')).toMatch(/\n {4}3 {2}history\n {4}4 {2}history 2\n/);
+    expect(await host(page, 'readFile', id, '/home/user/.bash_history')).toBe(
+      'echo one\necho two\nhistory\nhistory 2\n',
+    );
+    await t.run('history -c');
+    expect(await t.run('history')).toMatch(/\n {4}1 {2}history\n[^\n]*\$ $/);
+    expect(await host(page, 'readFile', id, '/home/user/.bash_history')).toBe('history\n');
+  });
+
   test('signals reach handlers: kill(), trap, and the exit status of a default action', async ({
     page,
   }) => {

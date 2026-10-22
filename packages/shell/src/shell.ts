@@ -336,6 +336,13 @@ export interface RunOptions {
   line?: number;
 }
 
+/** Command history kept by an interactive shell. */
+export interface ShellHistory {
+  /** Oldest first. */
+  entries(): string[];
+  clear(): void;
+}
+
 export class Shell {
   readonly host: ShellHost;
   state: ShellState;
@@ -349,6 +356,8 @@ export class Shell {
   interactive = false;
   /** Aborted when Ctrl+C interrupts the current interactive line. */
   interrupt: AbortSignal | null = null;
+  /** The interactive shell's command history (the `history` builtin); null when not interactive. */
+  history: ShellHistory | null = null;
   /** The line being run at an interactive prompt, which names its background jobs. */
   currentLine = '';
   /** True while running a script file (messages then omit the `-c` form). */

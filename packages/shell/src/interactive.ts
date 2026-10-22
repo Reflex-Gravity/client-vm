@@ -193,6 +193,17 @@ export async function runInteractive(
     // No history yet.
   }
   const editor = new LineEditor({ history, historySize: HISTORY_LINES });
+  shell.history = {
+    entries: () => [...editor.history].reverse(),
+    clear: () => {
+      editor.history.length = 0;
+      try {
+        fs.writeFileSync(histFile, '');
+      } catch {
+        // A read-only home is not an error for the shell.
+      }
+    },
+  };
   const remember = (line: string) => {
     if (!line.trim() || line.startsWith(' ')) return;
     editor.addHistory(line);

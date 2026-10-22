@@ -1152,6 +1152,36 @@ async function popd(sh: Shell, _argv: string[], io: Io): Promise<number> {
   return s === 0 ? dirs(sh, ['dirs'], io) : s;
 }
 
+/** `history [n]`, `history -c`: bash's numbered list, from the interactive shell's history. */
+async function history(sh: Shell, argv: string[], io: Io): Promise<number> {
+  const args = argv.slice(1);
+  if (args[0] === '--') args.shift();
+  if (args[0] === '-c') {
+    sh.history?.clear();
+    return 0;
+  }
+  if (args[0]?.startsWith('-')) {
+    await warn(sh, io, `history: ${args[0]}: invalid option`);
+    await warn(sh, io, 'history: usage: history [-c] [n]');
+    return 2;
+  }
+  let count = Infinity;
+  if (args[0] !== undefined) {
+    if (!/^\d+$/.test(args[0])) {
+      await warn(sh, io, `history: ${args[0]}: numeric argument required`);
+      return 1;
+    }
+    count = Number(args[0]);
+  }
+  const entries = sh.history?.entries() ?? [];
+  const first = Math.max(0, entries.length - count);
+  let out = '';
+  for (let i = first; i < entries.length; i++)
+    out += `${String(i + 1).padStart(5)}  ${entries[i]}\n`;
+  await write(io, out);
+  return 0;
+}
+
 async function dirs(sh: Shell, _argv: string[], io: Io): Promise<number> {
   const home = sh.getVar('HOME');
   const show = (d: string) =>
@@ -1205,6 +1235,7 @@ export const BUILTINS: Record<string, Builtin> = {
   pushd,
   popd,
   dirs,
+  history,
   times: async (_sh, _argv, io) => {
     await write(io, '0m0.000s 0m0.000s\n0m0.000s 0m0.000s\n');
     return 0;
