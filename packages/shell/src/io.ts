@@ -25,6 +25,12 @@ export interface Sink {
 }
 
 export interface Source {
+  /**
+   * When 0, this source is the process's own stdin and that is a terminal, so
+   * a spawned child reads the terminal itself (foreground job) instead of
+   * having input copied to it.
+   */
+  readonly inherit?: 0;
   /** The next chunk, or null at end of input. */
   read(): Promise<Uint8Array | null>;
   /** Pushes bytes back so the next read returns them first. */
@@ -35,14 +41,20 @@ export interface Source {
 
 /** A source with push-back on top of a chunk producer. */
 export class BufferedSource implements Source {
+  readonly inherit?: 0;
   private readonly pending: Uint8Array[] = [];
   private readonly produce: () => Promise<Uint8Array | null> | Uint8Array | null;
   private readonly onClose: (() => void) | undefined;
   private ended = false;
 
-  constructor(produce: () => Promise<Uint8Array | null> | Uint8Array | null, onClose?: () => void) {
+  constructor(
+    produce: () => Promise<Uint8Array | null> | Uint8Array | null,
+    onClose?: () => void,
+    terminal = false,
+  ) {
     this.produce = produce;
     this.onClose = onClose;
+    if (terminal) this.inherit = 0;
   }
 
   async read(): Promise<Uint8Array | null> {

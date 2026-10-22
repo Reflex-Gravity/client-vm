@@ -6,5 +6,8 @@ import { defaultClientConditions, defineConfig } from 'vite';
 export default defineConfig({
   resolve: { conditions: ['@clientvm/source', ...defaultClientConditions] },
   server: { port: 5180 },
-  build: { target: 'es2023' },
+  build: {
+    target: 'es2023',
+    rollupOptions: { input: { main: 'index.html', terminal: 'terminal.html' } },
+  },
 });

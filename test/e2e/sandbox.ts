@@ -82,6 +82,17 @@ interface HostWindow {
     capabilities(id: string): Capability[];
     recordMail(id: string): void;
     mail(id: string): { from: string; message: unknown }[];
+    openTerminal(
+      id: string,
+      cmd: string,
+      args: string[],
+      opts: { cols: number; rows: number; cwd?: string; env?: Record<string, string> },
+    ): Promise<number>;
+    terminalInput(pid: number, text: string): Promise<void>;
+    terminalOutput(pid: number, since?: number): string;
+    terminalResize(pid: number, cols: number, rows: number): void;
+    terminalKill(pid: number, signal?: string): void;
+    terminalExit(pid: number): { code: number; signal?: string } | null;
     recordProcesses(id: string): void;
     processEvents(id: string): RecordedProcessEvent[];
     drive(id: string, port: number, path?: string): Promise<number>;

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { bindAsyncContext } from './async-hooks.ts';
 import { ExitSignal } from '@clientvm/process';
-import type { OutputStream, ProcessContext } from '@clientvm/process';
+import type { OutputStream, ProcessContext, Tty } from '@clientvm/process';
+import { SIGNAL_NUMBERS, isSignal } from '@clientvm/protocol';
+import type { Signal } from '@clientvm/protocol';
 import { Buffer } from './buffer.ts';
 import type { BufferEncoding } from './buffer.ts';
 import { NODE_EXEC_PATH, NODE_VERSION } from './constants.ts';
@@ -25,8 +27,76 @@ export interface StdioDeps {
   handle: () => { ref(): unknown; unref(): unknown; close(): void };
 }
 
-/** process.stdout / process.stderr: Writable streams over the kernel output pipe (not a TTY). */
-function createStdioWritable(out: OutputStream, fd: number, deps: StdioDeps) {
+/**
+ * Node's getColorDepth: FORCE_COLOR, then NO_COLOR / NODE_DISABLE_COLORS /
+ * TERM=dumb, then COLORTERM and TERM.
+ */
+export function colorDepth(env: Record<string, string | undefined>): number {
+  const force = env['FORCE_COLOR'];
+  if (force !== undefined) {
+    if (force === '' || force === '1' || force === 'true') return 4;
+    if (force === '2') return 8;
+    if (force === '3') return 24;
+    return 1;
+  }
+  if (env['NO_COLOR'] !== undefined || env['NODE_DISABLE_COLORS'] !== undefined) return 1;
+  const term = env['TERM'];
+  if (term === 'dumb') return 1;
+  const colorterm = env['COLORTERM'];
+  if (colorterm === 'truecolor' || colorterm === '24bit') return 24;
+  if (!term) return 1;
+  if (/-256(color)?$/.test(term)) return 8;
+  if (/^(xterm|screen|tmux|vt100|vt220|rxvt|linux|ansi|cygwin|konsole|kitty|alacritty)/.test(term))
+    return 4;
+  return 1;
+}
+
+/** The tty.WriteStream methods and properties of a stdio stream that is the terminal. */
+function makeTtyWritable(stream: Record<string, unknown>, tty: Tty, env: () => object) {
+  const write = (data: string, cb?: () => void) => {
+    (stream['write'] as (d: string, cb?: () => void) => boolean)(data, cb);
+    return true;
+  };
+  const csi = '\x1b[';
+  Object.defineProperties(stream, {
+    columns: { get: () => tty.size.cols, enumerable: true, configurable: true },
+    rows: { get: () => tty.size.rows, enumerable: true, configurable: true },
+  });
+  Object.assign(stream, {
+    isTTY: true,
+    getWindowSize: () => [tty.size.cols, tty.size.rows],
+    getColorDepth: (e?: object) => colorDepth((e ?? env()) as Record<string, string | undefined>),
+    hasColors(count?: number | object, e?: object) {
+      const n = typeof count === 'number' ? count : 16;
+      const vars = typeof count === 'object' ? count : (e ?? env());
+      return 2 ** colorDepth(vars as Record<string, string | undefined>) >= n;
+    },
+    cursorTo(x: number, y?: number | (() => void), cb?: () => void) {
+      const callback = typeof y === 'function' ? y : cb;
+      const text =
+        typeof y === 'number' ? `${csi}${y + 1};${x + 1}H` : `${csi}${(x as number) + 1}G`;
+      return write(text, callback);
+    },
+    moveCursor(dx: number, dy: number, cb?: () => void) {
+      let text = '';
+      if (dx) text += `${csi}${Math.abs(dx)}${dx < 0 ? 'D' : 'C'}`;
+      if (dy) text += `${csi}${Math.abs(dy)}${dy < 0 ? 'A' : 'B'}`;
+      return write(text, cb);
+    },
+    clearLine: (dir: number, cb?: () => void) =>
+      write(dir < 0 ? `${csi}1K` : dir > 0 ? `${csi}0K` : `${csi}2K`, cb),
+    clearScreenDown: (cb?: () => void) => write(`${csi}0J`, cb),
+  });
+}
+
+/** process.stdout / process.stderr: Writable streams over the kernel output pipe, or the terminal. */
+function createStdioWritable(
+  out: OutputStream,
+  fd: number,
+  deps: StdioDeps,
+  tty: Tty | undefined,
+  env: () => object,
+) {
   const { Writable } = deps.stream();
   const stream = new Writable({
     decodeStrings: false,
@@ -54,11 +124,16 @@ function createStdioWritable(out: OutputStream, fd: number, deps: StdioDeps) {
     hasColors: () => false,
     getColorDepth: () => 1,
   });
+  if (tty) {
+    makeTtyWritable(stream as unknown as Record<string, unknown>, tty, env);
+    tty.onResize(() => stream.emit('resize'));
+  }
   return stream;
 }
 
-/** process.stdin: a Readable over the kernel's stdin pipe; live only while consumed. */
+/** process.stdin: a Readable over the kernel's stdin pipe or the terminal; live only while consumed. */
 function createStdin(ctx: ProcessContext, deps: StdioDeps) {
+  const tty = ctx.tty?.stdin ? ctx.tty : undefined;
   const { Readable } = deps.stream();
   let handle: ReturnType<StdioDeps['handle']> | null = null;
   let subscribed = false;
@@ -68,7 +143,8 @@ function createStdin(ctx: ProcessContext, deps: StdioDeps) {
       subscribed = true;
       if (ctx.stdin.open) handle ??= deps.handle();
       ctx.stdin.subscribe((data) => {
-        if (data === null) {
+        // On a terminal, Ctrl+D (an empty chunk) ends the stream as in Node.
+        if (data === null || (tty && data.length === 0)) {
           handle?.close();
           stream.push(null);
         } else {
@@ -81,6 +157,16 @@ function createStdin(ctx: ProcessContext, deps: StdioDeps) {
   stream.on('pause', () => handle?.unref());
   stream.on('resume', () => handle?.ref());
   Object.assign(stream, { fd: 0, isTTY: false, setRawMode: undefined });
+  if (tty) {
+    Object.defineProperty(stream, 'isRaw', { get: () => tty.raw, configurable: true });
+    Object.assign(stream, {
+      isTTY: true,
+      setRawMode(mode: boolean) {
+        tty.setRaw(Boolean(mode));
+        return stream;
+      },
+    });
+  }
   return stream;
 }
 
@@ -113,16 +199,32 @@ export function createProcessObject(
 
   const proc = new EventEmitter() as EventEmitter &
     Record<string, unknown> & { exitCode: number | undefined };
+  const env = () => proc['env'] as object;
+  const tty = ctx.tty;
   // stdio streams are created on first access: loading streams costs a few ms.
   let stdout: unknown, stderr: unknown, stdin: unknown;
   Object.defineProperties(proc, {
     stdout: {
-      get: () => (stdout ??= createStdioWritable(ctx.stdout, 1, stdioDeps)),
+      get: () =>
+        (stdout ??= createStdioWritable(
+          ctx.stdout,
+          1,
+          stdioDeps,
+          tty?.stdout ? tty : undefined,
+          env,
+        )),
       enumerable: true,
       configurable: true,
     },
     stderr: {
-      get: () => (stderr ??= createStdioWritable(ctx.stderr, 2, stdioDeps)),
+      get: () =>
+        (stderr ??= createStdioWritable(
+          ctx.stderr,
+          2,
+          stdioDeps,
+          tty?.stderr ? tty : undefined,
+          env,
+        )),
       enumerable: true,
       configurable: true,
     },
@@ -195,7 +297,15 @@ export function createProcessObject(
       if (pid !== ctx.pid)
         throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH', errno: -3, syscall: 'kill' });
       if (signal === 0) return true;
-      throw new ExitSignal(143);
+      const sig = signalName(signal ?? 'SIGTERM');
+      if (!sig)
+        throw Object.assign(new TypeError(`Unknown signal: ${String(signal)}`), {
+          code: 'ERR_UNKNOWN_SIGNAL',
+        });
+      // To itself: listeners run on a later tick, as when the kernel delivers it.
+      if (onSignal(sig)) return true;
+      if (sig === 'SIGWINCH' || sig === 'SIGCHLD') return true;
+      throw new ExitSignal(128 + SIGNAL_NUMBERS[sig]);
     },
     hrtime,
     uptime: () => (performance.now() - start) / 1000,
@@ -257,7 +367,22 @@ export function createProcessObject(
     hasUncaughtExceptionCaptureCallback: () => false,
     setSourceMapsEnabled: () => {},
   });
+
+  /** Emits a signal to `process` listeners; returns whether there were any. */
+  const onSignal = (sig: Signal): boolean => {
+    if (proc.listenerCount(sig) === 0) return false;
+    // A listener that throws is an uncaught exception, as in Node.
+    queueMicrotask(() => proc.emit(sig, sig, SIGNAL_NUMBERS[sig]));
+    return true;
+  };
+  ctx.onSignal(onSignal);
   return proc;
+}
+
+function signalName(signal: string | number): Signal | undefined {
+  if (typeof signal === 'number')
+    return (Object.keys(SIGNAL_NUMBERS) as Signal[]).find((s) => SIGNAL_NUMBERS[s] === signal);
+  return isSignal(signal) ? signal : undefined;
 }
 
 /** The `process` global: an EventEmitter carrying Node's process properties. */

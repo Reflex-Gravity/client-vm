@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { Process, Signal } from './types.ts';
+import { ClientVMError } from './errors.ts';
+import type { Process, Signal, WindowSize } from './types.ts';
+import { isWindowSize } from './validate.ts';
 
 /** Unread output kept per stream; beyond this, output is dropped (with a note) until read. */
 const OUTPUT_BUFFER_BYTES = 8 * 1024 * 1024;
@@ -22,14 +24,17 @@ export class ProcessHandleImpl implements Process {
   private resolveExit!: (value: { code: number; signal?: Signal }) => void;
   private exited = false;
   private readonly sendKill: (signal: Signal) => Promise<void>;
+  private readonly sendResize: ((size: WindowSize) => Promise<void>) | null;
 
   constructor(
     pid: number,
     sendKill: (signal: Signal) => Promise<void>,
     sendStdin: (data: Uint8Array | null) => Promise<void>,
+    sendResize: ((size: WindowSize) => Promise<void>) | null = null,
   ) {
     this.pid = pid;
     this.sendKill = sendKill;
+    this.sendResize = sendResize;
     let outCtl!: ReadableStreamDefaultController<Uint8Array>;
     let errCtl!: ReadableStreamDefaultController<Uint8Array>;
     const strategy = (): QueuingStrategy<Uint8Array> => ({
@@ -58,6 +63,16 @@ export class ProcessHandleImpl implements Process {
     if (this.exited) return;
     // A process may exit on its own before the kill arrives (ESRCH); that's fine.
     this.sendKill(signal).catch(() => {});
+  }
+
+  resize(cols: number, rows: number): void {
+    if (!this.sendResize)
+      throw new ClientVMError(`process ${this.pid} has no terminal`, 'ERR_NOT_A_TERMINAL');
+    const size = { cols, rows };
+    if (!isWindowSize(size))
+      throw new TypeError('cols and rows must be whole numbers from 1 to 10000');
+    if (this.exited) return;
+    this.sendResize(size).catch(() => {});
   }
 
   /** @internal */

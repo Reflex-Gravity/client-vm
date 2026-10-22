@@ -24,6 +24,18 @@ and the agent tools' (marked 🤖), appears with its live output, exit status an
 Set `VITE_SANDBOX` to point at another sandbox deployment, with `{id}` where the instance id goes,
 for example `VITE_SANDBOX=https://{id}.myapp-sandbox.dev`.
 
+## Terminal view
+
+http://localhost:5180/terminal.html is a StackBlitz-style terminal in
+[xterm.js](https://xtermjs.org/). The **Terminal** tab is a real `bash -i` on a pseudo-terminal
+(`attachShell`): history on ↑/↓, Tab completion, Ctrl+C, and programs that see a TTY (try
+`npm install vite` for npm's progress, or `node` scripts that read keys). The **🤖 Agent** tab
+shows the commands the side panel's agent tool calls run (`attachActivityView`), with their
+output and exit status.
+
+xterm.js is the host app's choice, not a ClientVM dependency. The page loads version 6.0.0 from
+jsDelivr, pinned by hash in an import map, so it needs network access.
+
 ## Connect a model
 
 `createAgentTools({ instance })` returns `definitions` (name, description, JSON Schema input) and

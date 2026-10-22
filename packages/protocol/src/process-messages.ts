@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { Signal, WireFsEvent } from './instance-rpc.ts';
+import type { Signal, WindowSize, WireFsEvent } from './instance-rpc.ts';
 
 /**
  * How a process wakes the kernel after posting a sync syscall:
@@ -15,6 +15,13 @@ export type SyscallMode = 'waitAsync' | 'postMessage';
  */
 export const BUILTIN_MARKER = '#!/clientvm/builtin ';
 
+/** A process's terminal: which of its stdio streams are the terminal, and its size. */
+export interface TtyInfo extends WindowSize {
+  stdin: boolean;
+  stdout: boolean;
+  stderr: boolean;
+}
+
 /** Where a child's stdio stream goes. */
 export type StdioMode = 'pipe' | 'inherit' | 'ignore';
 
@@ -22,7 +29,13 @@ export interface ChildSpawnRequest {
   argv: string[];
   env: Record<string, string>;
   cwd: string;
+  /** stdin `inherit` attaches the child to the parent's terminal when the parent's stdin is one. */
   stdio: [StdioMode, StdioMode, StdioMode];
+  /**
+   * Starts a new process group (a shell's background job): terminal signals
+   * such as Ctrl+C and terminal input no longer reach it or its children.
+   */
+  newGroup?: boolean;
   /**
    * A worker thread (`worker_threads.Worker`): the kernel links parent and
    * child with a MessageChannel (`port` in child-spawned and init).
@@ -44,9 +57,19 @@ export type KernelToProcess =
       stdinOpen: boolean;
       /** For worker threads: the channel to the parent thread. */
       threadPort?: MessagePort;
+      /** Set when the process has a controlling terminal; says which stdio streams are it. */
+      tty?: TtyInfo;
     }
-  /** Data for this process's stdin; null is end-of-file. */
+  /**
+   * Data for this process's stdin; null is end-of-file. On a terminal, an
+   * empty chunk is an end-of-file key (Ctrl+D): it ends the current read, but
+   * the terminal stays open for later reads.
+   */
   | { t: 'stdin'; data: Uint8Array | null }
+  /** A signal for the process. It answers `signal-ack` if a handler took it, else applies the default action. */
+  | { t: 'signal'; signal: Signal }
+  /** The terminal was resized. */
+  | { t: 'winsize'; size: WindowSize }
   /** Liveness check: the process answers `pong` from its event loop. */
   | { t: 'ping'; n: number }
   | { t: 'child-spawned'; id: number; pid: number; port?: MessagePort }
@@ -63,7 +86,12 @@ export type ProcessToKernel =
   | { t: 'doorbell' }
   | { t: 'stdout'; data: Uint8Array }
   | { t: 'stderr'; data: Uint8Array }
-  | { t: 'exit'; code: number }
+  /** `signal` is set when the process ended by a signal's default action. */
+  | { t: 'exit'; code: number; signal?: Signal }
+  /** A handler took the last delivered signal (no default action). */
+  | { t: 'signal-ack' }
+  /** Switches the terminal between raw and cooked input (`setRawMode`); needs stdin to be the terminal. */
+  | { t: 'tty-mode'; raw: boolean }
   /** Starts a child process; `id` is chosen by the parent to correlate replies. */
   | { t: 'spawn'; id: number; request: ChildSpawnRequest }
   | { t: 'child-stdin'; id: number; data: Uint8Array | null }

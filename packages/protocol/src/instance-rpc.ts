@@ -56,7 +56,25 @@ export type TreeEntry =
 export type MirrorOp =
   { op: 'put'; at: string; entries: TreeEntry[] } | { op: 'delete'; at: string };
 
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE' | 'SIGXCPU';
+export type Signal =
+  | 'SIGHUP'
+  | 'SIGINT'
+  | 'SIGQUIT'
+  | 'SIGKILL'
+  | 'SIGUSR1'
+  | 'SIGUSR2'
+  | 'SIGPIPE'
+  | 'SIGALRM'
+  | 'SIGTERM'
+  | 'SIGCHLD'
+  | 'SIGXCPU'
+  | 'SIGWINCH';
+
+/** A pseudo-terminal's size in character cells. */
+export interface WindowSize {
+  cols: number;
+  rows: number;
+}
 
 export interface SpawnRequest {
   argv: string[];
@@ -67,6 +85,12 @@ export interface SpawnRequest {
   stdin?: string | Uint8Array;
   /** For `run`: send SIGTERM to the process (and its children) after this many milliseconds. */
   timeoutMs?: number;
+  /**
+   * Runs the process on a new pseudo-terminal of this size (ADR 0017): its
+   * stdio is the terminal, output arrives as fd 1, and `writeStdin` is
+   * keyboard input. Ignored by `run`.
+   */
+  pty?: WindowSize;
 }
 
 export interface RunResult {
@@ -98,6 +122,8 @@ export type InstanceRpc = {
   kill(pid: number, signal: Signal): void;
   /** Writes to a process's stdin; null closes it. Only for processes spawned with an open stdin. */
   writeStdin(pid: number, data: Uint8Array | null): void;
+  /** Resizes the pseudo-terminal of a process spawned with `pty` (SIGWINCH to its foreground). */
+  resize(pid: number, cols: number, rows: number): void;
   /** Runs a process to completion, collecting its output (tests and benchmarks). */
   run(request: SpawnRequest): Promise<RunResult>;
   /** Takes a copy-on-write snapshot held by this kernel; returns its number. */
@@ -182,11 +208,36 @@ export type HandshakeMessage =
   | { t: 'clientvm:hello'; v: 1; crossOriginIsolated: boolean }
   | { t: 'clientvm:connect'; v: 1; init: InstanceInit };
 
+/** Linux (x86-64) signal numbers. */
 export const SIGNAL_NUMBERS: Record<Signal, number> = {
   SIGHUP: 1,
   SIGINT: 2,
+  SIGQUIT: 3,
   SIGKILL: 9,
+  SIGUSR1: 10,
+  SIGUSR2: 12,
   SIGPIPE: 13,
-  SIGXCPU: 24,
+  SIGALRM: 14,
   SIGTERM: 15,
+  SIGCHLD: 17,
+  SIGXCPU: 24,
+  SIGWINCH: 28,
 };
+
+/** Signals whose default action is to ignore them; every other default action terminates. */
+export const IGNORED_BY_DEFAULT: ReadonlySet<Signal> = new Set<Signal>(['SIGCHLD', 'SIGWINCH']);
+
+/**
+ * Signals the kernel applies itself instead of delivering: SIGKILL cannot be
+ * caught; SIGPIPE ends a writer whose reader is gone (pipes report no EPIPE);
+ * SIGXCPU stops a process that does not yield (a handler could never run).
+ */
+export const KERNEL_SIGNALS: ReadonlySet<Signal> = new Set<Signal>([
+  'SIGKILL',
+  'SIGPIPE',
+  'SIGXCPU',
+]);
+
+export function isSignal(s: unknown): s is Signal {
+  return typeof s === 'string' && Object.hasOwn(SIGNAL_NUMBERS, s);
+}

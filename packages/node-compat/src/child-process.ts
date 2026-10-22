@@ -4,7 +4,7 @@
 // `shell: true` and exec() run through /bin/sh only once it exists.
 
 import type { ProcessContext } from '@clientvm/process';
-import { Op, SystemError, decode, encode } from '@clientvm/protocol';
+import { Op, SIGNAL_NUMBERS, SystemError, decode, encode, isSignal } from '@clientvm/protocol';
 import type { KernelToProcess, Signal, StdioMode, Value } from '@clientvm/protocol';
 import { Buffer, codeError } from './buffer.ts';
 import type { BufferEncoding } from './buffer.ts';
@@ -31,22 +31,9 @@ export interface ChildProcessDeps {
   cwd: () => string;
 }
 
-const SIGNALS: Record<string, Signal> = {
-  SIGTERM: 'SIGTERM',
-  SIGKILL: 'SIGKILL',
-  SIGINT: 'SIGINT',
-  SIGHUP: 'SIGHUP',
-  SIGPIPE: 'SIGPIPE',
-  SIGXCPU: 'SIGXCPU',
-};
-const SIGNAL_BY_NUMBER: Record<number, Signal> = {
-  1: 'SIGHUP',
-  2: 'SIGINT',
-  9: 'SIGKILL',
-  13: 'SIGPIPE',
-  15: 'SIGTERM',
-  24: 'SIGXCPU',
-};
+const SIGNAL_BY_NUMBER: Record<number, Signal> = Object.fromEntries(
+  Object.entries(SIGNAL_NUMBERS).map(([name, n]) => [n, name as Signal]),
+);
 
 interface SpawnOptions {
   cwd?: string | URL | undefined;
@@ -171,9 +158,8 @@ function normalizeStdio(stdio: SpawnOptions['stdio']): [StdioMode, StdioMode, St
 function toSignal(sig: string | number | undefined): Signal {
   if (sig === undefined) return 'SIGTERM';
   if (typeof sig === 'number') return SIGNAL_BY_NUMBER[sig] ?? 'SIGTERM';
-  const s = SIGNALS[sig];
-  if (!s) throw codeError(TypeError, 'ERR_UNKNOWN_SIGNAL', `Unknown signal: ${sig}`);
-  return s;
+  if (!isSignal(sig)) throw codeError(TypeError, 'ERR_UNKNOWN_SIGNAL', `Unknown signal: ${sig}`);
+  return sig;
 }
 
 /** The `child_process` module object. */
@@ -280,6 +266,8 @@ export function createChildProcess(deps: ChildProcessDeps): ChildProcessModule {
           cwd: childCwd(opts),
           stdio,
           ...(opts.ipc ? { thread: true } : {}),
+          // A detached child leads its own group: terminal signals and input skip it.
+          ...(opts.detached ? { newGroup: true } : {}),
         },
       });
       if (opts.signal) {

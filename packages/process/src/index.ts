@@ -6,6 +6,7 @@ export type {
   ProcessContext,
   Runtime,
   RuntimeTable,
+  Tty,
 } from './context.ts';
 export { startProcessWorker } from './bootstrap.ts';
 export type { ProcessScopeLike } from './bootstrap.ts';

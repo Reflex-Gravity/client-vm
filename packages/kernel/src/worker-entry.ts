@@ -45,6 +45,15 @@ import { Kernel } from './kernel.ts';
 import type { KernelOptions, ProcessHandle } from './kernel.ts';
 
 /** Sent by the instance page to its kernel worker once the controller has connected. */
+/** A terminal size the kernel accepts (whole cells, at most 10000 each way). */
+const validSize = (cols: unknown, rows: unknown): cols is number =>
+  Number.isInteger(cols) &&
+  Number.isInteger(rows) &&
+  (cols as number) >= 1 &&
+  (rows as number) >= 1 &&
+  (cols as number) <= 10_000 &&
+  (rows as number) <= 10_000;
+
 export interface KernelBootMessage {
   t: 'clientvm:kernel-boot';
   init: InstanceInit;
@@ -299,6 +308,18 @@ async function boot(
     request: SpawnRequest,
     onOutput?: (fd: 1 | 2, data: Uint8Array) => void,
   ): ProcessHandle => {
+    if (request.pty && !onOutput) {
+      const { cols, rows } = request.pty;
+      if (!validSize(cols, rows)) throw new SystemError('EINVAL', 'spawn');
+      const term: ProcessHandle = kernel.spawn(request.argv, {
+        // Terminal programs look at TERM for colours and capabilities.
+        env: { ...DEFAULT_ENV, TERM: 'xterm-256color', ...request.env },
+        ...(request.cwd ? { cwd: request.cwd } : {}),
+        ...(request.syscallMode ? { syscallMode: request.syscallMode } : {}),
+        pty: { size: { cols, rows }, onOutput: (d) => emit('output', term.pid, 1, d) },
+      });
+      return term;
+    }
     const proc = kernel.spawn(request.argv, {
       // Processes started by the controller get a login-like environment.
       env: { ...DEFAULT_ENV, ...request.env },
@@ -381,6 +402,12 @@ async function boot(
       if (!proc) throw new SystemError('ESRCH', 'write');
       if (data !== null && !(data instanceof Uint8Array)) throw new SystemError('EINVAL', 'write');
       proc.writeStdin(data);
+    },
+    resize(pid, cols, rows) {
+      const proc = kernel.getProcess(pid);
+      if (!proc) throw new SystemError('ESRCH', 'ioctl');
+      if (!validSize(cols, rows)) throw new SystemError('EINVAL', 'ioctl');
+      proc.resize({ cols, rows });
     },
     async run(request) {
       const out: Uint8Array[] = [];

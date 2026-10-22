@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClientVM terminal</title>
+    <!-- xterm.js comes from a CDN, pinned by version and hash (src/terminal.ts). -->
+    <script type="importmap">
+      {
+        "imports": {},
+        "integrity": {
+          "https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.mjs": "sha384-8Xik+BkzF4UFDtZa8HkUiQ0FE/Xl+03xMuv69uQB3ichDzm8dWs4kPRihQxSZDiY",
+          "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.mjs": "sha384-0/1EW6dUPoaun7dgdlOtb5Wk8x5UQRW6hYM3ihuCCnaA2Xd4HwMFcn378RpxmoAc"
+        }
+      }
+    </script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css"
+      integrity="sha384-n2n7twoohnW+d3myBKaUgl7DSiwidw6MkQy9oesGzkPpMjejKRR3XlnD+5yCdtBD"
+      crossorigin="anonymous"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        height: 100vh;
+        background: #15171c;
+        color: #d8dee9;
+      }
+      main,
+      aside {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        padding: 12px;
+        gap: 8px;
+      }
+      aside {
+        border-left: 1px solid #ffffff1a;
+      }
+      h2 {
+        font-size: 14px;
+        margin: 0;
+      }
+      h2 small {
+        font-weight: normal;
+        opacity: 0.6;
+      }
+      a {
+        color: #88c0d0;
+      }
+      .term {
+        flex: 1;
+        min-height: 0;
+        padding: 8px;
+        background: #000;
+        border-radius: 0 6px 6px 6px;
+      }
+      .term[hidden] {
+        display: none;
+      }
+      [role='tablist'] {
+        display: flex;
+        gap: 2px;
+        margin-bottom: -8px;
+      }
+      [role='tab'] {
+        border: 0;
+        border-radius: 6px 6px 0 0;
+        padding: 6px 14px;
+        background: #ffffff14;
+        color: inherit;
+        cursor: pointer;
+      }
+      [role='tab'][aria-selected='true'] {
+        background: #000;
+      }
+      #actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      button {
+        font: inherit;
+        font-size: 13px;
+      }
+      #agent-result {
+        min-height: 1.4em;
+        margin: 0;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        opacity: 0.8;
+      }
+      iframe {
+        flex: 1;
+        border: 1px solid #ffffff1a;
+        border-radius: 6px;
+        background: white;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h2>
+        ClientVM <small id="status">booting…</small>
+        <small>· <a href="./">agent playground</a></small>
+      </h2>
+      <div role="tablist">
+        <button role="tab" data-tab="terminal" aria-selected="true">Terminal</button>
+        <button role="tab" data-tab="agent-terminal" aria-selected="false">🤖 Agent</button>
+      </div>
+      <div id="terminal" class="term"></div>
+      <div id="agent-terminal" class="term" hidden></div>
+    </main>
+    <aside>
+      <h2>Agent actions <small>(tagged 🤖 tool calls)</small></h2>
+      <div id="actions"></div>
+      <pre id="agent-result"></pre>
+      <h2>Preview <small id="url"></small></h2>
+      <iframe id="preview" title="Preview"></iframe>
+    </aside>
+    <script type="module" src="/src/terminal.ts"></script>
+  </body>
+</html>

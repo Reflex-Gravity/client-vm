@@ -164,6 +164,8 @@ export class InThreadKernel {
         listeners.add(l);
         return () => listeners.delete(l);
       },
+      // The in-thread kernel terminates on kill; nothing is delivered to handlers.
+      onSignal: () => () => {},
     };
 
     void (async () => {

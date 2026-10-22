@@ -156,8 +156,13 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     util: utilModule,
     'util/types': utilModule['types'],
   };
+  const term = deps.ctx.tty;
   const tty = {
-    isatty: () => false,
+    // fds 0-2 are the terminal when the kernel says so; other fds are files or devices.
+    isatty: (fd: number) =>
+      (fd === 0 && term?.stdin === true) ||
+      (fd === 1 && term?.stdout === true) ||
+      (fd === 2 && term?.stderr === true),
     ReadStream: class ReadStream {
       isTTY = false;
     },

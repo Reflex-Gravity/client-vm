@@ -12,6 +12,7 @@ import type {
   WireResponse,
   WireStat,
 } from '@clientvm/protocol';
+import { isSignal } from '@clientvm/protocol';
 import { ClientVMError } from './errors.ts';
 
 const KINDS = new Set<unknown>(['file', 'dir', 'symlink']);
@@ -49,14 +50,21 @@ export function runResult(v: unknown): {
     typeof r.code !== 'number' ||
     typeof r.stdout !== 'string' ||
     typeof r.stderr !== 'string' ||
-    !(r.signal === null || SIGNALS.has(r.signal))
+    !(r.signal === null || isSignal(r.signal))
   ) {
     bad('run result');
   }
   return { code: r.code, signal: r.signal ?? null, stdout: r.stdout, stderr: r.stderr };
 }
 
-const SIGNALS = new Set<unknown>(['SIGHUP', 'SIGINT', 'SIGKILL', 'SIGPIPE', 'SIGTERM', 'SIGXCPU']);
+/** A terminal size: whole cells, 1 to 10000 each way. */
+export function isWindowSize(v: unknown): v is { cols: number; rows: number } {
+  if (typeof v !== 'object' || v === null) return false;
+  const { cols, rows } = v as { cols?: unknown; rows?: unknown };
+  return [cols, rows].every(
+    (n) => Number.isInteger(n) && (n as number) >= 1 && (n as number) <= 10_000,
+  );
+}
 
 export function chunks(v: unknown): Uint8Array[] {
   return Array.isArray(v) && v.every(isUint8Array) ? v : bad('filesystem image');

@@ -44,3 +44,5 @@ export { readTar, writeTar } from './tar.ts';
 export type { TarEntry, TarType } from './tar.ts';
 export { isLocalHost, virtualUrl } from './net.ts';
 export { createReadline } from './readline.ts';
+export { LineEditor, displayWidth, parseKeys } from './line-editor.ts';
+export type { EditResult, Key } from './line-editor.ts';

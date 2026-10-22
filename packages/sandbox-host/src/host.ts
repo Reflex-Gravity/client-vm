@@ -63,6 +63,24 @@ export interface HostApi {
   /** Starts recording mailbox deliveries to `id` (host listener). */
   recordMail(id: string): void;
   mail(id: string): { from: string; message: unknown }[];
+  /**
+   * Spawns a process on a pseudo-terminal (`SpawnOptions.pty`); resolves with
+   * its pid. Its terminal output is kept for {@link HostApi.terminalOutput}.
+   */
+  openTerminal(
+    id: string,
+    cmd: string,
+    args: string[],
+    opts: { cols: number; rows: number; cwd?: string; env?: Record<string, string> },
+  ): Promise<number>;
+  /** Types into a terminal (keyboard input). */
+  terminalInput(pid: number, text: string): Promise<void>;
+  /** Everything the terminal displayed so far; `since` skips the first characters. */
+  terminalOutput(pid: number, since?: number): string;
+  terminalResize(pid: number, cols: number, rows: number): void;
+  terminalKill(pid: number, signal?: string): void;
+  /** The terminal process's exit, once it has exited. */
+  terminalExit(pid: number): { code: number; signal?: string } | null;
   /** Starts recording `Instance.onProcess` events for `id` (history replays first). */
   recordProcesses(id: string): void;
   /** Recorded process events, output decoded, each with its arrival time `at` (ms). */
@@ -140,6 +158,15 @@ async function drain(
 }
 
 const mailLogs = new Map<string, { from: string; message: unknown }[]>();
+const terminals = new Map<
+  number,
+  {
+    proc: Awaited<ReturnType<Instance['spawn']>>;
+    stdin: WritableStreamDefaultWriter<Uint8Array>;
+    output: string;
+    exit: { code: number; signal?: string } | null;
+  }
+>();
 const processLogs = new Map<string, RecordedProcessEvent[]>();
 const previews = new Map<number, Preview>();
 const agents = new Map<number, AgentTools>();
@@ -218,6 +245,22 @@ window.__clientvm = {
     get(id).mailbox.onMessage((from, message) => log.push({ from, message }));
   },
   mail: (id) => mailLogs.get(id) ?? [],
+  async openTerminal(id, cmd, args, opts) {
+    const { cols, rows, ...rest } = opts;
+    const proc = await get(id).spawn(cmd, args, { ...rest, pty: { cols, rows } });
+    const term = { proc, stdin: proc.stdin.getWriter(), output: '', exit: null as never };
+    terminals.set(proc.pid, term);
+    void drain(proc.stdout, (s) => (term.output += s));
+    void proc.exit.then((e) => (term.exit = e as never));
+    return proc.pid;
+  },
+  async terminalInput(pid, text) {
+    await terminals.get(pid)?.stdin.write(new TextEncoder().encode(text));
+  },
+  terminalOutput: (pid, since = 0) => (terminals.get(pid)?.output ?? '').slice(since),
+  terminalResize: (pid, cols, rows) => terminals.get(pid)?.proc.resize(cols, rows),
+  terminalKill: (pid, signal) => terminals.get(pid)?.proc.kill((signal ?? 'SIGTERM') as never),
+  terminalExit: (pid) => terminals.get(pid)?.exit ?? null,
   recordProcesses(id) {
     const log: RecordedProcessEvent[] = [];
     processLogs.set(id, log);

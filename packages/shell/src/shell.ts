@@ -77,6 +77,11 @@ export class ReturnSignal {
     this.status = status;
   }
 }
+/** Thrown when Ctrl+C interrupts the line an interactive shell is running. */
+export class Interrupted {
+  readonly status = 130;
+}
+
 /** An error that aborts the current command with a message (e.g. a bad redirect). */
 export class CommandError extends Error {
   readonly status: number;
@@ -182,8 +187,11 @@ const badFdSink = (fd: number): Sink => ({
 
 export class Io {
   readonly fds: Map<number, Fd>;
-  constructor(fds: Map<number, Fd>) {
+  /** Inside a background job: spawned programs go in their own process group. */
+  readonly background: boolean;
+  constructor(fds: Map<number, Fd>, background = false) {
     this.fds = fds;
+    this.background = background;
   }
   static of(stdin: Source, stdout: Sink, stderr: Sink): Io {
     return new Io(
@@ -206,10 +214,13 @@ export class Io {
   with(fd: number, entry: Fd): Io {
     const fds = new Map(this.fds);
     fds.set(fd, entry);
-    return new Io(fds);
+    return new Io(fds, this.background);
   }
   clone(): Io {
-    return new Io(new Map(this.fds));
+    return new Io(new Map(this.fds), this.background);
+  }
+  asBackground(): Io {
+    return new Io(new Map(this.fds), true);
   }
 }
 
@@ -334,6 +345,12 @@ export class Shell {
   scriptName: string;
   /** True for `sh -c` (syntax errors then read `sh: -c: line N:`). */
   commandString = false;
+  /** An interactive shell: errors do not end it, and background jobs are announced. */
+  interactive = false;
+  /** Aborted when Ctrl+C interrupts the current interactive line. */
+  interrupt: AbortSignal | null = null;
+  /** The line being run at an interactive prompt, which names its background jobs. */
+  currentLine = '';
   /** True while running a script file (messages then omit the `-c` form). */
   private loopDepth = 0;
   private funcDepth = 0;
@@ -397,7 +414,51 @@ export class Shell {
     sub.line = this.line;
     sub.funcDepth = this.funcDepth;
     sub.sourceDepth = this.sourceDepth;
+    sub.interrupt = this.interrupt;
+    sub.currentLine = this.currentLine;
     return sub;
+  }
+
+  /**
+   * Runs one line typed at an interactive prompt: no EXIT trap, errors do not
+   * end the shell, and `exit` is reported instead of thrown.
+   */
+  async runLine(src: string, io: Io): Promise<{ status: number; exit: boolean }> {
+    const reader = new ScriptReader(src.endsWith('\n') ? src : `${src}\n`, this.line);
+    let status = this.state.status;
+    try {
+      for (;;) {
+        let list: List | null;
+        try {
+          list = reader.next();
+        } catch (err) {
+          if (err instanceof ParseError) {
+            await this.reportSyntax(io, err, src, this.line, null);
+            this.state.status = 2;
+            return { status: 2, exit: false };
+          }
+          throw err;
+        }
+        if (!list) break;
+        status = await this.runList(list, io);
+      }
+    } catch (err) {
+      if (err instanceof ShellExit) return { status: err.status, exit: true };
+      status = await this.topLevelStatus(err, io);
+    }
+    this.state.status = status;
+    return { status, exit: false };
+  }
+
+  /** Background jobs that finished since the last call (an interactive shell announces them). */
+  takeFinishedJobs(): { id: number; status: number; command: string }[] {
+    const done: { id: number; status: number; command: string }[] = [];
+    for (const [pid, job] of this.jobs) {
+      if (job.status === null) continue;
+      this.jobs.delete(pid);
+      done.push({ id: job.id, status: job.status, command: job.command });
+    }
+    return done;
   }
 
   // ------------------------------------------------------------ entry points
@@ -480,6 +541,7 @@ export class Shell {
       return err.status;
     }
     if (err instanceof BrokenPipe) return SIGPIPE_STATUS;
+    if (err instanceof Interrupted) return err.status;
     throw err;
   }
 
@@ -519,13 +581,15 @@ export class Shell {
 
   private startBackground(cmd: List['items'][number]['cmd'], io: Io): number {
     const sub = this.subshell();
+    // Ctrl+C at the prompt must not stop it.
+    sub.interrupt = null;
     const pid = Shell.nextPid++;
-    // Non-interactive shells give background jobs /dev/null as stdin.
-    const bgIo = io.with(0, { r: emptySource() });
+    // Background jobs get /dev/null as stdin, and their own process group.
+    const bgIo = io.with(0, { r: emptySource() }).asBackground();
     const job: Job = {
       id: this.nextJob++,
       pid,
-      command: '',
+      command: this.currentLine.replace(/\s*&\s*$/, ''),
       status: null,
       done: Promise.resolve(0),
     };
@@ -546,6 +610,7 @@ export class Shell {
     this.jobs.set(pid, job);
     this.state.lastBg = pid;
     this.state.status = 0;
+    if (this.interactive) void io.stderr.write(`[${job.id}] ${pid}\n`);
     return 0;
   }
 
@@ -615,6 +680,7 @@ export class Shell {
   // --------------------------------------------------------------- commands
 
   async runCommand(cmd: Command, io: Io, cond: boolean): Promise<number> {
+    if (this.interrupt?.aborted) throw new Interrupted();
     if (cmd.type === 'simple') return this.runSimple(cmd, io, cond);
     if (cmd.type === 'function') {
       this.state.functions.set(cmd.name, cmd.body);
@@ -931,6 +997,7 @@ export class Shell {
           if (err) {
             // A failed assignment is fatal in a non-interactive shell.
             await this.report(io, err);
+            if (this.interactive) return 1;
             throw new ShellExit(1);
           }
         }
@@ -994,7 +1061,7 @@ export class Shell {
   private async commandFailed(err: unknown, io: Io): Promise<number> {
     if (err instanceof CommandError) {
       await this.report(io, err.message);
-      if (err.fatal) throw new ShellExit(err.status);
+      if (err.fatal && !this.interactive) throw new ShellExit(err.status);
       return err.status;
     }
     if (err instanceof ArithError) {
@@ -1108,6 +1175,7 @@ export class Shell {
         stdin: io.stdin,
         stdout: io.stdout,
         stderr: io.stderr,
+        background: io.background,
       });
     } catch (err) {
       if (err instanceof BrokenPipe) return SIGPIPE_STATUS;

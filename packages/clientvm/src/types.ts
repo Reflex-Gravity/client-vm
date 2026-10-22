@@ -20,8 +20,30 @@ export interface Disposable {
   dispose(): void;
 }
 
-/** `SIGXCPU` is sent by the kernel when a process exceeds `limits.maxCpuMs`. */
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE' | 'SIGXCPU';
+/**
+ * Linux signals ClientVM knows. `SIGXCPU` is sent by the kernel when a process
+ * exceeds `limits.maxCpuMs`. Except SIGKILL, SIGPIPE and SIGXCPU, signals are
+ * delivered and a process may handle them (`process.on('SIGINT')`, `trap`).
+ */
+export type Signal =
+  | 'SIGHUP'
+  | 'SIGINT'
+  | 'SIGQUIT'
+  | 'SIGKILL'
+  | 'SIGUSR1'
+  | 'SIGUSR2'
+  | 'SIGPIPE'
+  | 'SIGALRM'
+  | 'SIGTERM'
+  | 'SIGCHLD'
+  | 'SIGXCPU'
+  | 'SIGWINCH';
+
+/** A terminal's size in character cells. */
+export interface WindowSize {
+  cols: number;
+  rows: number;
+}
 
 /** Process tiers. Only `js` and `builtin` exist in v1; the others are reserved. */
 export type ProcessType = 'js' | 'builtin' | 'wasi' | 'vm';
@@ -111,6 +133,13 @@ export interface SpawnOptions {
   env?: Record<string, string>;
   type?: ProcessType;
   tag?: ProcessTag;
+  /**
+   * Runs the process on a new pseudo-terminal of this size (ADR 0017), as a
+   * terminal emulator would: its stdio is the terminal (`isTTY` is true), its
+   * `stdin` is keyboard input (Ctrl+C sends SIGINT to its foreground), and all
+   * its output arrives on `stdout`. Use `Process.resize` when the view changes size.
+   */
+  pty?: WindowSize;
 }
 
 /** A process started through `Instance.spawn` or `Instance.exec`. */
@@ -133,7 +162,7 @@ export type ProcessEvent =
   | { type: 'output'; pid: number; fd: 1 | 2; data: Uint8Array }
   | { type: 'exit'; pid: number; code: number; signal?: Signal; exitedAt: number };
 
-export interface ExecOptions extends Omit<SpawnOptions, 'type'> {
+export interface ExecOptions extends Omit<SpawnOptions, 'type' | 'pty'> {
   /** Kill the command after this many milliseconds. */
   timeoutMs?: number;
   stdin?: string | Uint8Array;
@@ -212,7 +241,13 @@ export interface Process {
   readonly stdin: WritableStream<Uint8Array>;
   readonly stdout: ReadableStream<Uint8Array>;
   readonly stderr: ReadableStream<Uint8Array>;
+  /**
+   * Sends a signal (default SIGTERM). The process may handle it; one that
+   * neither handles it nor exits within a second is terminated.
+   */
   kill(signal?: Signal): void;
+  /** Resizes the terminal of a process spawned with `pty`; throws for other processes. */
+  resize(cols: number, rows: number): void;
   readonly exit: Promise<{ code: number; signal?: Signal }>;
 }
 

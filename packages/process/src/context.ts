@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { KernelToProcess, ProcessToKernel, SyscallClient } from '@clientvm/protocol';
+import type {
+  KernelToProcess,
+  ProcessToKernel,
+  Signal,
+  SyscallClient,
+  WindowSize,
+} from '@clientvm/protocol';
 
 export interface OutputStream {
   write(data: string | Uint8Array): void;
@@ -21,13 +27,39 @@ export interface ProcessContext {
   onMessage(listener: (message: KernelToProcess) => void): () => void;
   /** For worker threads: the channel to the parent thread. */
   readonly threadPort?: MessagePort;
+  /** The controlling terminal, when the process has one (ADR 0017). */
+  readonly tty?: Tty;
+  /**
+   * Handles signals. A handler returns true when it took the signal; when no
+   * handler does, the default action applies (terminate, or ignore for
+   * SIGCHLD and SIGWINCH). Returns an unsubscribe function.
+   */
+  onSignal(handler: (signal: Signal) => boolean): () => void;
+}
+
+/** A process's controlling terminal. */
+export interface Tty {
+  /** Which stdio streams are the terminal. */
+  readonly stdin: boolean;
+  readonly stdout: boolean;
+  readonly stderr: boolean;
+  /** Current size; updated before `onResize` listeners and SIGWINCH. */
+  readonly size: WindowSize;
+  readonly raw: boolean;
+  /** Raw mode (no echo, line editing or signal keys) when stdin is the terminal. */
+  setRaw(raw: boolean): void;
+  onResize(listener: (size: WindowSize) => void): () => void;
 }
 
 /** This process's stdin as pushed by the kernel. */
 export interface InputStream {
   /** False once end-of-file has been delivered (or stdin was never open). */
   readonly open: boolean;
-  /** Receives each chunk and finally null (EOF). Chunks before subscribing are buffered. */
+  /**
+   * Receives each chunk and finally null (EOF). Chunks before subscribing are
+   * buffered. On a terminal an empty chunk is Ctrl+D: the end of one read,
+   * not of the stream.
+   */
   subscribe(listener: (data: Uint8Array | null) => void): void;
 }
 

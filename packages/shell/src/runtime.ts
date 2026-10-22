@@ -10,6 +10,7 @@ import { COMMANDS } from './commands/index.ts';
 import { basename } from './commands/util.ts';
 import { BrokenPipe, BufferedSource, macrotask, readAll } from './io.ts';
 import type { Sink, Source } from './io.ts';
+import { runInteractive } from './interactive.ts';
 import { Io, Shell, runCommandFn } from './shell.ts';
 import type { ShellHost } from './shell.ts';
 import { asShellFs } from './types.ts';
@@ -17,23 +18,29 @@ import type { CommandFn, Spawner } from './types.ts';
 
 const PUMP_YIELD_BYTES = 64 * 1024;
 
-/** This process's stdin as a Source. */
+/** This process's stdin as a Source. On a terminal, Ctrl+D (an empty chunk) ends it. */
 function processStdin(ctx: ProcessContext): Source {
   const queue: (Uint8Array | null)[] = [];
   let wake: (() => void) | null = null;
   let subscribed = false;
-  return new BufferedSource(async () => {
-    if (!subscribed) {
-      subscribed = true;
-      ctx.stdin.subscribe((d) => {
-        queue.push(d);
-        wake?.();
-      });
-    }
-    while (queue.length === 0) await new Promise<void>((r) => (wake = r));
-    wake = null;
-    return queue.shift()!;
-  });
+  const terminal = ctx.tty?.stdin === true;
+  return new BufferedSource(
+    async () => {
+      if (!subscribed) {
+        subscribed = true;
+        ctx.stdin.subscribe((d) => {
+          queue.push(d);
+          wake?.();
+        });
+      }
+      while (queue.length === 0) await new Promise<void>((r) => (wake = r));
+      wake = null;
+      const chunk = queue.shift()!;
+      return chunk !== null && chunk.length === 0 ? null : chunk;
+    },
+    undefined,
+    terminal,
+  );
 }
 
 function processSink(ctx: ProcessContext, fd: 1 | 2): Sink {
@@ -61,6 +68,9 @@ export function createSpawner(ctx: ProcessContext): Spawner {
   return (argv, stdio) =>
     new Promise<number>((resolve, reject) => {
       const id = nextId++;
+      // A foreground program reads the shell's terminal itself.
+      const stdinMode: StdioMode =
+        stdio.stdin.inherit === 0 && !stdio.background ? 'inherit' : 'pipe';
       const stdoutMode: StdioMode = stdio.stdout.inherit === 1 ? 'inherit' : 'pipe';
       const stderrMode: StdioMode = stdio.stderr.inherit === 2 ? 'inherit' : 'pipe';
       let writes: Promise<void> = Promise.resolve();
@@ -101,7 +111,7 @@ export function createSpawner(ctx: ProcessContext): Spawner {
       handlers.set(id, (msg) => {
         switch (msg.t) {
           case 'child-spawned':
-            void pump();
+            if (stdinMode === 'pipe') void pump();
             break;
           case 'child-error':
             handlers.delete(id);
@@ -126,7 +136,8 @@ export function createSpawner(ctx: ProcessContext): Spawner {
           argv: [...argv],
           env: stdio.env,
           cwd: stdio.cwd,
-          stdio: ['pipe', stdoutMode, stderrMode],
+          stdio: [stdinMode, stdoutMode, stderrMode],
+          ...(stdio.background ? { newGroup: true } : {}),
         },
       });
     });
@@ -169,6 +180,7 @@ export function shellRuntime(commands: Readonly<Record<string, CommandFn>> = COM
     const args = ctx.argv.slice(1);
     let command: string | null = null;
     let readStdin = false;
+    let interactiveFlag = false;
     const opts: { name: string; on: boolean }[] = [];
     let i = 0;
     for (; i < args.length; i++) {
@@ -190,8 +202,9 @@ export function shellRuntime(commands: Readonly<Record<string, CommandFn>> = COM
         if (f === 'c' && on) command = '';
         else if (f === 's' && on) readStdin = true;
         else if (f === 'o') opts.push({ name: args[++i] ?? '', on });
+        else if (f === 'i' && on) interactiveFlag = true;
         else if (f === 'i' || f === 'l') {
-          // interactive / login: not applicable
+          // +i, login: no effect
         } else if (SET_FLAGS.has(f)) opts.push({ name: f, on });
         else {
           ctx.stderr.write(`${name}: -${f}: invalid option\n`);
@@ -239,6 +252,24 @@ export function shellRuntime(commands: Readonly<Record<string, CommandFn>> = COM
       );
       if (set !== 0) return 2;
     }
+    // `trap` actions run when a signal arrives; an empty action ignores it.
+    ctx.onSignal((signal) => {
+      const action = shell.state.traps.get(signal.slice(3));
+      if (action === undefined) return false;
+      if (action !== '') void shell.runString(action, ioFor(ctx)).catch(() => {});
+      return true;
+    });
+    // Like bash: interactive with -i, or with no script when stdin and stderr are a terminal.
+    const tty = ctx.tty;
+    const interactive =
+      tty?.stdin === true &&
+      command === null &&
+      scriptPath === null &&
+      (interactiveFlag || (!readStdin && tty.stderr));
+    if (interactive)
+      return runInteractive(shell, ctx, tty, (stdin) =>
+        Io.of(stdin, processSink(ctx, 1), processSink(ctx, 2)),
+      );
     const io = ioFor(ctx);
     let src: string;
     if (command !== null) src = command;

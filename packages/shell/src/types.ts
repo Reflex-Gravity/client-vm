@@ -47,6 +47,8 @@ export interface SpawnStdio {
   stdin: Source;
   stdout: Sink;
   stderr: Sink;
+  /** Part of a background job: the program gets its own process group. */
+  background?: boolean;
 }
 
 /**

@@ -34,9 +34,11 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 
 ## Runtime design
 
-- **PTYs and signals** (terminal-plan.md T2): the design is proposed in ADR 0017. Measure
-  keystroke-to-echo latency through the kernel and how promptly signals reach a process sitting
-  in its event loop before accepting it.
+- ~~PTYs and signals~~: accepted in ADR 0017 after measuring (5 ms keystroke to echo, about
+  12 ms Ctrl+C to prompt).
+- **Job control** (Ctrl+Z, `fg`/`bg`, SIGTSTP/SIGCONT, SIGTTIN) needs the terminal's foreground
+  group to move between process groups, and processes that can be stopped. Not needed for the
+  builder's terminal so far.
 
 - ~~Port → URL mapping~~: one origin per port (ADR 0008, implemented in 3d).
 - **WebSocket shim timing.** The shim is a module script, so classic scripts that open a WebSocket

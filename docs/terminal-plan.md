@@ -16,7 +16,7 @@ user an interactive terminal. The UI layer is small. The runtime gaps are what m
 | Slice | Contents | Tested by |
 |---|---|---|
 | T1 | **Activity view.** `Instance.onProcess` (spawn, output, exit, bounded replay) and `SpawnOptions.tag`. `exec` streams. agent-api tags what it starts. New `@clientvm/terminal`: `createActivityFeed` (immutable command blocks for any UI), `attachActivityView` (writes to any xterm.js-compatible terminal), an output sanitizer. Playground shows the feed ([ADR 0016](decisions/0016-process-events-and-terminal-package.md)) | Vitest, e2e `terminal.spec.ts`, `example.spec.ts` |
-| T2 | **Interactive terminal.** Pseudo-terminals in the kernel (line discipline, raw mode, window size), process groups, real signal delivery, `isTTY`/`setRawMode`/`SIGWINCH` in node-compat, readline editing, an interactive shell mode (prompt, history, completion, `fg`/`jobs`), `attachShell(instance, term)` ([ADR 0017](decisions/0017-pty-and-signals.md), proposed) | Vitest; differential: shell sessions vs real bash in a PTY, signals vs real Node |
+| T2 | **Interactive terminal.** Pseudo-terminals in the kernel (line discipline, raw mode, window size), process groups, real signal delivery, `isTTY`/`setRawMode`/`SIGWINCH` in node-compat, readline terminal mode, an interactive shell (prompt, history, completion, Ctrl+C, background jobs), `attachShell(term, instance)`; the terminal page uses it ([ADR 0017](decisions/0017-pty-and-signals.md)) | Vitest (line discipline, line editor, `attachShell`), readline differential vs Node, e2e `pty.spec.ts` and `terminal-page.spec.ts` |
 | T3 | **Polish.** Multiple shell tabs, search, scrollback that survives a reload, output rate limiting in the view, port URLs in output as links, compatibility.md updates | e2e |
 
 ## Decisions taken (2026-10-22)
@@ -37,5 +37,5 @@ Still open (docs/open-questions.md): whether the agent may read the user's termi
 | Slice | State |
 |---|---|
 | T1 | Done |
-| T2 | Design proposed (ADR 0017) |
+| T2 | Done. Measured: 5 ms keystroke to echo, about 12 ms Ctrl+C to prompt (ADR 0017). Not done: job control (Ctrl+Z, `fg`/`bg`), `history` builtin, differential sessions against bash in a real PTY |
 | T3 | Not started |

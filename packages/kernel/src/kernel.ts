@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   DEFAULT_PAYLOAD_BYTES,
+  IGNORED_BY_DEFAULT,
+  KERNEL_SIGNALS,
   SIGNAL_NUMBERS,
   SyscallServer,
   SystemError,
@@ -15,7 +17,9 @@ import type {
   ProcessToKernel,
   Signal,
   SyscallMode,
+  TtyInfo,
   Value,
+  WindowSize,
 } from '@clientvm/protocol';
 import { MemoryVfs, importImage } from '@clientvm/vfs';
 import type { Snapshot, VfsLimits } from '@clientvm/vfs';
@@ -25,6 +29,7 @@ import { ReadOnlyMounts } from './mounts.ts';
 import { createSyscallHandler } from './dispatcher.ts';
 import { FdTable } from './fd-table.ts';
 import type { NetStack } from './net.ts';
+import { Pty } from './pty.ts';
 
 /** The subset of `Worker` the kernel needs; lets tests substitute Node worker_threads. */
 export interface ProcessWorkerLike {
@@ -69,6 +74,85 @@ export interface SpawnOptions {
   onStderr?: (data: Uint8Array) => void;
   /** For worker threads: the child's end of the channel to its parent thread. */
   threadPort?: MessagePort;
+  /**
+   * Starts a session on a new pseudo-terminal: the process's stdio is the
+   * terminal, `onOutput` gets what the terminal displays, and `writeStdin` is
+   * keyboard input. `onStdout`/`onStderr` are not used.
+   */
+  pty?: { size: WindowSize; onOutput: (data: Uint8Array) => void };
+}
+
+/** How long a process may take to act on a delivered signal before the kernel terminates it. */
+export const SIGNAL_GRACE_MS = 1000;
+
+/** A pseudo-terminal and the processes it controls. */
+class Terminal {
+  readonly pty: Pty;
+  /** The session leader's group, which is the foreground group (no tcsetpgrp yet). */
+  readonly foreground: number;
+  /** Every process on this terminal. */
+  readonly members = new Set<ProcEntry>();
+  /** Processes whose stdin is the terminal, oldest first; input goes to the newest in the foreground. */
+  readonly readers: ProcEntry[] = [];
+  /** The process that last set raw mode; the terminal leaves raw mode when it exits. */
+  rawOwner: ProcEntry | null = null;
+
+  constructor(foreground: number, size: WindowSize, onOutput: (data: Uint8Array) => void) {
+    this.foreground = foreground;
+    this.pty = new Pty(size, {
+      output: onOutput,
+      deliver: (data) => {
+        const reader = this.readers.findLast((r) => r.pgid === this.foreground);
+        reader?.post({ t: 'stdin', data });
+      },
+      signal: (signal) => this.signalForeground(signal),
+    });
+  }
+
+  signalForeground(signal: Signal): void {
+    for (const m of [...this.members]) if (m.pgid === this.foreground) m.handle.kill(signal);
+  }
+
+  resize(size: WindowSize): void {
+    if (!this.pty.resize(size)) return;
+    for (const m of this.members) m.post({ t: 'winsize', size: { ...size } });
+    this.signalForeground('SIGWINCH');
+  }
+
+  setRaw(entry: ProcEntry, raw: boolean): void {
+    this.pty.setRaw(raw);
+    this.rawOwner = raw ? entry : null;
+  }
+
+  attach(entry: ProcEntry): void {
+    this.members.add(entry);
+    if (entry.tty?.stdin) this.readers.push(entry);
+  }
+
+  detach(entry: ProcEntry): void {
+    this.members.delete(entry);
+    const i = this.readers.indexOf(entry);
+    if (i >= 0) this.readers.splice(i, 1);
+    if (this.rawOwner === entry) this.setRaw(entry, false);
+  }
+}
+
+/** The kernel's view of a running process. */
+interface ProcEntry {
+  readonly handle: ProcessHandle;
+  readonly pgid: number;
+  /** The controlling terminal, and which stdio streams are it. */
+  readonly tty: { term: Terminal; stdin: boolean; stdout: boolean; stderr: boolean } | null;
+  post(msg: KernelToProcess, transfer?: Transferable[]): void;
+}
+
+/** What a child takes from its parent: group, terminal, and which stdio streams it inherits. */
+interface Parentage {
+  entry: ProcEntry;
+  /** stdin, stdout, stderr inherited (so the terminal, if the parent's are). */
+  stdio: [boolean, boolean, boolean];
+  /** A new process group (a shell's background job). */
+  newGroup: boolean;
 }
 
 export interface ProcessTiming {
@@ -89,10 +173,21 @@ export interface ProcessHandle {
   readonly pid: number;
   readonly exit: Promise<ProcessExit>;
   readonly timing: ProcessTiming;
-  /** Terminates the process worker immediately; exit code is 128 + signal number. */
+  /**
+   * Sends a signal (default SIGTERM). SIGKILL, SIGPIPE and SIGXCPU end the
+   * process at once; others are delivered, and a process that neither handles
+   * one nor exits within {@link SIGNAL_GRACE_MS} is terminated. A process
+   * ended by a signal exits with 128 + its number and takes its descendants
+   * with it, like a signal to a process group.
+   */
   kill(signal?: Signal): void;
-  /** Writes to stdin (null closes it). Ignored unless spawned with `stdin: 'pipe'`. */
+  /**
+   * Writes to stdin (null closes it). Ignored unless spawned with `stdin: 'pipe'`
+   * or `pty`; for a terminal it is keyboard input, and null hangs up (SIGHUP).
+   */
   writeStdin(data: Uint8Array | null): void;
+  /** Resizes the terminal of a process spawned with `pty`; ENOTTY otherwise. */
+  resize(size: WindowSize): void;
 }
 
 export const DEFAULT_SEED_DIRS = [
@@ -115,6 +210,7 @@ export class Kernel {
   private readonly options: KernelOptions;
   private nextPid = 1;
   private readonly processes = new Map<number, ProcessHandle>();
+  private readonly entries = new Map<number, ProcEntry>();
   private readonly snapshots = new Map<number, Snapshot>();
   private nextSnapshot = 1;
 
@@ -166,6 +262,11 @@ export class Kernel {
    * permission, shebang interpreters. Throws spawn errors (ENOENT, EACCES, EAGAIN).
    */
   spawn(argv: string[], options: SpawnOptions = {}): ProcessHandle {
+    return this.start(argv, options, null);
+  }
+
+  /** Starts a process: a new session, or a child of `parent` in its group and on its terminal. */
+  private start(argv: string[], options: SpawnOptions, parent: Parentage | null): ProcessHandle {
     const { maxProcesses } = this.options;
     if (maxProcesses !== undefined && this.processes.size >= maxProcesses) {
       throw new SystemError('EAGAIN', 'spawn');
@@ -175,6 +276,24 @@ export class Kernel {
     const resolvedArgv = resolveCommand(this.vfs, argv, env, cwd);
 
     const pid = this.nextPid++;
+    const pgid = parent && !parent.newGroup ? parent.entry.pgid : pid;
+    let tty: ProcEntry['tty'] = null;
+    if (options.pty) {
+      const term = new Terminal(pgid, options.pty.size, options.pty.onOutput);
+      const write = (data: Uint8Array) => term.pty.write(data);
+      options = { ...options, onStdout: write, onStderr: write };
+      tty = { term, stdin: true, stdout: true, stderr: true };
+    } else if (parent?.entry.tty) {
+      // The controlling terminal is inherited; a stdio stream is the terminal if inherited from it.
+      const [stdin, stdout, stderr] = parent.stdio;
+      const from = parent.entry.tty;
+      tty = {
+        term: from.term,
+        stdin: stdin && from.stdin && !parent.newGroup,
+        stdout: stdout && from.stdout,
+        stderr: stderr && from.stderr,
+      };
+    }
     const syscallMode = options.syscallMode ?? 'waitAsync';
     const channel = createChannelBuffer(this.options.payloadBytes ?? DEFAULT_PAYLOAD_BYTES);
     const fds = new FdTable(this.vfs);
@@ -190,24 +309,34 @@ export class Kernel {
     const server = new SyscallServer(
       channel,
       createSyscallHandler(this.vfs, fds, {
-        spawnSync: (request) => this.spawnSync(request, options, descendants),
+        spawnSync: (request) => this.spawnSync(request, options, descendants, entry),
         readOnly: this.mounts,
       }),
     );
 
     const net = this.options.net?.attach(post);
     let settle!: (code: number, signal?: Signal) => void;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const exit = new Promise<ProcessExit>((resolve) => {
       settle = (code, signal) => {
         if (timing.exitedAt !== undefined) return;
         timing.exitedAt = performance.now();
+        clearTimeout(graceTimer);
         server.close();
         worker.terminate();
         fds.closeAll();
         for (const stop of watches.values()) stop();
         net?.close();
         this.processes.delete(pid);
+        this.entries.delete(pid);
+        if (tty) {
+          tty.term.detach(entry);
+          // The session leader is gone: the terminal hangs up on the rest of its foreground.
+          if (options.pty) tty.term.signalForeground('SIGHUP');
+        }
         resolve({ code, signal: signal ?? null });
+        // Like a signal to a process group: children (e.g. a shell's pipeline) go too.
+        if (signal) for (const d of [...descendants]) d.kill(signal);
       };
     });
 
@@ -230,10 +359,16 @@ export class Kernel {
           lastSeen = performance.now();
           break;
         case 'exit':
-          settle(msg.code);
+          settle(msg.code, msg.signal);
+          break;
+        case 'signal-ack':
+          clearTimeout(graceTimer);
+          break;
+        case 'tty-mode':
+          if (tty?.stdin) tty.term.setRaw(entry, msg.raw === true);
           break;
         case 'spawn':
-          this.spawnChild(msg.id, msg.request, children, descendants, post, options);
+          this.spawnChild(msg.id, msg.request, children, descendants, post, options, entry);
           break;
         case 'child-stdin':
           children.get(msg.id)?.writeStdin(msg.data);
@@ -307,7 +442,10 @@ export class Kernel {
       }, tick);
     }
 
-    const stdinOpen = options.stdin === 'pipe';
+    const stdinOpen = options.stdin === 'pipe' || tty?.stdin === true;
+    const ttyInfo: TtyInfo | undefined = tty
+      ? { stdin: tty.stdin, stdout: tty.stdout, stderr: tty.stderr, ...tty.term.pty.size }
+      : undefined;
     worker.postMessage(
       {
         t: 'init',
@@ -319,6 +457,7 @@ export class Kernel {
         cwd,
         stdinOpen,
         ...(options.threadPort ? { threadPort: options.threadPort } : {}),
+        ...(ttyInfo ? { tty: ttyInfo } : {}),
       },
       options.threadPort ? [options.threadPort] : [],
     );
@@ -330,17 +469,38 @@ export class Kernel {
       timing,
       kill: (signal = 'SIGTERM') => {
         if (timing.exitedAt !== undefined) return;
-        settle(128 + SIGNAL_NUMBERS[signal], signal);
-        // Like a signal to the process group: children (e.g. a shell's pipeline) go too.
-        for (const d of [...descendants]) d.kill(signal);
+        if (KERNEL_SIGNALS.has(signal)) {
+          settle(128 + SIGNAL_NUMBERS[signal], signal);
+          return;
+        }
+        post({ t: 'signal', signal });
+        if (IGNORED_BY_DEFAULT.has(signal)) return;
+        // A process stuck in JavaScript cannot act on it; end it as the default action would.
+        clearTimeout(graceTimer);
+        graceTimer = setTimeout(
+          () => settle(128 + SIGNAL_NUMBERS[signal], signal),
+          SIGNAL_GRACE_MS,
+        );
       },
       writeStdin: (data) => {
+        if (options.pty && tty) {
+          if (data === null) tty.term.signalForeground('SIGHUP');
+          else tty.term.pty.input(data);
+          return;
+        }
         if (stdinClosed) return;
         if (data === null) stdinClosed = true;
         post({ t: 'stdin', data });
       },
+      resize: (size) => {
+        if (!options.pty || !tty) throw new SystemError('ENOTTY', 'ioctl');
+        tty.term.resize(size);
+      },
     };
+    const entry: ProcEntry = { handle, pgid, tty, post };
     this.processes.set(pid, handle);
+    this.entries.set(pid, entry);
+    tty?.term.attach(entry);
     return handle;
   }
 
@@ -352,6 +512,7 @@ export class Kernel {
     descendants: Set<ProcessHandle>,
     post: (msg: KernelToProcess, transfer?: Transferable[]) => void,
     parent: SpawnOptions,
+    parentEntry: ProcEntry,
   ): void {
     const [stdinMode, stdoutMode, stderrMode] = request.stdio;
     const route = (mode: string, fd: 1 | 2, inherit: ((d: Uint8Array) => void) | undefined) =>
@@ -365,14 +526,23 @@ export class Kernel {
     try {
       const onStdout = route(stdoutMode, 1, parent.onStdout);
       const onStderr = route(stderrMode, 2, parent.onStderr);
-      child = this.spawn(request.argv, {
-        env: request.env,
-        cwd: request.cwd,
-        stdin: stdinMode === 'pipe' ? 'pipe' : 'closed',
-        ...(onStdout ? { onStdout } : {}),
-        ...(onStderr ? { onStderr } : {}),
-        ...(link ? { threadPort: link.port2 } : {}),
-      });
+      child = this.start(
+        request.argv,
+        {
+          env: request.env,
+          cwd: request.cwd,
+          stdin: stdinMode === 'pipe' ? 'pipe' : 'closed',
+          ...(onStdout ? { onStdout } : {}),
+          ...(onStderr ? { onStderr } : {}),
+          ...(link ? { threadPort: link.port2 } : {}),
+        },
+        {
+          entry: parentEntry,
+          // stdin `inherit` is the parent's terminal; without one the child's stdin is closed.
+          stdio: [stdinMode === 'inherit', stdoutMode === 'inherit', stderrMode === 'inherit'],
+          newGroup: request.newGroup === true,
+        },
+      );
     } catch (err) {
       const e = err as { code?: string; message?: string };
       post({ t: 'child-error', id, code: e.code ?? 'EIO', message: e.message ?? String(err) });
@@ -397,6 +567,7 @@ export class Kernel {
     request: Uint8Array,
     parent: SpawnOptions,
     descendants: Set<ProcessHandle>,
+    parentEntry: ProcEntry,
   ): Promise<Uint8Array> {
     const args = decode(request) as {
       argv: string[];
@@ -427,13 +598,22 @@ export class Kernel {
     try {
       const onStdout = collect(args.stdio[1], out, (n) => (outBytes += n), parent.onStdout);
       const onStderr = collect(args.stdio[2], err, (n) => (errBytes += n), parent.onStderr);
-      child = this.spawn(args.argv, {
-        env: args.env,
-        cwd: args.cwd,
-        stdin: 'pipe',
-        ...(onStdout ? { onStdout } : {}),
-        ...(onStderr ? { onStderr } : {}),
-      });
+      child = this.start(
+        args.argv,
+        {
+          env: args.env,
+          cwd: args.cwd,
+          stdin: 'pipe',
+          ...(onStdout ? { onStdout } : {}),
+          ...(onStderr ? { onStderr } : {}),
+        },
+        {
+          entry: parentEntry,
+          // spawnSync feeds stdin itself; output streams may be the terminal.
+          stdio: [false, args.stdio[1] === 'inherit', args.stdio[2] === 'inherit'],
+          newGroup: false,
+        },
+      );
     } catch (e) {
       return encode({
         error: {

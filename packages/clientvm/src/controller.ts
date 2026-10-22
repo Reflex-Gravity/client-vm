@@ -3,6 +3,7 @@ import {
   MAILBOX_HOST,
   PORT_BRIDGE_PATH,
   RpcEndpoint,
+  isSignal,
   portLabel,
   withTransfer,
 } from '@clientvm/protocol';
@@ -46,7 +47,6 @@ import type {
   Process,
   ProcessEvent,
   ProcessTag,
-  Signal,
   SnapshotId,
   SpawnOptions,
   Stat,
@@ -396,10 +396,13 @@ class InstanceImpl implements Instance {
 
   async spawn(cmd: string, args: string[] = [], opts: SpawnOptions = {}): Promise<Process> {
     this.assertAlive();
+    if (opts.pty !== undefined && !v.isWindowSize(opts.pty))
+      throw new TypeError('pty must be { cols, rows }, whole numbers from 1 to 10000');
     const request: SpawnRequest = {
       argv: [cmd, ...args],
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.pty ? { pty: { cols: opts.pty.cols, rows: opts.pty.rows } } : {}),
     };
     return this.startProcess(request, opts.tag);
   }
@@ -412,6 +415,7 @@ class InstanceImpl implements Instance {
       pid,
       (signal) => this.rpc.call('kill', pid, signal),
       (data) => this.rpc.call('writeStdin', pid, data),
+      request.pty ? (size) => this.rpc.call('resize', pid, size.cols, size.rows) : null,
     );
     this.processes.set(pid, proc);
     this.processLog.spawn({
@@ -911,17 +915,6 @@ async function readText(stream: ReadableStream<Uint8Array>): Promise<string> {
   for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>)
     text += decoder.decode(chunk, { stream: true });
   return text + decoder.decode();
-}
-
-function isSignal(s: unknown): s is Signal {
-  return (
-    s === 'SIGTERM' ||
-    s === 'SIGKILL' ||
-    s === 'SIGINT' ||
-    s === 'SIGHUP' ||
-    s === 'SIGPIPE' ||
-    s === 'SIGXCPU'
-  );
 }
 
 function flattenTree(tree: FileTree, prefix = ''): Record<string, string | Uint8Array> {

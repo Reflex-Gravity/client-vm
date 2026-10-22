@@ -83,11 +83,12 @@ describe('attachActivityView', () => {
     let screen = '';
     const sub = attachActivityView({ write: (d) => void (screen += d) }, vm, {
       filter: (p) => p.tag?.['source'] === 'agent',
+      label: (p) => (p.tag?.['source'] === 'agent' ? '[agent] ' : undefined),
     });
     vm.out(1, e.slice(1));
     vm.out(2, 'hidden\n');
     vm.exit(1, 0);
-    expect(plain(screen)).toBe('$ echo é\r\né\r\n✔ 1.5 s\r\n');
+    expect(plain(screen)).toBe('[agent] $ echo é\r\né\r\n✔ 1.5 s\r\n');
     sub.dispose();
     expect(vm.listeners.size).toBe(0);
   });

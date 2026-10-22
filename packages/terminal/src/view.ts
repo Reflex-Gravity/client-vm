@@ -14,6 +14,8 @@ export interface TerminalLike {
 export interface ActivityViewOptions {
   /** Which processes to show, e.g. `(p) => p.tag?.source === 'agent'`. Default: all. */
   filter?: (process: ProcessInfo) => boolean;
+  /** Text put before a command's `$` line, e.g. `🤖 ` for agent commands. Written as is. */
+  label?: (process: ProcessInfo) => string | undefined;
 }
 
 const BOLD = '\x1b[1m';
@@ -88,7 +90,7 @@ export function attachActivityView(
         decoders: { 1: new TextDecoder(), 2: new TextDecoder() },
         sanitize: { 1: createSanitizer(), 2: createSanitizer() },
       });
-      line(`${BOLD}${CYAN}$${RESET} ${BOLD}${command}${RESET}`);
+      line(`${opts.label?.(p) ?? ''}${BOLD}${CYAN}$${RESET} ${BOLD}${command}${RESET}`);
       current = p.pid;
       return;
     }

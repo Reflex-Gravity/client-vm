@@ -5,33 +5,11 @@
 // `tools.call` into your model's tool-use loop to let it build in the
 // instance (see README.md).
 import { createAgentTools } from '@clientvm/agent-api';
-import { createClientVM } from '@clientvm/clientvm';
 import { createActivityFeed, formatDuration, stripAnsi } from '@clientvm/terminal';
 import type { CommandBlock } from '@clientvm/terminal';
+import { STARTER, vm } from './sandbox.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-
-// Where the sandbox host (packages/sandbox-host) is served. Each instance gets
-// its own subdomain; *.localhost resolves to 127.0.0.1 in Chromium.
-const SANDBOX = import.meta.env['VITE_SANDBOX'] ?? 'http://{id}.localhost:4173';
-
-const vm = createClientVM({ sandboxOrigin: (id) => SANDBOX.replace('{id}', id) });
-
-const STARTER = {
-  'package.json': JSON.stringify(
-    { name: 'app', private: true, scripts: { start: 'node server.js' } },
-    null,
-    2,
-  ),
-  'server.js': `const http = require('http');
-http
-  .createServer((req, res) => {
-    res.setHeader('content-type', 'text/html');
-    res.end('<h1>Hello from ClientVM</h1><p>Served by ' + process.version + ' at ' + req.url + '</p>');
-  })
-  .listen(3000, () => console.log('listening on 3000'));
-`,
-};
 
 async function main(): Promise<void> {
   const instance = await vm.createInstance({

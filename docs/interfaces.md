@@ -35,6 +35,8 @@ affect decisions, CLAUDE.md.
 | `Instance.fork()` | done: image export → new origin. Since 4a it needs a `spawn-instance` capability, whose limits bound the child's |
 | `Instance.destroy()` | done |
 | `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started). Since T1 it runs on `spawn`, so its output streams to `onProcess` |
+| `SpawnOptions.pty`, `Process.resize`, `WindowSize`; `Signal` extended to HUP INT QUIT KILL USR1 USR2 PIPE ALRM TERM CHLD XCPU WINCH | done (T2, ADR 0017): a process on a pseudo-terminal (TTY stdio, keystrokes on `stdin`, output on `stdout`, SIGWINCH on resize). `Process.kill` delivers signals: a handler may take one; otherwise the default action applies, and a process that does neither within 1 s is terminated. `resize` on a process without a terminal throws `ERR_NOT_A_TERMINAL` |
+| `@clientvm/terminal` `attachShell(term, instance, opts)` | done (T2): `bash -i` on a pty connected to an xterm.js-compatible terminal (keys, sanitized output, resize); `dispose()` hangs up |
 | `Instance.onProcess`, `SpawnOptions.tag`, `ProcessInfo`, `ProcessEvent` | done (T1, ADR 0016): spawn/output/exit of processes started with `spawn` or `exec`, replaying the last 100 (256 KiB of output each) to new listeners. `tag` is a host-side label, never sent to the instance |
 | `@clientvm/terminal` | done (T1): `createActivityFeed`, `attachActivityView`, `createSanitizer`, `displayCommand`, `stripAnsi` ([terminal-plan.md](terminal-plan.md)) |
 | `Instance.onPortOpen` | done (3d): fires for open and future virtual ports with the port's own origin, `https://<id>-p<port>.<sandbox-domain>/` (ADR 0008), once its service worker is linked |

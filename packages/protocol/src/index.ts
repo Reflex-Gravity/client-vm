@@ -25,8 +25,9 @@ export type {
   ProcessToKernel,
   StdioMode,
   SyscallMode,
+  TtyInfo,
 } from './process-messages.ts';
-export { SIGNAL_NUMBERS } from './instance-rpc.ts';
+export { IGNORED_BY_DEFAULT, KERNEL_SIGNALS, SIGNAL_NUMBERS, isSignal } from './instance-rpc.ts';
 export type {
   FileKind,
   HandshakeMessage,
@@ -40,6 +41,7 @@ export type {
   RunResult,
   Signal,
   SpawnRequest,
+  WindowSize,
   WireDirEntry,
   WireFsEvent,
   WireStat,

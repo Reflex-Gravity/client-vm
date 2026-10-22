@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Shell builtins: commands that read or change the shell's own state.
 
+import { SIGNAL_NUMBERS } from '@clientvm/protocol';
 import { evaluateArith, ArithError } from './arith.ts';
 import { echo, printf, printfFormat } from './commands/echo-printf.ts';
 import { test } from './commands/test.ts';
@@ -902,7 +903,10 @@ async function trap(sh: Shell, argv: string[], io: Io): Promise<number> {
     return 0;
   }
   if (args[0] === '-l') {
-    await write(io, ' 1) SIGHUP\t 2) SIGINT\t 3) SIGQUIT\t 9) SIGKILL\t13) SIGPIPE\t15) SIGTERM\n');
+    const list = Object.entries(SIGNAL_NUMBERS)
+      .sort((a, b) => a[1] - b[1])
+      .map(([name, n]) => `${String(n).padStart(2)}) ${name}`);
+    await write(io, `${list.join('\t')}\n`);
     return 0;
   }
   let action: string | null = args[0]!;
@@ -915,6 +919,9 @@ async function trap(sh: Shell, argv: string[], io: Io): Promise<number> {
   for (let sig of sigs) {
     sig = sig.toUpperCase().replace(/^SIG/, '');
     if (sig === '0') sig = 'EXIT';
+    // `trap cmd 2` is `trap cmd INT`.
+    const named = Object.entries(SIGNAL_NUMBERS).find(([, n]) => String(n) === sig);
+    if (named) sig = named[0].slice(3);
     if (action === null) sh.state.traps.delete(sig);
     else sh.state.traps.set(sig, action);
   }
