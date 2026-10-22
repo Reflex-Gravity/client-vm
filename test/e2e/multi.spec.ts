@@ -306,3 +306,23 @@ test.describe('mounts', () => {
     );
   });
 });
+
+test.describe('rate limits', () => {
+  test('an instance that floods the mailbox is rate limited', async ({ page }) => {
+    await openHost(page);
+    const a = await host(page, 'createInstance', { name: 'flood' });
+    const b = await host(page, 'createInstance', { name: 'sink' });
+    await host(page, 'as', b, 'grant', a, { kind: 'channel', peer: b });
+    // 1,000 sends at once: the burst (400) gets through, the rest are refused with 429.
+    const r = await host(
+      page,
+      'exec',
+      a,
+      `node -e "Promise.all(Array.from({ length: 1000 }, () => fetch('http://mailbox.internal/send/sink', { method: 'POST', body: '1' }).then(r => r.status))).then(s => { const c = {}; for (const x of s) c[x] = (c[x] || 0) + 1; console.log(JSON.stringify(c)); })"`,
+      { timeoutMs: 60_000 },
+    );
+    const counts = JSON.parse(r.stdout) as Record<string, number>;
+    expect(counts['429']).toBeGreaterThan(0);
+    expect(counts['202'] ?? counts['200']).toBeGreaterThanOrEqual(400);
+  });
+});

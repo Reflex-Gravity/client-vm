@@ -25,6 +25,7 @@ import { ClientVMError } from './errors.ts';
 import { PreviewImpl } from './preview.ts';
 import { ProcessLog } from './process-log.ts';
 import { ProcessHandleImpl } from './process.ts';
+import { InstanceRateLimiter } from './rate-limit.ts';
 import type {
   Capability,
   ClientVM,
@@ -210,6 +211,7 @@ class Controller implements ClientVM {
 
   /** @internal Delivers `message` from `sender` to `to` if `sender` holds a channel to it. */
   mailboxSend(sender: InstanceImpl, to: unknown, message: unknown): void {
+    sender.limiter.mailboxSend();
     if (typeof to !== 'string')
       throw new ClientVMError('mailbox: bad recipient', 'ERR_INVALID_MESSAGE');
     const target = this.resolve(to);
@@ -240,7 +242,9 @@ class Controller implements ClientVM {
     if (!this.caps.has(sender.id, { kind: 'net', peer: target.id, ports: [port] }))
       throw noCapability(`${sender.label} has no net capability for ${peer}:${port}`);
     const res = v.wireResponse(
-      await target.rpc.call('fetchPort', { ...req, port, from: sender.id }),
+      await sender.limiter.fetch(() =>
+        target.rpc.call('fetchPort', { ...req, port, from: sender.id }),
+      ),
     );
     return res.body instanceof ReadableStream ? withTransfer(res, [res.body]) : res;
   }
@@ -287,6 +291,8 @@ class InstanceImpl implements Instance {
   private readonly opts: InstanceOptions;
   private readonly createdAt = Date.now();
   private readonly processes = new Map<number, ProcessHandleImpl>();
+  /** @internal Limits on this instance's requests to the controller. */
+  readonly limiter = new InstanceRateLimiter();
   private readonly processLog = new ProcessLog();
   private readonly watchers = new Map<number, (e: FsEvent) => void>();
   private readonly openPorts = new Map<number, string>();

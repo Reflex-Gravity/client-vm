@@ -46,8 +46,9 @@ The controller keeps a table: for each holder instance, a set of the `Capability
 - Delivery goes to the target's host listeners (`mailbox.onMessage`) and to the target kernel's
   inbox. The inbox is bounded: 1,000 messages or 8 MiB, oldest dropped first.
 - Processes use the mailbox over HTTP, so any language or `curl` can:
-  - `POST http://mailbox.internal/send/<to>` with a JSON body: 202, or 403 without the
-    capability.
+  - `POST http://mailbox.internal/send/<to>` with a JSON body: 202, 403 without the
+    capability, or 429 when the instance sends faster than its rate limit (security-review.md
+    1.4).
   - `GET http://mailbox.internal/recv?timeout=<ms>`: the next `{ from, message }`, or 204 when
     the timeout passes. This is a long poll.
 

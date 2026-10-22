@@ -121,6 +121,7 @@ export function mailboxHandler(
         const msg = err instanceof Error ? err.message : String(err);
         if (code === 'ERR_NO_CAPABILITY') return text(403, 'Forbidden', msg);
         if (code === 'ERR_NO_INSTANCE') return text(404, 'Not Found', msg);
+        if (code === 'ERR_RATE_LIMITED') return text(429, 'Too Many Requests', msg);
         return text(400, 'Bad Request', msg);
       }
       return json(202, { sent: true });

@@ -56,7 +56,7 @@ ports are not reported by `onPortOpen`.
 
 Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`, `ERR_INSTANCE_CRASHED`,
 `ERR_BOOT_TIMEOUT`, `ERR_INSTANCE_PROTOCOL`, `ERR_DESTROYED`, `ERR_NO_CAPABILITY`,
-`ERR_NO_INSTANCE`, `ERR_INVALID_CAPABILITY`, `ERR_INVALID_MESSAGE`, ...). Errors from inside an instance
+`ERR_NO_INSTANCE`, `ERR_INVALID_CAPABILITY`, `ERR_INVALID_MESSAGE`, `ERR_RATE_LIMITED`, ...). Errors from inside an instance
 keep the system error `code` (`ENOENT`, `EAGAIN`, ...).
 
 ## Internal interfaces (not public API)

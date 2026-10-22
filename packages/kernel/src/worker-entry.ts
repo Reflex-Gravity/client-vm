@@ -268,9 +268,15 @@ async function boot(
     } catch (err) {
       const code = (err as { code?: unknown }).code;
       const message = err instanceof Error ? err.message : String(err);
+      const [status, statusText] =
+        code === 'ERR_NO_CAPABILITY'
+          ? [403, 'Forbidden']
+          : code === 'ERR_RATE_LIMITED'
+            ? [429, 'Too Many Requests']
+            : [502, 'Bad Gateway'];
       return {
-        status: code === 'ERR_NO_CAPABILITY' ? 403 : 502,
-        statusText: code === 'ERR_NO_CAPABILITY' ? 'Forbidden' : 'Bad Gateway',
+        status,
+        statusText,
         headers: [
           ['content-type', 'text/plain; charset=utf-8'],
           // An unknown instance refuses connections, like a closed port.
