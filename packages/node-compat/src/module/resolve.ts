@@ -357,8 +357,13 @@ export function parsePackageName(specifier: string): { name: string; subpath: st
 
 // ---------------------------------------------------------------- CommonJS
 
-/** Conditions Node 24 uses for require(). ("module-sync" is omitted: require(esm) is unsupported.) */
-export const CJS_CONDITIONS: ReadonlySet<string> = new Set(['require', 'node', 'node-addons']);
+/** Conditions Node 24 uses for require(). */
+export const CJS_CONDITIONS: ReadonlySet<string> = new Set([
+  'require',
+  'node',
+  'node-addons',
+  'module-sync',
+]);
 
 export interface CjsResolveOptions {
   /** Extensions tried in order (Module._extensions keys). */

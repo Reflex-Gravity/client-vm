@@ -138,6 +138,10 @@ async function runNode(
   const fs = createFs(ctx.syscall, path);
   const scriptPath = invocation.kind === 'script' ? path.resolve(invocation.script) : undefined;
   const argv = [NODE_EXEC_PATH, ...(scriptPath ? [scriptPath] : []), ...invocation.rest];
+  // Node's own options: everything before the script (or through the -e/-p code).
+  const nodeArgs = ctx.argv.slice(1);
+  const consumed = nodeArgs.length - invocation.rest.length;
+  const execArgv = nodeArgs.slice(0, scriptPath ? consumed - 1 : consumed);
 
   const chdir = (dir: string): string => {
     const target = path.resolve(dir);
@@ -150,10 +154,14 @@ async function runNode(
   const loop = createEventLoop(globalThis);
   let streamModule: Record<string, unknown> | undefined;
   const lazyStream = () => (streamModule ??= builtins['stream'] as Record<string, unknown>);
-  const proc = createProcessObject(ctx, state, argv, chdir, {
-    stream: lazyStream as never,
-    handle: () => loop.handle(),
-  });
+  const proc = createProcessObject(
+    ctx,
+    state,
+    argv,
+    chdir,
+    { stream: lazyStream as never, handle: () => loop.handle() },
+    execArgv,
+  );
   const console = createConsole(ctx.stdout, ctx.stderr);
   const emitWarning = proc['emitWarning'] as (
     w: string | Error,
@@ -220,6 +228,7 @@ async function runNode(
     emitWarning: (msg, type, code) => emitWarning(msg, type, code),
     nativeStandIn: (filename, requireFile) => nativeStandIn(fs, filename, standInHost, requireFile),
     packageStandIn: (request, parentFile) => packageStandIn(fs, request, parentFile, standInHost),
+    esmRequire: !execArgv.includes('--no-experimental-require-module'),
     compile: (source, filename) =>
       (0, eval)(`${esmRuntime.rewriteDynamicImports(source)}\n//# sourceURL=${filename}`) as (
         ...args: unknown[]

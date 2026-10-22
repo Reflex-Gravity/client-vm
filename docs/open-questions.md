@@ -82,15 +82,13 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **`AsyncLocalStorage` across `await`.** Context does not survive promise continuations, which
   frameworks that keep per-request context (Next.js, some loggers) rely on. Revisit when
   Chromium ships TC39 AsyncContext; patching `Promise.prototype.then` would not cover `await`.
-- **`require()` of ES modules** (Node 22.12+). ESM loads asynchronously through the service
-  worker, so a synchronous `require` of an ES module fails with `ERR_REQUIRE_ESM`. Packages that
-  only ship ESM under the `require` condition (svelte 4's main entry) need `import()`. Stand-ins
-  work around it: their ESM-only helpers (`@emnapi/*`) are rewritten as CommonJS at install
-  (`module/esm-to-cjs.ts`); that converter covers static modules only and is not used for
-  project code.
+- **`require()` of ES modules** (Node 22.12+) works by rewriting the module as CommonJS
+  (`module/esm-to-cjs.ts`), so a module that is both required and imported runs twice (Node
+  shares one instance). Sharing would need the CommonJS loader to read the ESM runtime's module
+  records synchronously.
 - **Top-1,000 npm smoke test (§9).** A curated 50-package list runs in CI (`test/e2e/smoke.spec.ts`).
   The full list needs about an hour of registry traffic per run; make it an opt-in scheduled job.
-- **Node test pass rates.** 592 of 1,889 non-skipped `test/parallel` tests pass (compatibility.md).
+- **Node test pass rates.** 591 of 1,889 non-skipped `test/parallel` tests pass (compatibility.md).
   The largest gaps are `http`/`net` internals, `fs` permission and watch tests, and exact
   `util.inspect`/`assert` message formats.
 - **npm without network.** npm is fetched on first use (ADR 0012). Offline or air-gapped hosts

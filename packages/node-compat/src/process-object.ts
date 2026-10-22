@@ -177,6 +177,7 @@ export function createProcessObject(
   argv: string[],
   chdir: (dir: string) => string,
   stdioDeps: StdioDeps,
+  execArgv: string[] = [],
 ): NodeProcess {
   const start = performance.now();
 
@@ -250,7 +251,7 @@ export function createProcessObject(
     pid: ctx.pid,
     ppid: 1,
     execPath: NODE_EXEC_PATH,
-    execArgv: [] as string[],
+    execArgv,
     argv,
     argv0: 'node',
     env: { ...ctx.env },

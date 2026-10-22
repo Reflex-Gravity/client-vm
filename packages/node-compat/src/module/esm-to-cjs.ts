@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Rewrites a static ES module as CommonJS, for stand-in packages (ADR 0013)
-// whose JavaScript helpers ship only as ESM but are loaded with require()
-// (which ClientVM cannot do for ES modules; docs/open-questions.md).
+// Rewrites a static ES module as CommonJS. The CommonJS loader uses it for
+// require() of an ES module (ESM itself loads asynchronously, through the
+// service worker), and stand-in installs (ADR 0013) use it on helper
+// packages that ship only as ESM.
 //
 // Covered: import clauses, export-from (named, `*`, `* as`), `export { a as b }`,
 // `export default`, and `export function|class|const|let|var name`. Exports

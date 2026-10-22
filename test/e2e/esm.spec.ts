@@ -79,8 +79,8 @@ function plainEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function writeTree(root: string): void {
-  for (const [file, content] of Object.entries(PROJECT)) {
+function writeTree(root: string, files: Record<string, string> = PROJECT): void {
+  for (const [file, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(join(root, file), content);
   }
@@ -120,4 +120,77 @@ test('ES modules match real Node', async ({ page }) => {
   } as never);
   expect(result.stderr).toBe('');
   expect(result.stdout).toBe(expected);
+});
+
+/** require() of ES modules (Node 22.12+): a CommonJS project, run on real Node and in ClientVM. */
+const REQUIRE_ESM: Record<string, string> = {
+  'package.json': JSON.stringify({ name: 'cjs-proj' }),
+  'main.js': String.raw`
+const lib = require('./lib.mjs');
+console.log('named', lib.a, lib.b(), typeof lib.default, lib.default());
+console.log('same instance', require('./lib.mjs') === lib);
+console.log('nested import', lib.c);
+console.log('module.exports export', require('./fn.mjs')('x'));
+const only = require('esm-only');
+console.log('esm-only package', only.hello(), Object.keys(only).sort().join());
+console.log('module-sync condition', require('dual-sync').kind);
+for (const f of ['./tla.mjs']) {
+  try { require(f); } catch (e) { console.log('tla', e.code); }
+}
+`,
+  'lib.mjs': String.raw`
+import { c } from './dep.mjs';
+export const a = 1;
+export function b() { return 'b'; }
+export default function () { return 'def'; }
+export { c };
+`,
+  'dep.mjs': 'export const c = "from dep";\n',
+  'fn.mjs': String.raw`
+const fn = (s) => 'fn ' + s;
+export { fn as 'module.exports' };
+`,
+  'tla.mjs': 'await Promise.resolve();\nexport const z = 1;\n',
+  'node_modules/esm-only/package.json': JSON.stringify({
+    name: 'esm-only',
+    type: 'module',
+    exports: './index.js',
+  }),
+  'node_modules/esm-only/index.js': 'export const hello = () => "hi";\nexport const x = 2;\n',
+  'node_modules/dual-sync/package.json': JSON.stringify({
+    name: 'dual-sync',
+    exports: { 'module-sync': './esm.mjs', default: './cjs.cjs' },
+  }),
+  'node_modules/dual-sync/esm.mjs': 'export const kind = "esm";\n',
+  'node_modules/dual-sync/cjs.cjs': 'exports.kind = "cjs";\n',
+  'flag.js': String.raw`
+try { require('./lib.mjs'); console.log('loaded'); } catch (e) { console.log(e.code); }
+`,
+};
+
+test('require() of ES modules matches real Node', async ({ page }) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'clientvm-require-esm-')));
+  const node = (args: string[]) =>
+    execFileSync(process.execPath, args, { cwd: root, encoding: 'utf8', env: plainEnv() });
+  let expected: string;
+  let expectedFlag: string;
+  try {
+    writeTree(root, REQUIRE_ESM);
+    expected = node(['main.js']);
+    expectedFlag = node(['--no-experimental-require-module', 'flag.js']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  await openHost(page);
+  const id = await host(page, 'createInstance', {
+    fs: { from: { home: { user: { proj: asTree(REQUIRE_ESM) } } } },
+  });
+  const run = (argv: string[]) =>
+    host(page, 'run', id, { argv: ['node', ...argv], cwd: '/home/user/proj' } as never);
+  const result = await run(['main.js']);
+  expect(result.stderr).toBe('');
+  expect(result.stdout).toBe(expected);
+  const flag = await run(['--no-experimental-require-module', 'flag.js']);
+  expect(flag.stdout).toBe(expectedFlag);
+  expect(flag.stdout).toBe('ERR_REQUIRE_ESM\n');
 });

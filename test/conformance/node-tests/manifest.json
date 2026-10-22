@@ -317,7 +317,6 @@
   "test-require-extension-over-directory.js",
   "test-require-invalid-package.js",
   "test-require-json.js",
-  "test-require-mjs.js",
   "test-require-node-prefix.js",
   "test-require-nul.js",
   "test-require-process.js",
@@ -687,8 +686,8 @@
    "skip": 0
   },
   "require": {
-   "pass": 12,
-   "fail": 10,
+   "pass": 11,
+   "fail": 11,
    "skip": 1
   },
   "stream": {

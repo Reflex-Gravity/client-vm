@@ -6,6 +6,7 @@
 import { codeError } from '../buffer.ts';
 import type { PosixPath } from '../path.ts';
 import { NODE_BUILTINS, isBuiltin } from './builtin-names.ts';
+import { esmToCjs } from './esm-to-cjs.ts';
 import { analyzeEsm } from './lexer.ts';
 import { CjsResolver, PackageJsonCache, nodeModulePaths } from './resolve.ts';
 import type { ResolverFs } from './resolve.ts';
@@ -24,8 +25,12 @@ export interface ModuleSystemDeps {
   nativeStandIn?: (filename: string, requireFile: (file: string) => unknown) => unknown;
   /** Extra node_modules directories holding a stand-in for a missing package (ADR 0013). */
   packageStandIn?: (request: string, parentFile: string | null) => string[] | undefined;
-  /** Called when a .mjs or "type": "module" file is required. */
-  requireEsm?: (filename: string, parent: string | undefined) => unknown;
+  /**
+   * require() of an ES module (Node 22.12+), on unless the process ran with
+   * --no-experimental-require-module. The module is rewritten as CommonJS
+   * (esm-to-cjs.ts), so it is a separate instance from an import() of it.
+   */
+  esmRequire?: boolean;
 }
 
 interface ModuleLike {
@@ -98,6 +103,14 @@ function requireEsmError(filename: string, parent: string | undefined): Error {
     Error,
     'ERR_REQUIRE_ESM',
     `require() of ES Module ${filename}${parent ? ` from ${parent}` : ''} not supported.\nInstead change the require of ${filename} to a dynamic import() which is available in all CommonJS modules.`,
+  );
+}
+
+function requireAsyncError(filename: string): Error {
+  return codeError(
+    Error,
+    'ERR_REQUIRE_ASYNC_MODULE',
+    `require() cannot be used on an ESM graph with top-level await (${filename}). Use import() instead.`,
   );
 }
 
@@ -309,17 +322,41 @@ export function createModuleSystem(deps: ModuleSystemDeps): ModuleConstructor {
     this.filename = filename;
     this.paths = nodeModulePaths(path.dirname(filename));
     if (isEsmFile(filename)) {
-      if (deps.requireEsm) {
-        this.exports = deps.requireEsm(filename, this.parent?.filename ?? undefined);
-        this.loaded = true;
-        return;
-      }
-      throw requireEsmError(filename, this.parent?.filename ?? undefined);
+      const content = fs.readFile(filename);
+      if (content === null)
+        throw codeError(Error, 'ENOENT', `ENOENT: no such file or directory, open '${filename}'`);
+      loadEsm(this, filename, stripBOM(content));
+      this.loaded = true;
+      return;
     }
     const ext = findLongestRegisteredExtension(filename);
     Module._extensions[ext]!(this, filename);
     this.loaded = true;
   };
+
+  /** require(esm): the module's namespace (or its "module.exports" export), loaded synchronously. */
+  function loadEsm(module: ModuleLike, filename: string, source: string): void {
+    const parent = module.parent?.filename ?? undefined;
+    if (deps.esmRequire === false) throw requireEsmError(filename, parent);
+    let cjs: string;
+    try {
+      cjs = esmToCjs(source);
+    } catch (err) {
+      const e = requireEsmError(filename, parent);
+      e.message += ` (ClientVM: ${(err as Error).message})`;
+      throw e;
+    }
+    try {
+      module._compile(cjs, filename);
+    } catch (err) {
+      if (err instanceof SyntaxError && /\bawait\b/.test(err.message))
+        throw requireAsyncError(filename);
+      throw err;
+    }
+    const exports = module.exports as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(exports, 'module.exports'))
+      module.exports = exports['module.exports'];
+  }
 
   proto.require = function require(this: ModuleLike, id: string) {
     if (typeof id !== 'string') {
@@ -369,7 +406,9 @@ export function createModuleSystem(deps: ModuleSystemDeps): ModuleConstructor {
         packages.scopeOf(filename)?.type === undefined &&
         analyzeEsm(content).hasModuleSyntax
       ) {
-        throw requireEsmError(filename, module.parent?.filename ?? undefined);
+        module.exports = {};
+        loadEsm(module, filename, stripBOM(content));
+        return;
       }
       throw err;
     }
