@@ -31,10 +31,12 @@ affect decisions, CLAUDE.md.
 | `Instance.measureMemory()` | done (5c): bytes for the instance page and kernel worker via `performance.measureUserAgentSpecificMemory()` on the instance origin; process workers are not attributed by Chromium. Tracked by the benchmark gate |
 | `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
 | `Instance.createChild(opts)` | done (4e): a child instance with a fresh filesystem; needs `spawn-instance` like `fork` |
-| `@clientvm/agent-api` `createAgentTools({ instance })` | done (4e): LLM tool definitions and a dispatcher ([agent-api.md](agent-api.md)) |
+| `@clientvm/agent-api` `createAgentTools({ instance })` | done (4e): LLM tool definitions and a dispatcher ([agent-api.md](agent-api.md)). Since T1, `call(name, input, { tag })` tags the processes a tool starts with `{ source: 'agent', tool, ...tag }` |
 | `Instance.fork()` | done: image export → new origin. Since 4a it needs a `spawn-instance` capability, whose limits bound the child's |
 | `Instance.destroy()` | done |
-| `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started) |
+| `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started). Since T1 it runs on `spawn`, so its output streams to `onProcess` |
+| `Instance.onProcess`, `SpawnOptions.tag`, `ProcessInfo`, `ProcessEvent` | done (T1, ADR 0016): spawn/output/exit of processes started with `spawn` or `exec`, replaying the last 100 (256 KiB of output each) to new listeners. `tag` is a host-side label, never sent to the instance |
+| `@clientvm/terminal` | done (T1): `createActivityFeed`, `attachActivityView`, `createSanitizer`, `displayCommand`, `stripAnsi` ([terminal-plan.md](terminal-plan.md)) |
 | `Instance.onPortOpen` | done (3d): fires for open and future virtual ports with the port's own origin, `https://<id>-p<port>.<sandbox-domain>/` (ADR 0008), once its service worker is linked |
 | `Instance.onPortClose` | done (3d): fires when a reported port stops listening (its server closed or its process exited) |
 | `InstanceOptions.name`, `Instance.name` | done (4a): a DNS label, unique among live instances; the instance's `<name>.internal` host name |

@@ -9,6 +9,7 @@
     { "path": "packages/shell" },
     { "path": "packages/clientvm" },
     { "path": "packages/agent-api" },
+    { "path": "packages/terminal" },
     { "path": "packages/sandbox-host" },
     { "path": "examples/agent-playground" }
   ]

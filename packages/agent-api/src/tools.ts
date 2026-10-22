@@ -12,6 +12,7 @@ import type {
   Preview,
   PreviewTarget,
   Process,
+  ProcessTag,
 } from '@clientvm/clientvm';
 
 /** JSON Schema for a tool's input (the subset these tools use). */
@@ -55,8 +56,13 @@ export interface AgentToolsOptions {
 
 export interface AgentTools {
   readonly definitions: ToolDefinition[];
-  /** Runs a tool. Errors come back as `is_error` results, never as rejections. */
-  call(name: string, input: unknown): Promise<ToolResult>;
+  /**
+   * Runs a tool. Errors come back as `is_error` results, never as rejections.
+   * Processes the tool starts are tagged `{ source: 'agent', tool: name }`
+   * plus `opts.tag` (e.g. the model's tool-use id), so `Instance.onProcess`
+   * listeners can tell which call they belong to.
+   */
+  call(name: string, input: unknown, opts?: { tag?: ProcessTag }): Promise<ToolResult>;
   /** Stops background processes and closes previews the tools opened. */
   dispose(): void;
 }
@@ -393,7 +399,10 @@ export function createAgentTools(options: AgentToolsOptions): AgentTools {
       ? '(no console output)'
       : entries.map((e) => `#${e.seq} [${e.level}] ${e.text}`).join('\n');
 
-  const handlers: Record<string, (i: Record<string, unknown>) => Promise<ToolResult>> = {
+  const handlers: Record<
+    string,
+    (i: Record<string, unknown>, tag: ProcessTag) => Promise<ToolResult>
+  > = {
     async read_file(i) {
       const path = needPath(i);
       const bytes = await instance.fs.readFile(path);
@@ -460,21 +469,23 @@ export function createAgentTools(options: AgentToolsOptions): AgentTools {
       await instance.fs.rm(path, { recursive: i['recursive'] === true });
       return text(`deleted ${path}`);
     },
-    async exec(i) {
+    async exec(i, tag) {
       const command = needString(i, 'command');
       const r = await instance.exec(command, {
         cwd: optString(i, 'cwd') ?? '/home/user',
         timeoutMs: optInt(i, 'timeout_ms') ?? 120_000,
+        tag,
       });
       const parts = [`exit code ${r.code}${r.signal ? ` (${r.signal})` : ''}`];
       if (r.stdout) parts.push(`--- stdout ---\n${r.stdout}`);
       if (r.stderr) parts.push(`--- stderr ---\n${r.stderr}`);
       return { ...text(parts.join('\n')), ...(r.code === 0 ? {} : { is_error: true }) };
     },
-    async start_process(i) {
+    async start_process(i, tag) {
       const command = needString(i, 'command');
       const proc = await instance.spawn('sh', ['-c', command], {
         cwd: optString(i, 'cwd') ?? '/home/user',
+        tag,
       });
       const bg: Background = { id: nextBackground++, command, proc, output: '', exit: null };
       background.set(bg.id, bg);
@@ -635,12 +646,12 @@ export function createAgentTools(options: AgentToolsOptions): AgentTools {
 
   return {
     definitions: TOOL_DEFINITIONS,
-    async call(name, raw) {
+    async call(name, raw, opts = {}) {
       const handler = Object.hasOwn(handlers, name) ? handlers[name] : undefined;
       if (!handler)
         return { content: [{ type: 'text', text: `unknown tool "${name}"` }], is_error: true };
       try {
-        return await handler(input(raw ?? {}));
+        return await handler(input(raw ?? {}), { ...opts.tag, source: 'agent', tool: name });
       } catch (err) {
         return { content: [{ type: 'text', text: errorText(err) }], is_error: true };
       }

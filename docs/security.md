@@ -56,6 +56,7 @@ Port origins <id>-p<port>.<sandbox-domain> (one per open port, ADR 0008)
 | Instance ids cannot end in `-p<digits>`, so an instance never shares an origin with another instance's port | **done** (3d) |
 | Fuzzing of codec, channel, VFS, resolver, shell parser | **done** (5b): seeded tests for the protocol codec, tar reader, path, CommonJS resolver, VFS operations and shell parser. Runs in CI with fixed seeds; `FUZZ_SEED`/`FUZZ_ITERATIONS` for longer runs |
 | Threads (`worker_threads`, `child_process.fork`) are kernel processes: same syscall checks, process limit and CPU watchdog. Parent and child share only a MessagePort the kernel created | **done** (5a) |
+| Process output shown in the host page (`@clientvm/terminal`, ADR 0016): the controller keeps at most 100 processes and 256 KiB of output each for `onProcess` replay; `attachActivityView` strips string escape sequences (OSC 52 clipboard writes, OSC 8 links, DCS/APC) except titles and draws commands without control characters; feed output is meant to be rendered as text, never HTML | **done** (T1), unit-tested. Output rate limiting in the view is not done yet (terminal-plan.md T3) |
 | Agent-supplied regexes (`grep`, `sed`, `find -regex`, `[[ =~ ]]`) run on the JS regex engine and can backtrack catastrophically. They run in the instance's own worker, so a bad pattern only stalls that process; `Instance.exec` `timeoutMs` stops it | **documented** |
 
 ## What a compromised instance can do

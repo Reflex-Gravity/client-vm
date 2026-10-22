@@ -10,6 +10,7 @@ function fakeInstance() {
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>(['/', '/home', '/home/user']);
   const calls: string[] = [];
+  const tags: unknown[] = [];
   let mail: ((from: string, msg: unknown) => void) | undefined;
   let portOpen: ((port: number, url: string) => void) | undefined;
   const preview: Partial<Preview> = {
@@ -51,11 +52,14 @@ function fakeInstance() {
       },
       rm: async (p: string) => void files.delete(p),
     },
-    exec: async (cmd: string) =>
-      cmd === 'false'
+    exec: async (cmd: string, opts: { tag?: unknown }) => {
+      tags.push(opts.tag);
+      return cmd === 'false'
         ? { code: 1, stdout: '', stderr: 'nope\n' }
-        : { code: 0, stdout: `ran ${cmd}\n`, stderr: '' },
-    spawn: async () => {
+        : { code: 0, stdout: `ran ${cmd}\n`, stderr: '' };
+    },
+    spawn: async (_cmd: string, _args: string[], opts: { tag?: unknown }) => {
+      tags.push(opts.tag);
       let push!: (s: string) => void;
       const stdout = new ReadableStream<Uint8Array>({
         start: (c) => void (push = (s) => c.enqueue(enc.encode(s))),
@@ -90,6 +94,7 @@ function fakeInstance() {
     instance: instance as unknown as Instance,
     files,
     calls,
+    tags,
     deliver: (from: string, msg: unknown) => mail?.(from, msg),
     openPort: (port: number) => portOpen?.(port, `http://me-p${port}.x/`),
   };
@@ -161,6 +166,18 @@ describe('agent tools', () => {
     expect(textOf(await t.call('read_network_log', {}))).toBe('#3 GET :3000/ → 200 (1.5 ms)');
     t.dispose();
     expect(calls).toContain('kill SIGKILL');
+  });
+
+  it('tags the processes a call starts', async () => {
+    const { instance, tags } = fakeInstance();
+    const t = createAgentTools({ instance });
+    await t.call('exec', { command: 'ls' });
+    // The tool's own fields win over the caller's.
+    await t.call('start_process', { command: 'x' }, { tag: { toolUseId: 'tu_1', tool: 'y' } });
+    expect(tags).toEqual([
+      { source: 'agent', tool: 'exec' },
+      { toolUseId: 'tu_1', source: 'agent', tool: 'start_process' },
+    ]);
   });
 
   it('previews, messages, instances, capabilities', async () => {

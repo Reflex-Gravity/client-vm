@@ -34,6 +34,32 @@
         font-size: 12px;
         white-space: pre-wrap;
       }
+      #terminal {
+        flex: 1;
+        overflow: auto;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+      }
+      #terminal summary {
+        cursor: pointer;
+        font-weight: 600;
+        white-space: pre-wrap;
+      }
+      #terminal small {
+        font-weight: normal;
+        opacity: 0.7;
+      }
+      #terminal .ok > summary small {
+        color: #2a2;
+      }
+      #terminal .failed > summary small {
+        color: #d33;
+      }
+      #terminal pre {
+        flex: none;
+        max-height: 24em;
+        margin: 2px 0 8px;
+      }
       textarea,
       input,
       select,
@@ -71,7 +97,7 @@
         <input id="cmd" placeholder="Command, e.g. ls -la" autocomplete="off" />
         <button>Run</button>
       </form>
-      <pre id="terminal"></pre>
+      <div id="terminal"></div>
       <h2>Agent tools</h2>
       <div class="row">
         <select id="tool"></select>

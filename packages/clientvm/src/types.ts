@@ -100,11 +100,38 @@ export interface ClientVM {
   revoke(to: InstanceId | InstanceName, cap: Capability): boolean;
 }
 
+/**
+ * A host-side label for a process, reported with its {@link ProcessEvent}s,
+ * e.g. `{ source: 'agent', tool: 'exec' }`. Never sent to the instance.
+ */
+export type ProcessTag = Readonly<Record<string, string | number | boolean>>;
+
 export interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string>;
   type?: ProcessType;
+  tag?: ProcessTag;
 }
+
+/** A process started through `Instance.spawn` or `Instance.exec`. */
+export interface ProcessInfo {
+  pid: number;
+  /** `['sh', '-c', commandLine]` for `exec`. */
+  argv: string[];
+  cwd?: string;
+  tag?: ProcessTag;
+  /** `Date.now()` when it was spawned. */
+  startedAt: number;
+}
+
+/**
+ * What {@link Instance.onProcess} reports. Covers processes the host started
+ * (`spawn`, `exec`); their children's output arrives through them.
+ */
+export type ProcessEvent =
+  | { type: 'spawn'; process: ProcessInfo }
+  | { type: 'output'; pid: number; fd: 1 | 2; data: Uint8Array }
+  | { type: 'exit'; pid: number; code: number; signal?: Signal; exitedAt: number };
 
 export interface ExecOptions extends Omit<SpawnOptions, 'type'> {
   /** Kill the command after this many milliseconds. */
@@ -130,6 +157,12 @@ export interface Instance {
   spawn(cmd: string, args?: string[], opts?: SpawnOptions): Promise<Process>;
   /** Runs a command line through the shell. */
   exec(commandLine: string, opts?: ExecOptions): Promise<ExecResult>;
+  /**
+   * Reports processes started with `spawn` or `exec`: their start, output and
+   * exit. Replays recent ones first (the last 100, with up to 256 KiB of
+   * output each) so a terminal attached late still shows them.
+   */
+  onProcess(cb: (e: ProcessEvent) => void): Disposable;
   /** Reports each virtual port with its preview URL (the port's own origin). */
   onPortOpen(cb: (port: number, url: string) => void): Disposable;
   /** Reports ports that stop listening. */

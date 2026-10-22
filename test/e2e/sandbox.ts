@@ -24,6 +24,18 @@ export type Capability =
 
 export type Outcome = { ok: true; value?: unknown } | { ok: false; code: string; message: string };
 
+type Tag = Record<string, string | number | boolean>;
+
+/** Mirrors `RecordedProcessEvent` from the host page: `ProcessEvent` with output decoded. */
+export type RecordedProcessEvent = (
+  | {
+      type: 'spawn';
+      process: { pid: number; argv: string[]; cwd?: string; tag?: Tag; startedAt: number };
+    }
+  | { type: 'output'; pid: number; fd: 1 | 2; text: string }
+  | { type: 'exit'; pid: number; code: number; signal?: string; exitedAt: number }
+) & { at: number };
+
 interface HostWindow {
   __clientvm: {
     hostCrossOriginIsolated: boolean;
@@ -37,6 +49,7 @@ interface HostWindow {
         env?: Record<string, string>;
         stdin?: string;
         timeoutMs?: number;
+        tag?: Tag;
       },
     ): Promise<{ code: number; signal?: string; stdout: string; stderr: string }>;
     spawnAndCollect(
@@ -69,6 +82,8 @@ interface HostWindow {
     capabilities(id: string): Capability[];
     recordMail(id: string): void;
     mail(id: string): { from: string; message: unknown }[];
+    recordProcesses(id: string): void;
+    processEvents(id: string): RecordedProcessEvent[];
     drive(id: string, port: number, path?: string): Promise<number>;
     previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
     pipeThrough(

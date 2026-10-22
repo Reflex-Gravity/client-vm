@@ -17,7 +17,9 @@ pnpm --filter @clientvm/example-agent-playground dev                            
 
 Open http://localhost:5180 in Chromium. Click **Call** to run the preselected `start_process`
 tool (`npm start`); the preview shows the server's page once port 3000 opens. Try commands such as
-`ls -la`, `npm install ms`, `git init && git add -A && git commit -m init`.
+`ls -la`, `npm install ms`, `git init && git add -A && git commit -m init`. Every command, yours
+and the agent tools' (marked 🤖), appears with its live output, exit status and run time, through
+[`@clientvm/terminal`](../../packages/terminal/README.md).
 
 Set `VITE_SANDBOX` to point at another sandbox deployment, with `{id}` where the instance id goes,
 for example `VITE_SANDBOX=https://{id}.myapp-sandbox.dev`.

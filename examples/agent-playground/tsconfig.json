@@ -7,5 +7,9 @@
     "types": ["vite/client"]
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/clientvm" }, { "path": "../../packages/agent-api" }]
+  "references": [
+    { "path": "../../packages/clientvm" },
+    { "path": "../../packages/agent-api" },
+    { "path": "../../packages/terminal" }
+  ]
 }

@@ -14,6 +14,7 @@ import type {
   InstanceOptions,
   MountSource,
   Preview,
+  ProcessEvent,
 } from '@clientvm/clientvm';
 import type { RunResult, SpawnRequest } from '@clientvm/protocol';
 
@@ -62,6 +63,10 @@ export interface HostApi {
   /** Starts recording mailbox deliveries to `id` (host listener). */
   recordMail(id: string): void;
   mail(id: string): { from: string; message: unknown }[];
+  /** Starts recording `Instance.onProcess` events for `id` (history replays first). */
+  recordProcesses(id: string): void;
+  /** Recorded process events, output decoded, each with its arrival time `at` (ms). */
+  processEvents(id: string): RecordedProcessEvent[];
   /** Opens a driveable preview; resolves with a handle id. */
   drive(id: string, port: number, path?: string): Promise<number>;
   /** Calls a Preview method; Uint8Array results come back as `{ png: base64 }`. */
@@ -91,6 +96,11 @@ export interface HostApi {
   portBridges(): number;
   watch(id: string, path: string): Promise<() => unknown[]>;
 }
+
+export type RecordedProcessEvent = (
+  | Exclude<ProcessEvent, { type: 'output' }>
+  | { type: 'output'; pid: number; fd: 1 | 2; text: string }
+) & { at: number };
 
 export type Outcome = { ok: true; value?: unknown } | { ok: false; code: string; message: string };
 
@@ -130,6 +140,7 @@ async function drain(
 }
 
 const mailLogs = new Map<string, { from: string; message: unknown }[]>();
+const processLogs = new Map<string, RecordedProcessEvent[]>();
 const previews = new Map<number, Preview>();
 const agents = new Map<number, AgentTools>();
 let nextPreview = 1;
@@ -207,6 +218,17 @@ window.__clientvm = {
     get(id).mailbox.onMessage((from, message) => log.push({ from, message }));
   },
   mail: (id) => mailLogs.get(id) ?? [],
+  recordProcesses(id) {
+    const log: RecordedProcessEvent[] = [];
+    processLogs.set(id, log);
+    const decoder = new TextDecoder();
+    get(id).onProcess((e) => {
+      const at = performance.now();
+      if (e.type !== 'output') log.push({ ...e, at });
+      else log.push({ type: 'output', pid: e.pid, fd: e.fd, text: decoder.decode(e.data), at });
+    });
+  },
+  processEvents: (id) => processLogs.get(id) ?? [],
   async drive(id, port, path) {
     const preview = await get(id).openPreview(port, path ? { path } : {});
     const handle = nextPreview++;

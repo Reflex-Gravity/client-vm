@@ -302,13 +302,27 @@ async function boot(
     const proc = kernel.spawn(request.argv, {
       // Processes started by the controller get a login-like environment.
       env: { ...DEFAULT_ENV, ...request.env },
-      // `spawn` keeps stdin open for writeStdin; `run` opens it only to feed `request.stdin`.
-      stdin: !onOutput || request.stdin !== undefined ? 'pipe' : 'closed',
+      // Without `request.stdin`, `spawn` keeps stdin open for writeStdin and `run` closes it.
+      // With it, stdin is fed and closed; empty stdin starts at end-of-file.
+      stdin:
+        request.stdin === undefined
+          ? onOutput
+            ? 'closed'
+            : 'pipe'
+          : request.stdin.length > 0
+            ? 'pipe'
+            : 'closed',
       ...(request.cwd ? { cwd: request.cwd } : {}),
       ...(request.syscallMode ? { syscallMode: request.syscallMode } : {}),
       onStdout: (d) => (onOutput ? onOutput(1, d) : emit('output', proc.pid, 1, d)),
       onStderr: (d) => (onOutput ? onOutput(2, d) : emit('output', proc.pid, 2, d)),
     });
+    if (request.stdin !== undefined && request.stdin.length > 0) {
+      proc.writeStdin(
+        typeof request.stdin === 'string' ? encodeUtf8(request.stdin) : request.stdin,
+      );
+      proc.writeStdin(null);
+    }
     return proc;
   };
 
@@ -372,12 +386,6 @@ async function boot(
       const out: Uint8Array[] = [];
       const err: Uint8Array[] = [];
       const proc = spawn(request, (fd, d) => (fd === 1 ? out : err).push(d));
-      if (request.stdin !== undefined) {
-        proc.writeStdin(
-          typeof request.stdin === 'string' ? encodeUtf8(request.stdin) : request.stdin,
-        );
-        proc.writeStdin(null);
-      }
       const timeout = request.timeoutMs;
       const timer =
         typeof timeout === 'number' && Number.isFinite(timeout) && timeout > 0

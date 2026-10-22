@@ -35,6 +35,7 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | Shell commands | Builtins and Linux commands run **in-process in the shell's worker** when `PATH` resolves to their marker file; anything else is spawned. Every command is also a standalone runtime. One interpreter for `sh`/`bash`, diffed against real bash (ADR 0011) |
 | git | **isomorphic-git, fetched and integrity-checked on first use** like npm; porcelain output diffed against real git. Remotes need a CORS proxy (ADR 0014) |
 | Node conformance | Node 24.11's `lib/path.js` and the passing subset of Node's `test/parallel` are **vendored unmodified** and run in CI (ADR 0015) |
+| Terminal UI | `Instance.onProcess` (bounded replay) plus **`@clientvm/terminal`**, which has **no terminal-emulator dependency**: it writes to any xterm.js-compatible `write()`. Agent and user commands are separate processes told apart by `tag` (ADR 0016, docs/terminal-plan.md). PTYs and signals are proposed in ADR 0017 |
 
 ## 3. Non-goals for v1
 
@@ -96,6 +97,7 @@ clientvm/
 │  ├─ (net/)              # not created: cross-instance routing lives in the controller (docs/phase4-plan.md)
 │  ├─ sandbox-host/       # static sandbox page, service worker, COOP/COEP setup
 │  ├─ agent-api/          # high-level API for agents (fs, exec, spawn-instance, observe)
+│  ├─ terminal/           # activity feed + terminal view of the commands an instance runs
 │  └─ clientvm/           # public entry point re-exporting a stable API
 ├─ test/
 │  ├─ conformance/        # differential + ported Node tests
@@ -199,6 +201,8 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 **Phase 4: Multi-instance and agent API (done; see docs/phase4-plan.md).** Mailbox, virtual network between instances, capability grants, mounts, snapshot/fork, the agent-facing tool API, driveable preview.
 
 **Phase 5: Hardening (done; see docs/phase5-plan.md, ADRs 0014–0015, docs/security-review.md).** Conformance suites, fuzzing (VFS, resolver, shell parser), resource limits, performance work (consider Rust/WASM only where profiling proves need), pnpm support, docs and examples.
+
+**Terminal (in progress; see docs/terminal-plan.md, ADRs 0016–0017).** T1 activity view (done): process events and `@clientvm/terminal`. T2 interactive terminal: PTYs, signals, interactive shell. T3 polish.
 
 ## 9. Quality bar ("battle-tested")
 

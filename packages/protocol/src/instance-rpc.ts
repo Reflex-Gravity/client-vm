@@ -63,7 +63,7 @@ export interface SpawnRequest {
   env?: Record<string, string>;
   cwd?: string;
   syscallMode?: SyscallMode;
-  /** For `run`: bytes written to stdin before it is closed. `spawn` keeps stdin open. */
+  /** Bytes written to stdin before it is closed (empty: starts at end-of-file). Without it, `spawn` keeps stdin open. */
   stdin?: string | Uint8Array;
   /** For `run`: send SIGTERM to the process (and its children) after this many milliseconds. */
   timeoutMs?: number;

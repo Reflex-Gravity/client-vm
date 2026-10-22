@@ -77,10 +77,11 @@ pnpm --filter @clientvm/sandbox-host dev   # test host page; see packages/sandbo
 | `@clientvm/shell` | The shell and Linux commands |
 | `@clientvm/clientvm` | Public API: the controller (`createClientVM`), capabilities, previews, and types |
 | `@clientvm/agent-api` | Tool definitions for LLM agents |
-| `examples/agent-playground` | A minimal host app: an instance, a shell, a preview, and the agent tools |
+| `@clientvm/terminal` | The commands an instance runs and their live output, for any UI or terminal emulator |
+| `examples/agent-playground` | A minimal host app: an instance, a command line with live command output, a preview, and the agent tools |
 
 Docs: [architecture](docs/architecture.md) · [interfaces](docs/interfaces.md) · [agent API](docs/agent-api.md) · [hosting](docs/hosting.md) ·
-[security](docs/security.md) · [security review](docs/security-review.md) · [open questions](docs/open-questions.md) · [decisions](docs/decisions/)
+[terminal plan](docs/terminal-plan.md) · [security](docs/security.md) · [security review](docs/security-review.md) · [open questions](docs/open-questions.md) · [decisions](docs/decisions/)
 
 ## License
 

@@ -9,6 +9,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - CPU-emulator backend for a future `vm` tier: benchmark spike later, check licensing.
 - Whether to add a pre-resolved install plan or shared package cache fast path once npm works.
 - Package scope (`@clientvm/*` on npm) and sandbox domain availability.
+- **Should the agent see the user's terminal?** `onProcess` reports user and agent commands alike
+  (told apart by `tag`), but `read_console` only covers processes the agent started. Giving the
+  agent the user's output adds context and also exposes whatever the user typed or printed
+  (docs/terminal-plan.md).
 
 ## Browser behavior to verify (measure, don't assume)
 
@@ -29,6 +33,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   Document-Isolation-Policy (ADR 0005, docs/phase2-probes.md).
 
 ## Runtime design
+
+- **PTYs and signals** (terminal-plan.md T2): the design is proposed in ADR 0017. Measure
+  keystroke-to-echo latency through the kernel and how promptly signals reach a process sitting
+  in its event loop before accepting it.
 
 - ~~Port → URL mapping~~: one origin per port (ADR 0008, implemented in 3d).
 - **WebSocket shim timing.** The shim is a module script, so classic scripts that open a WebSocket

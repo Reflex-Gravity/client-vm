@@ -41,7 +41,8 @@ for (;;) {
   const results = [];
   for (const block of response.content) {
     if (block.type !== 'tool_use') continue;
-    const result = await tools.call(block.name, block.input); // runs in the user's browser
+    // Runs in the user's browser. The tag lets a terminal view match output to this call.
+    const result = await tools.call(block.name, block.input, { tag: { toolUseId: block.id } });
     results.push({ type: 'tool_result', tool_use_id: block.id, ...result });
   }
   messages.push({ role: 'user', content: results });
@@ -50,6 +51,10 @@ for (;;) {
 
 In a real app, the model call runs on your server and `tools.call` runs on the page that owns the
 `ClientVM`. Relay the tool calls between them.
+
+To show the user what the agent runs, attach `@clientvm/terminal` to the instance
+([README](../packages/terminal/README.md)). Processes a tool starts are tagged
+`{ source: 'agent', tool, ...tag }`.
 
 ## Tools
 

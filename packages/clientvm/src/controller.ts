@@ -22,6 +22,7 @@ import { CapabilityTable, parseCapability, subjectOf } from './capabilities.ts';
 import { connectInstance, connectPortBridge } from './connect.ts';
 import { ClientVMError } from './errors.ts';
 import { PreviewImpl } from './preview.ts';
+import { ProcessLog } from './process-log.ts';
 import { ProcessHandleImpl } from './process.ts';
 import type {
   Capability,
@@ -43,6 +44,8 @@ import type {
   Preview,
   PreviewOptions,
   Process,
+  ProcessEvent,
+  ProcessTag,
   Signal,
   SnapshotId,
   SpawnOptions,
@@ -284,6 +287,7 @@ class InstanceImpl implements Instance {
   private readonly opts: InstanceOptions;
   private readonly createdAt = Date.now();
   private readonly processes = new Map<number, ProcessHandleImpl>();
+  private readonly processLog = new ProcessLog();
   private readonly watchers = new Map<number, (e: FsEvent) => void>();
   private readonly openPorts = new Map<number, string>();
   private readonly portListeners = new Set<(port: number, url: string) => void>();
@@ -317,14 +321,18 @@ class InstanceImpl implements Instance {
       mailboxSend: (to, message) => controller.mailboxSend(this, to, message),
       netFetch: (peer, request) => controller.netFetch(this, peer, request),
       output: (pid, fd, data) => {
-        if ((fd === 1 || fd === 2) && v.isUint8Array(data))
-          this.processes.get(pid)?.deliverOutput(fd, data);
+        if (!(fd === 1 || fd === 2) || !v.isUint8Array(data)) return;
+        const proc = this.processes.get(pid);
+        if (!proc) return;
+        proc.deliverOutput(fd, data);
+        this.processLog.output(proc.pid, fd, data);
       },
       exit: (pid, code, signal) => {
         const proc = this.processes.get(pid);
         if (!proc || typeof code !== 'number') return;
         this.processes.delete(pid);
         proc.deliverExit(code, isSignal(signal) ? signal : null);
+        this.processLog.exit(proc.pid, code, isSignal(signal) ? signal : null);
       },
       fsEvents: (watchId, events) => {
         const cb = this.watchers.get(watchId);
@@ -393,6 +401,10 @@ class InstanceImpl implements Instance {
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
     };
+    return this.startProcess(request, opts.tag);
+  }
+
+  private async startProcess(request: SpawnRequest, tag?: ProcessTag): Promise<ProcessHandleImpl> {
     const pid = await this.rpc.call('spawn', request);
     if (!v.isPid(pid))
       throw new ClientVMError('instance sent a malformed pid', 'ERR_INSTANCE_PROTOCOL');
@@ -402,6 +414,13 @@ class InstanceImpl implements Instance {
       (data) => this.rpc.call('writeStdin', pid, data),
     );
     this.processes.set(pid, proc);
+    this.processLog.spawn({
+      pid,
+      argv: request.argv,
+      ...(request.cwd ? { cwd: request.cwd } : {}),
+      ...(tag ? { tag } : {}),
+      startedAt: Date.now(),
+    });
     return proc;
   }
 
@@ -416,25 +435,40 @@ class InstanceImpl implements Instance {
 
   /**
    * Runs a command line through `sh -c` to completion and returns its output.
-   * `timeoutMs` sends SIGTERM to the shell and everything it started.
+   * `timeoutMs` sends SIGTERM to the shell and everything it started. The
+   * output also streams to {@link onProcess} listeners while it runs.
    */
   async exec(commandLine: string, opts: ExecOptions = {}): Promise<ExecResult> {
     this.assertAlive();
     if (typeof commandLine !== 'string') throw new TypeError('commandLine must be a string');
-    const request: SpawnRequest = {
-      argv: ['sh', '-c', commandLine],
-      ...(opts.env ? { env: opts.env } : {}),
-      ...(opts.cwd ? { cwd: opts.cwd } : {}),
-      ...(opts.stdin === undefined ? {} : { stdin: opts.stdin }),
-      ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
-    };
-    const r = v.runResult(await this.rpc.call('run', request));
-    return {
-      code: r.code,
-      ...(r.signal ? { signal: r.signal } : {}),
-      stdout: r.stdout,
-      stderr: r.stderr,
-    };
+    const proc = await this.startProcess(
+      {
+        argv: ['sh', '-c', commandLine],
+        ...(opts.env ? { env: opts.env } : {}),
+        ...(opts.cwd ? { cwd: opts.cwd } : {}),
+        // Empty stdin starts at end-of-file, like a command run with `< /dev/null`.
+        stdin: opts.stdin ?? '',
+      },
+      opts.tag,
+    );
+    const timeout = opts.timeoutMs;
+    const timer =
+      typeof timeout === 'number' && Number.isFinite(timeout) && timeout > 0
+        ? setTimeout(() => proc.kill('SIGTERM'), timeout)
+        : undefined;
+    const [stdout, stderr, exit] = await Promise.all([
+      readText(proc.stdout),
+      readText(proc.stderr),
+      proc.exit,
+    ]);
+    clearTimeout(timer);
+    // Teardown settles the process with SIGKILL; report why instead.
+    if (this.destroyed) throw this.endedError();
+    return { code: exit.code, ...(exit.signal ? { signal: exit.signal } : {}), stdout, stderr };
+  }
+
+  onProcess(cb: (e: ProcessEvent) => void): Disposable {
+    return this.processLog.subscribe(cb);
   }
 
   /**
@@ -756,8 +790,12 @@ class InstanceImpl implements Instance {
     this.endReason = reason;
     clearInterval(this.heartbeat);
     this.rpc.close(this.endedError());
-    for (const proc of this.processes.values()) proc.deliverExit(137, 'SIGKILL');
+    for (const proc of this.processes.values()) {
+      proc.deliverExit(137, 'SIGKILL');
+      this.processLog.exit(proc.pid, 137, 'SIGKILL');
+    }
     this.processes.clear();
+    this.processLog.clear();
     this.watchers.clear();
     this.portListeners.clear();
     this.portCloseListeners.clear();
@@ -865,6 +903,14 @@ class InstanceFs implements FileSystem {
   unmount(path: string): Promise<void> {
     return this.instance.unmountAt(path);
   }
+}
+
+async function readText(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = '';
+  for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>)
+    text += decoder.decode(chunk, { stream: true });
+  return text + decoder.decode();
 }
 
 function isSignal(s: unknown): s is Signal {

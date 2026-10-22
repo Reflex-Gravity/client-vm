@@ -50,6 +50,9 @@ importers:
       '@clientvm/clientvm':
         specifier: workspace:*
         version: link:../../packages/clientvm
+      '@clientvm/terminal':
+        specifier: workspace:*
+        version: link:../../packages/terminal
 
   packages/agent-api:
     dependencies:
@@ -133,6 +136,12 @@ importers:
       '@clientvm/protocol':
         specifier: workspace:*
         version: link:../protocol
+
+  packages/terminal:
+    dependencies:
+      '@clientvm/clientvm':
+        specifier: workspace:*
+        version: link:../clientvm
 
   packages/vfs:
     dependencies:

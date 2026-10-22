@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // A minimal host app for ClientVM: one instance, a command line, the
-// instance's first preview, and the agent tools an LLM would call. Wire
-// `tools.definitions` and `tools.call` into your model's tool-use loop to
-// let it build in the instance (see README.md).
+// commands it runs with their live output, the instance's first preview, and
+// the agent tools an LLM would call. Wire `tools.definitions` and
+// `tools.call` into your model's tool-use loop to let it build in the
+// instance (see README.md).
 import { createAgentTools } from '@clientvm/agent-api';
 import { createClientVM } from '@clientvm/clientvm';
+import { createActivityFeed, formatDuration, stripAnsi } from '@clientvm/terminal';
+import type { CommandBlock } from '@clientvm/terminal';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -42,22 +45,56 @@ async function main(): Promise<void> {
     $<HTMLIFrameElement>('preview').src = url;
   });
 
-  const terminal = $<HTMLPreElement>('terminal');
-  const print = (text: string) => {
-    terminal.textContent += text;
-    terminal.scrollTop = terminal.scrollHeight;
+  // Every command the instance runs (yours and the agent's), with live output.
+  // For a full terminal emulator, pass an xterm.js Terminal to
+  // attachActivityView instead (packages/terminal/README.md).
+  const terminal = $('terminal');
+  const feed = createActivityFeed(instance);
+  const rendered = new Map<number, { block: CommandBlock; el: HTMLDetailsElement }>();
+  const render = (block: CommandBlock, open: boolean): HTMLDetailsElement => {
+    const el = document.createElement('details');
+    el.open = open;
+    el.className = block.status === 'running' ? 'running' : block.code === 0 ? 'ok' : 'failed';
+    const head = el.appendChild(document.createElement('summary'));
+    head.textContent = `${block.tag?.['source'] === 'agent' ? '🤖 ' : ''}$ ${block.command}`;
+    const status = head.appendChild(document.createElement('small'));
+    status.textContent =
+      block.status === 'running'
+        ? ' running…'
+        : ` ${block.signal ?? `exit ${block.code}`} · ${formatDuration(block.exitedAt! - block.startedAt)}`;
+    if (block.output)
+      el.appendChild(document.createElement('pre')).textContent = stripAnsi(block.output);
+    return el;
   };
+  feed.subscribe(() => {
+    const atBottom = terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight < 20;
+    const blocks = feed.getSnapshot();
+    const live = new Set(blocks.map((b) => b.pid));
+    for (const [pid, { el }] of rendered)
+      if (!live.has(pid)) {
+        el.remove();
+        rendered.delete(pid);
+      }
+    // Snapshots replace a block when it changes, so a new object means re-render.
+    for (const block of blocks) {
+      const old = rendered.get(block.pid);
+      if (old?.block === block) continue;
+      const el = render(block, old?.el.open ?? true);
+      if (old) old.el.replaceWith(el);
+      else terminal.append(el);
+      rendered.set(block.pid, { block, el });
+    }
+    if (atBottom) terminal.scrollTop = terminal.scrollHeight;
+  });
   $<HTMLFormElement>('exec').addEventListener('submit', (event) => {
     event.preventDefault();
     const input = $<HTMLInputElement>('cmd');
     const cmd = input.value.trim();
     if (!cmd) return;
     input.value = '';
-    print(`$ ${cmd}\n`);
     void instance
-      .exec(cmd, { cwd: '/home/user/app', timeoutMs: 120_000 })
-      .then((r) => print(`${r.stdout}${r.stderr}${r.code ? `[exit ${r.code}]\n` : ''}`))
-      .catch((err: unknown) => print(`${String(err)}\n`));
+      .exec(cmd, { cwd: '/home/user/app', timeoutMs: 120_000, tag: { source: 'user' } })
+      .catch((err: unknown) => ($('status').textContent = String(err)));
   });
 
   // The tools an agent uses; here they are driven by hand.

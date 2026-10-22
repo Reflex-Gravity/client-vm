@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@clientvm/agent-api": "workspace:*",
-    "@clientvm/clientvm": "workspace:*"
+    "@clientvm/clientvm": "workspace:*",
+    "@clientvm/terminal": "workspace:*"
   }
 }
