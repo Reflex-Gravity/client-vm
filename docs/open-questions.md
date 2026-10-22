@@ -98,7 +98,12 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   shares one instance). Sharing would need the CommonJS loader to read the ESM runtime's module
   records synchronously.
 - **Top-1,000 npm smoke test (§9).** A curated 50-package list runs in CI (`test/e2e/smoke.spec.ts`).
-  The full list needs about an hour of registry traffic per run; make it an opt-in scheduled job.
+  The full run (`test/e2e/smoke-full.spec.ts`, the 1,000 most-downloaded packages from
+  npm-high-impact in `test/conformance/npm-top.json`) is a weekly and on-demand workflow
+  (`.github/workflows/smoke-full.yml`) that uploads a per-package report. Measured locally on
+  the top 200 (2026-10-22): all 189 loadable packages load; 11 are types-only, subpath-only or
+  have no entry. The full 1,000 has not been run yet; its first report sets the `min_pass` bar.
+  The curated test failed twice in nine local runs without a captured error; watch CI for it.
 - **Node test pass rates.** 591 of 1,889 non-skipped `test/parallel` tests pass (compatibility.md).
   The largest gaps are `http`/`net` internals, `fs` permission and watch tests, and exact
   `util.inspect`/`assert` message formats.

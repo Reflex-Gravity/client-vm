@@ -19,6 +19,10 @@ Copyright (c) 2017-present isomorphic-git contributors, licensed under the MIT L
 It is not distributed in this repository: the `git` command downloads the pinned release from
 the npm registry on first use and verifies its integrity.
 
+This product includes lib/punycode.js from Node.js, which is punycode.js
+(https://github.com/mathiasbynens/punycode.js), Copyright Mathias Bynens, licensed under the
+MIT License.
+
 This product includes lib/path.js and a subset of the tests (test/parallel, test/common,
 test/fixtures) from Node.js (https://github.com/nodejs/node), Copyright Node.js contributors,
 licensed under the MIT License. See test/conformance/node-tests/LICENSE.

@@ -8,8 +8,8 @@
 // `export default`, and `export function|class|const|let|var name`. Exports
 // are getters, so local bindings stay live; imports are bound when the module
 // starts, so a cycle sees what its peer had exported so far. `import.meta`
-// becomes { url, filename, dirname } of the file. Anything else (destructuring
-// or several declarators after `export`) throws.
+// becomes { url, filename, dirname } of the file. `export const a = 1, b = 2`
+// exports both. Anything else (a destructuring declarator after `export`) throws.
 
 import { analyzeEsm, stringValue, tokenize } from './lexer.ts';
 import type { Token } from './lexer.ts';
@@ -110,9 +110,11 @@ export function esmToCjs(source: string): string {
       if (tokens[k]!.text === 'function' && tokens[k + 1]?.text === '*') k++;
       const name: Token | undefined = tokens[k + 1];
       if (name?.type !== 'id') throw new Error(`unsupported export at offset ${t.start}`);
-      if (['const', 'let', 'var'].includes(tokens[k]!.text)) checkSingleDeclarator(tokens, k + 2);
+      const names = ['const', 'let', 'var'].includes(tokens[k]!.text)
+        ? [name.text, ...moreDeclarators(source, tokens, k + 2)]
+        : [name.text];
       blank(t.start, t.end);
-      exportGetters.push(getter(name.text, name.text));
+      for (const n of names) exportGetters.push(getter(n, n));
       continue;
     }
     throw new Error(`unsupported export at offset ${t.start}`);
@@ -138,18 +140,53 @@ export function esmToCjs(source: string): string {
   return `${header}${out}`;
 }
 
-/** Throws unless the declaration from token `k` (after its name) declares one binding. */
-function checkSingleDeclarator(tokens: Token[], k: number): void {
+/** Keywords that start a statement: one on a new line ends a declaration without `;` (ASI). */
+const STATEMENT_START = new Set([
+  'const',
+  'let',
+  'var',
+  'function',
+  'class',
+  'export',
+  'import',
+  'if',
+  'for',
+  'while',
+  'do',
+  'return',
+  'throw',
+  'try',
+  'switch',
+]);
+
+/**
+ * The names of a `const`/`let`/`var` declaration's declarators after the
+ * first, from token `k` (just after the first name). Throws for a
+ * destructuring declarator.
+ */
+function moreDeclarators(source: string, tokens: Token[], k: number): string[] {
+  const names: string[] = [];
   let depth = 0;
   for (; k < tokens.length; k++) {
     const t = tokens[k]!;
+    if (
+      depth === 0 &&
+      t.type === 'id' &&
+      STATEMENT_START.has(t.text) &&
+      source.slice(tokens[k - 1]!.end, t.start).includes('\n')
+    )
+      return names;
     if (t.type !== 'punct') continue;
     if (t.text === '(' || t.text === '[' || t.text === '{') depth++;
     else if (t.text === ')' || t.text === ']' || t.text === '}') depth--;
-    else if (depth === 0 && t.text === ';') return;
+    else if (depth === 0 && t.text === ';') return names;
     else if (depth === 0 && t.text === ',') {
-      throw new Error(`unsupported export (several declarators) at offset ${t.start}`);
+      const next = tokens[k + 1];
+      if (next?.type !== 'id')
+        throw new Error(`unsupported export (destructuring declarator) at offset ${t.start}`);
+      names.push(next.text);
     }
-    if (depth < 0) return;
+    if (depth < 0) return names;
   }
+  return names;
 }

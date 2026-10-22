@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createTestModule } from './test-runner.ts';
 import { installStdioFds } from './fs-stdio.ts';
+import { createNodePunycode } from './vendor/node-punycode.ts';
 import { createInspector } from './inspector.ts';
 import { createV8 } from './v8.ts';
 import { createWasi } from './wasi.ts';
@@ -45,6 +46,20 @@ export interface BuiltinDeps {
   cwd: () => string;
   /** The `worker_threads` module (created up front: a thread needs it before any require). */
   workerThreads: Record<string, unknown>;
+}
+
+/**
+ * The one internal binding Node's lib/punycode.js uses: whether the code
+ * requiring it is a dependency (then the DEP0040 warning is not shown). The
+ * first frame with a file path is the caller; ClientVM's own frames are URLs.
+ */
+function punycodeBinding(): { isInsideNodeModules: () => boolean } {
+  return {
+    isInsideNodeModules: () => {
+      const frame = (new Error().stack ?? '').split('\n').find((l) => /\(\/|at \//.test(l));
+      return frame?.includes('/node_modules/') ?? false;
+    },
+  };
 }
 
 /**
@@ -220,6 +235,8 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   lazy('inspector/promises', () => (inspector ??= createInspector()).promises);
   let wasi: Record<string, unknown> | undefined;
   lazy('wasi', () => (wasi ??= createWasi({ fs: fsFull as unknown as WasiFs, path })));
+  let punycode: unknown;
+  lazy('punycode', () => (punycode ??= createNodePunycode(punycodeBinding, process)));
   table['worker_threads'] = deps.workerThreads;
   let testModule: Record<string, unknown> | undefined;
   lazy(

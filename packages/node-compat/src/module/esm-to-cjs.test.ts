@@ -96,8 +96,24 @@ export default { answer: 42 };`,
     });
   });
 
+  it('exports every declarator, and ends a declaration without semicolons at the next statement', () => {
+    expect(run('export const a = 1, b = [2, 3], c = { d: 4 };')).toEqual({
+      a: 1,
+      b: [2, 3],
+      c: { d: 4 },
+    });
+    // No semicolons (ASI): the comma in the later `let` is not this declaration's.
+    const out = run(`export const E = 'e'
+const f = (x, y) => x + y
+let g, h
+export function sum() { return f(1, 2) }
+`);
+    expect(out).toEqual({ E: 'e', sum: expect.any(Function) });
+    expect((out['sum'] as () => number)()).toBe(3);
+  });
+
   it('rejects what it cannot convert faithfully', () => {
-    expect(() => esmToCjs('export const a = 1, b = 2;')).toThrow(/declarators/);
+    expect(() => esmToCjs('export const a = 1, { b } = o;')).toThrow(/destructuring/);
     expect(() => esmToCjs('export const { a } = o;')).toThrow(/unsupported/);
   });
 });
