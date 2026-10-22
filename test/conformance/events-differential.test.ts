@@ -184,3 +184,52 @@ describe('events differential: node-compat vs node:events', () => {
     });
   }
 });
+
+describe('EventEmitter aliases', () => {
+  it('on/addListener and off/removeListener are the same functions', () => {
+    expect(OURS.prototype.on).toBe(OURS.prototype.addListener);
+    expect(OURS.prototype.off).toBe(OURS.prototype.removeListener);
+    // A subclass overriding one alias and calling super with the other (minipass).
+    class Sub extends OURS {
+      override removeListener(t: string, l: (...a: unknown[]) => void) {
+        return this.off(t, l);
+      }
+      override off(t: string, l: (...a: unknown[]) => void) {
+        return super.off(t, l);
+      }
+    }
+    const s = new Sub();
+    const fn = () => {};
+    s.on('x', fn);
+    s.removeListener('x', fn);
+    expect(s.listenerCount('x')).toBe(0);
+  });
+});
+
+describe('EventEmitter prototype', () => {
+  it("has Node's method names and no extra internals subclasses could shadow", () => {
+    const names = (p: object) =>
+      Object.getOwnPropertyNames(p)
+        .filter((n) => n !== 'constructor')
+        .sort();
+    expect(names(OURS.prototype).filter((n) => !n.startsWith('_'))).toEqual(
+      names(NODE.prototype).filter((n) => !n.startsWith('_')),
+    );
+  });
+
+  it('a subclass with its own add() still receives listeners (chokidar)', () => {
+    class Watcher extends OURS {
+      added: string[] = [];
+      add(path: string) {
+        this.added.push(path);
+        return this;
+      }
+    }
+    const w = new Watcher();
+    let got = 0;
+    w.on('change', () => got++);
+    w.emit('change');
+    expect(got).toBe(1);
+    expect(w.added).toEqual([]);
+  });
+});

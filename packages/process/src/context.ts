@@ -19,6 +19,8 @@ export interface ProcessContext {
   send(message: ProcessToKernel): void;
   /** Subscribes to kernel messages (child output, watch events). */
   onMessage(listener: (message: KernelToProcess) => void): () => void;
+  /** For worker threads: the channel to the parent thread. */
+  readonly threadPort?: MessagePort;
 }
 
 /** This process's stdin as pushed by the kernel. */

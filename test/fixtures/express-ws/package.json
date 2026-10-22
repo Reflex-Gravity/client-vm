@@ -1,0 +1,12 @@
+{
+  "name": "express-ws-fixture",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Golden fixture: Express app with a ws WebSocket server.",
+  "license": "Apache-2.0",
+  "main": "server.js",
+  "dependencies": {
+    "express": "4.21.2",
+    "ws": "8.18.0"
+  }
+}

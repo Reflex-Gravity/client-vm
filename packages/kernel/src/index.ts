@@ -8,6 +8,7 @@ export type {
   ProcessWorkerLike,
   SpawnOptions,
 } from './kernel.ts';
+export { DEFAULT_ENV, DEFAULT_PATH, installBuiltinCommands, resolveCommand } from './commands.ts';
 export { createSyscallHandler } from './dispatcher.ts';
 export { DEFAULT_MAX_OPEN_FILES, FdTable } from './fd-table.ts';
 export type { OpenFile } from './fd-table.ts';
@@ -17,6 +18,8 @@ export { serveInstance, startKernelWorker } from './worker-entry.ts';
 export type {
   KernelBootMessage,
   KernelFlushMessage,
+  KernelMeasureMemoryMessage,
+  MemoryReply,
   KernelHttpPortMessage,
   KernelWorkerOptions,
   ServedInstance,

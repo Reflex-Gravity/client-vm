@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Process, Signal } from './types.ts';
-import { NotImplementedError } from './errors.ts';
+
+/** Unread output kept per stream; beyond this, output is dropped (with a note) until read. */
+const OUTPUT_BUFFER_BYTES = 8 * 1024 * 1024;
 
 /**
- * Controller-side handle for a process running in an instance. Output is
- * buffered without bound until read; consumers should drain stdout/stderr.
+ * Controller-side handle for a process running in an instance. Unread output
+ * is kept up to 8 MiB per stream; past that it is dropped and a note says how
+ * much, so a chatty process cannot exhaust the host page's memory.
  */
 export class ProcessHandleImpl implements Process {
   readonly pid: number;
@@ -15,21 +18,36 @@ export class ProcessHandleImpl implements Process {
 
   private readonly outCtl: ReadableStreamDefaultController<Uint8Array>;
   private readonly errCtl: ReadableStreamDefaultController<Uint8Array>;
+  private readonly dropped = { 1: 0, 2: 0 };
   private resolveExit!: (value: { code: number; signal?: Signal }) => void;
   private exited = false;
   private readonly sendKill: (signal: Signal) => Promise<void>;
 
-  constructor(pid: number, sendKill: (signal: Signal) => Promise<void>) {
+  constructor(
+    pid: number,
+    sendKill: (signal: Signal) => Promise<void>,
+    sendStdin: (data: Uint8Array | null) => Promise<void>,
+  ) {
     this.pid = pid;
     this.sendKill = sendKill;
     let outCtl!: ReadableStreamDefaultController<Uint8Array>;
     let errCtl!: ReadableStreamDefaultController<Uint8Array>;
-    this.stdout = new ReadableStream({ start: (c) => void (outCtl = c) });
-    this.stderr = new ReadableStream({ start: (c) => void (errCtl = c) });
+    const strategy = (): QueuingStrategy<Uint8Array> => ({
+      highWaterMark: OUTPUT_BUFFER_BYTES,
+      size: (chunk) => chunk.byteLength,
+    });
+    this.stdout = new ReadableStream<Uint8Array>({ start: (c) => void (outCtl = c) }, strategy());
+    this.stderr = new ReadableStream<Uint8Array>({ start: (c) => void (errCtl = c) }, strategy());
     this.outCtl = outCtl;
     this.errCtl = errCtl;
-    this.stdin = new WritableStream({
-      write: () => Promise.reject(new NotImplementedError('process stdin')),
+    this.stdin = new WritableStream<Uint8Array>({
+      write: async (chunk) => {
+        if (!(chunk instanceof Uint8Array)) throw new TypeError('stdin takes Uint8Array chunks');
+        if (!this.exited) await sendStdin(chunk);
+      },
+      close: async () => {
+        if (!this.exited) await sendStdin(null);
+      },
     });
     this.exit = new Promise((resolve) => {
       this.resolveExit = resolve;
@@ -45,7 +63,20 @@ export class ProcessHandleImpl implements Process {
   /** @internal */
   deliverOutput(fd: 1 | 2, data: Uint8Array): void {
     if (this.exited) return;
-    (fd === 1 ? this.outCtl : this.errCtl).enqueue(data);
+    const ctl = fd === 1 ? this.outCtl : this.errCtl;
+    if ((ctl.desiredSize ?? 0) <= 0) {
+      this.dropped[fd] += data.length;
+      return;
+    }
+    if (this.dropped[fd] > 0) {
+      ctl.enqueue(
+        new TextEncoder().encode(
+          `\n[clientvm: ${this.dropped[fd]} bytes of unread output dropped]\n`,
+        ),
+      );
+      this.dropped[fd] = 0;
+    }
+    ctl.enqueue(data);
   }
 
   /** @internal */

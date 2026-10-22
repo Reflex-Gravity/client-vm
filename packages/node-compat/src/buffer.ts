@@ -1175,12 +1175,16 @@ export function isAscii(input: ArrayBufferView | ArrayBuffer): boolean {
   return true;
 }
 
+// Captured first: node-main makes the global atob/btoa these functions, as Node's are.
+const nativeAtob = globalThis.atob.bind(globalThis);
+const nativeBtoa = globalThis.btoa.bind(globalThis);
+
 export function atob(data: string): string {
-  return globalThis.atob(data);
+  return nativeAtob(data);
 }
 
 export function btoa(data: string): string {
-  return globalThis.btoa(data);
+  return nativeBtoa(data);
 }
 
 /** The `buffer` builtin module. */

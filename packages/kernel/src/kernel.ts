@@ -20,12 +20,15 @@ import type {
 import { MemoryVfs, importImage } from '@clientvm/vfs';
 import type { Snapshot, VfsLimits } from '@clientvm/vfs';
 import { installBuiltinCommands, resolveCommand } from './commands.ts';
+import { installDevices } from './devices.ts';
+import { ReadOnlyMounts } from './mounts.ts';
 import { createSyscallHandler } from './dispatcher.ts';
 import { FdTable } from './fd-table.ts';
+import type { NetStack } from './net.ts';
 
 /** The subset of `Worker` the kernel needs; lets tests substitute Node worker_threads. */
 export interface ProcessWorkerLike {
-  postMessage(message: KernelToProcess): void;
+  postMessage(message: KernelToProcess, transfer?: Transferable[]): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<ProcessToKernel>) => void): void;
   addEventListener(type: 'error', listener: (event: ErrorEvent) => void): void;
   terminate(): void;
@@ -43,10 +46,17 @@ export interface KernelOptions {
   fsLimits?: VfsLimits;
   /** Maximum concurrently running processes (spawn fails with EAGAIN beyond it). */
   maxProcesses?: number;
+  /**
+   * A process that runs JavaScript this long without returning to its event
+   * loop (time blocked in syscalls does not count) is killed with SIGXCPU.
+   */
+  maxCpuMs?: number;
   /** Boot from a filesystem image (see `exportImage`) instead of seeding directories. */
   image?: readonly Uint8Array[];
   /** Boot from a snapshot (e.g. restored from persistent storage). Takes precedence over `image`. */
   snapshot?: Snapshot;
+  /** The instance's virtual network; without it, `listen`/`connect` fail with ENOSYS. */
+  net?: NetStack;
 }
 
 export interface SpawnOptions {
@@ -57,6 +67,8 @@ export interface SpawnOptions {
   stdin?: 'pipe' | 'closed';
   onStdout?: (data: Uint8Array) => void;
   onStderr?: (data: Uint8Array) => void;
+  /** For worker threads: the child's end of the channel to its parent thread. */
+  threadPort?: MessagePort;
 }
 
 export interface ProcessTiming {
@@ -98,6 +110,8 @@ const SPAWN_SYNC_MAX_BUFFER = 1024 * 1024 * 64;
 
 export class Kernel {
   readonly vfs: MemoryVfs;
+  /** Read-only mirrored mounts (mutations under them fail with EROFS). */
+  readonly mounts: ReadOnlyMounts;
   private readonly options: KernelOptions;
   private nextPid = 1;
   private readonly processes = new Map<number, ProcessHandle>();
@@ -117,6 +131,8 @@ export class Kernel {
     }
     // Refreshed on every boot: restored filesystems may predate a runtime.
     installBuiltinCommands(this.vfs, options.commands ?? []);
+    installDevices(this.vfs);
+    this.mounts = new ReadOnlyMounts(this.vfs);
   }
 
   get processCount(): number {
@@ -163,19 +179,23 @@ export class Kernel {
     const channel = createChannelBuffer(this.options.payloadBytes ?? DEFAULT_PAYLOAD_BYTES);
     const fds = new FdTable(this.vfs);
     const children = new Map<number, ProcessHandle>();
+    /** Every live child (spawn and spawnSync), killed with this process like a process group. */
+    const descendants = new Set<ProcessHandle>();
     const watches = new Map<number, () => void>();
     const timing: ProcessTiming = { spawnedAt: performance.now() };
     const worker = this.options.createProcessWorker();
-    const post = (msg: KernelToProcess) => {
-      if (timing.exitedAt === undefined) worker.postMessage(msg);
+    const post = (msg: KernelToProcess, transfer: Transferable[] = []) => {
+      if (timing.exitedAt === undefined) worker.postMessage(msg, transfer);
     };
     const server = new SyscallServer(
       channel,
       createSyscallHandler(this.vfs, fds, {
-        spawnSync: (request) => this.spawnSync(request, options),
+        spawnSync: (request) => this.spawnSync(request, options, descendants),
+        readOnly: this.mounts,
       }),
     );
 
+    const net = this.options.net?.attach(post);
     let settle!: (code: number, signal?: Signal) => void;
     const exit = new Promise<ProcessExit>((resolve) => {
       settle = (code, signal) => {
@@ -185,6 +205,7 @@ export class Kernel {
         worker.terminate();
         fds.closeAll();
         for (const stop of watches.values()) stop();
+        net?.close();
         this.processes.delete(pid);
         resolve({ code, signal: signal ?? null });
       };
@@ -205,11 +226,14 @@ export class Kernel {
         case 'ready':
           timing.readyAt = performance.now();
           break;
+        case 'pong':
+          lastSeen = performance.now();
+          break;
         case 'exit':
           settle(msg.code);
           break;
         case 'spawn':
-          this.spawnChild(msg.id, msg.request, children, post, options);
+          this.spawnChild(msg.id, msg.request, children, descendants, post, options);
           break;
         case 'child-stdin':
           children.get(msg.id)?.writeStdin(msg.data);
@@ -234,6 +258,22 @@ export class Kernel {
           watches.get(msg.id)?.();
           watches.delete(msg.id);
           break;
+        case 'net-listen':
+          if (!net) post({ t: 'net-listen-error', id: msg.id, code: 'ENOSYS' });
+          else net.handle(msg);
+          break;
+        case 'net-connect':
+          if (!net) post({ t: 'net-connect-error', sid: msg.sid, code: 'ENOSYS' });
+          else net.handle(msg);
+          break;
+        case 'net-unlisten':
+        case 'http-res-head':
+        case 'http-res-body':
+        case 'http-res-end':
+        case 'sock-data':
+        case 'sock-end':
+          net?.handle(msg);
+          break;
       }
     });
     worker.addEventListener('error', (event) => {
@@ -243,24 +283,57 @@ export class Kernel {
 
     if (syscallMode === 'waitAsync') void server.listen();
 
+    // CPU watchdog: ping the process; one that neither answers nor waits in a syscall is spinning.
+    let lastSeen = performance.now();
+    const maxCpuMs = this.options.maxCpuMs;
+    if (maxCpuMs !== undefined && maxCpuMs > 0) {
+      let n = 0;
+      const tick = Math.max(20, Math.min(250, maxCpuMs / 4));
+      const watchdog = setInterval(() => {
+        const now = performance.now();
+        if (timing.exitedAt !== undefined) return clearInterval(watchdog);
+        if (server.waiting || timing.readyAt === undefined) lastSeen = now;
+        if (now - lastSeen > maxCpuMs) {
+          clearInterval(watchdog);
+          options.onStderr?.(
+            new TextEncoder().encode(
+              `clientvm: process ${pid} ran ${Math.round(now - lastSeen)} ms without yielding (maxCpuMs ${maxCpuMs}); killed\n`,
+            ),
+          );
+          handle.kill('SIGXCPU');
+          return;
+        }
+        worker.postMessage({ t: 'ping', n: ++n });
+      }, tick);
+    }
+
     const stdinOpen = options.stdin === 'pipe';
-    worker.postMessage({
-      t: 'init',
-      pid,
-      channel,
-      syscallMode,
-      argv: resolvedArgv,
-      env,
-      cwd,
-      stdinOpen,
-    });
+    worker.postMessage(
+      {
+        t: 'init',
+        pid,
+        channel,
+        syscallMode,
+        argv: resolvedArgv,
+        env,
+        cwd,
+        stdinOpen,
+        ...(options.threadPort ? { threadPort: options.threadPort } : {}),
+      },
+      options.threadPort ? [options.threadPort] : [],
+    );
 
     let stdinClosed = !stdinOpen;
     const handle: ProcessHandle = {
       pid,
       exit,
       timing,
-      kill: (signal = 'SIGTERM') => settle(128 + SIGNAL_NUMBERS[signal], signal),
+      kill: (signal = 'SIGTERM') => {
+        if (timing.exitedAt !== undefined) return;
+        settle(128 + SIGNAL_NUMBERS[signal], signal);
+        // Like a signal to the process group: children (e.g. a shell's pipeline) go too.
+        for (const d of [...descendants]) d.kill(signal);
+      },
       writeStdin: (data) => {
         if (stdinClosed) return;
         if (data === null) stdinClosed = true;
@@ -276,7 +349,8 @@ export class Kernel {
     id: number,
     request: ChildSpawnRequest,
     children: Map<number, ProcessHandle>,
-    post: (msg: KernelToProcess) => void,
+    descendants: Set<ProcessHandle>,
+    post: (msg: KernelToProcess, transfer?: Transferable[]) => void,
     parent: SpawnOptions,
   ): void {
     const [stdinMode, stdoutMode, stderrMode] = request.stdio;
@@ -287,6 +361,7 @@ export class Kernel {
           ? inherit
           : undefined;
     let child: ProcessHandle;
+    const link = request.thread === true ? new MessageChannel() : null;
     try {
       const onStdout = route(stdoutMode, 1, parent.onStdout);
       const onStderr = route(stderrMode, 2, parent.onStderr);
@@ -296,6 +371,7 @@ export class Kernel {
         stdin: stdinMode === 'pipe' ? 'pipe' : 'closed',
         ...(onStdout ? { onStdout } : {}),
         ...(onStderr ? { onStderr } : {}),
+        ...(link ? { threadPort: link.port2 } : {}),
       });
     } catch (err) {
       const e = err as { code?: string; message?: string };
@@ -303,9 +379,12 @@ export class Kernel {
       return;
     }
     children.set(id, child);
-    post({ t: 'child-spawned', id, pid: child.pid });
+    descendants.add(child);
+    if (link) post({ t: 'child-spawned', id, pid: child.pid, port: link.port1 }, [link.port1]);
+    else post({ t: 'child-spawned', id, pid: child.pid });
     void child.exit.then(({ code, signal }) => {
       children.delete(id);
+      descendants.delete(child);
       post({ t: 'child-exit', id, code: signal ? null : code, signal });
     });
   }
@@ -314,7 +393,11 @@ export class Kernel {
    * SPAWN_SYNC: runs a child to completion while the calling process blocks
    * in its syscall. `inherit` streams go straight to the caller's outputs.
    */
-  private async spawnSync(request: Uint8Array, parent: SpawnOptions): Promise<Uint8Array> {
+  private async spawnSync(
+    request: Uint8Array,
+    parent: SpawnOptions,
+    descendants: Set<ProcessHandle>,
+  ): Promise<Uint8Array> {
     const args = decode(request) as {
       argv: string[];
       env: Record<string, string>;
@@ -360,6 +443,8 @@ export class Kernel {
         },
       });
     }
+    descendants.add(child);
+    void child.exit.then(() => descendants.delete(child));
     if (args.input) child.writeStdin(args.input);
     child.writeStdin(null);
     let timedOut = false;

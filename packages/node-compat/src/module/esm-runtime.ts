@@ -18,6 +18,8 @@ export interface EsmRuntimeDeps {
   cwd: () => string;
   /** The entry module's real path, for import.meta.main. */
   mainFile: () => string | undefined;
+  /** A liveness handle held while a module graph loads (Node reads it from disk). */
+  hold?: () => { close(): void };
 }
 
 export interface EsmRuntime {
@@ -53,8 +55,17 @@ export function installEsmRuntime(deps: EsmRuntimeDeps): EsmRuntime {
   const parentPath = (parent: string): string =>
     parent.startsWith('/') ? parent : path.join(deps.cwd(), '[eval]');
 
+  const held = async (url: string, options?: ImportCallOptions): Promise<unknown> => {
+    const h = deps.hold?.();
+    try {
+      return await import(/* @vite-ignore */ url, options);
+    } finally {
+      h?.close();
+    }
+  };
+
   const importFile = (file: string, options?: ImportCallOptions): Promise<unknown> =>
-    import(/* @vite-ignore */ moduleUrl(file), options);
+    held(moduleUrl(file), options);
 
   const dynamicImport = async (
     parent: string,
@@ -66,7 +77,7 @@ export function installEsmRuntime(deps: EsmRuntimeDeps): EsmRuntime {
       case 'builtin':
         return builtinNamespace(resolution.name);
       case 'url':
-        return import(/* @vite-ignore */ resolution.url, options);
+        return held(resolution.url, options);
       case 'file':
         return importFile(resolution.path, options);
     }

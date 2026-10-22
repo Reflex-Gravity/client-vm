@@ -301,10 +301,8 @@ export function extendFs(deps: FsExtraDeps): NodeFs & Record<string, unknown> {
 
   // ------------------------------------------------------------ callback API
 
-  for (const [name, fn] of Object.entries(out)) {
-    if (!name.endsWith('Sync') || SKIP_CALLBACKIFY.has(name) || typeof fn !== 'function') continue;
-    const asyncName = name.slice(0, -4);
-    out[asyncName] = function (this: unknown, ...args: unknown[]) {
+  const withCallback = (fn: Fn, asyncName: string) =>
+    function (this: unknown, ...args: unknown[]) {
       const cb = args.pop();
       if (typeof cb !== 'function') {
         throw codeError(
@@ -328,7 +326,13 @@ export function extendFs(deps: FsExtraDeps): NodeFs & Record<string, unknown> {
             : cb(null, result),
       );
     };
+  for (const [name, fn] of Object.entries(out)) {
+    if (!name.endsWith('Sync') || SKIP_CALLBACKIFY.has(name) || typeof fn !== 'function') continue;
+    out[name.slice(0, -4)] = withCallback(fn as Fn, name.slice(0, -4));
   }
+  const realpathNative = (out['realpathSync'] as { native?: Fn } | undefined)?.native;
+  if (realpathNative)
+    (out['realpath'] as { native?: unknown }).native = withCallback(realpathNative, 'realpath');
   // fs.exists has a nonstandard callback (no error argument).
   out['exists'] = (p: string, cb: (exists: boolean) => void) => {
     const result = fs.existsSync(p);
@@ -719,14 +723,21 @@ export function extendFs(deps: FsExtraDeps): NodeFs & Record<string, unknown> {
 
   out['createReadStream'] = (p: string, o?: object) => createReadStream(String(p), o);
   out['createWriteStream'] = (p: string, o?: object) => createWriteStream(String(p), o);
-  Object.defineProperty(out, 'ReadStream', {
-    get: () => deps.stream()['Readable'],
-    enumerable: true,
-  });
-  Object.defineProperty(out, 'WriteStream', {
-    get: () => deps.stream()['Writable'],
-    enumerable: true,
-  });
+  // Accessors like Node's: graceful-fs redefines them on its clone of fs.
+  for (const [name, base] of [
+    ['ReadStream', 'Readable'],
+    ['WriteStream', 'Writable'],
+    ['FileReadStream', 'Readable'],
+    ['FileWriteStream', 'Writable'],
+  ] as const) {
+    let override: unknown;
+    Object.defineProperty(out, name, {
+      get: () => override ?? deps.stream()[base],
+      set: (v: unknown) => (override = v),
+      enumerable: true,
+      configurable: true,
+    });
+  }
 
   return out;
 }

@@ -11,6 +11,10 @@ export default tseslint.config(
       '**/node_modules/**',
       'test-results/**',
       'playwright-report/**',
+      // Golden fixtures are ordinary user apps (CommonJS, Node globals).
+      'test/fixtures/**',
+      // Node's own tests, vendored byte for byte.
+      'test/conformance/node-tests/**',
     ],
   },
   js.configs.recommended,

@@ -20,6 +20,8 @@ export interface ModuleSystemDeps {
   emitWarning: (message: string, type: string, code: string) => void;
   /** Runs the module wrapper source; returns the wrapper function. */
   compile: (source: string, filename: string) => (...args: unknown[]) => unknown;
+  /** A replacement for a native addon (ADR 0013), or undefined. */
+  nativeStandIn?: (filename: string, requireFile: (file: string) => unknown) => unknown;
   /** Called when a .mjs or "type": "module" file is required. */
   requireEsm?: (filename: string, parent: string | undefined) => unknown;
 }
@@ -374,7 +376,12 @@ export function createModuleSystem(deps: ModuleSystemDeps): ModuleConstructor {
       throw err;
     }
   };
-  Module._extensions['.node'] = (_module, filename) => {
+  Module._extensions['.node'] = (module, filename) => {
+    const standIn = deps.nativeStandIn?.(filename, (file) => Module._load(file, module, false));
+    if (standIn !== undefined) {
+      module.exports = standIn;
+      return;
+    }
     throw codeError(
       Error,
       'ERR_DLOPEN_FAILED',

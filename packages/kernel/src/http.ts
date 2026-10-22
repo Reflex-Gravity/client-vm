@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-import { SystemError } from '@clientvm/protocol';
-import type { WireRequest, WireResponse } from '@clientvm/protocol';
+import { NO_LISTENER_HEADER, SystemError } from '@clientvm/protocol';
+import type { NetworkLogEntry, WireRequest, WireResponse } from '@clientvm/protocol';
+
+const NETWORK_LOG_SIZE = 500;
 import type { MemoryVfs } from '@clientvm/vfs';
 
 /** Handles one HTTP request for a virtual port. */
 export type HttpHandler = (request: WireRequest) => WireResponse | Promise<WireResponse>;
+
+/** A virtual server: requests, and optionally upgrades (raw byte sockets over a MessagePort). */
+export interface HttpServer {
+  fetch: HttpHandler;
+  upgrade?(request: WireRequest, socket: MessagePort): void;
+}
 
 const MIME: Record<string, string> = {
   html: 'text/html; charset=utf-8',
@@ -98,45 +106,99 @@ export function staticHandler(vfs: MemoryVfs, root: string): HttpHandler {
   };
 }
 
-/** The instance's virtual ports. Requests arrive from the service worker. */
+/** The instance's virtual ports. Requests arrive from the service workers. */
 export class HttpRouter {
-  private readonly handlers = new Map<number, HttpHandler>();
+  private readonly servers = new Map<number, HttpServer>();
   private primary: number | null = null;
   private readonly onOpen: (port: number, primary: boolean) => void;
+  private readonly onClose: (port: number) => void;
 
-  constructor(onOpen: (port: number, primary: boolean) => void) {
+  constructor(
+    onOpen: (port: number, primary: boolean) => void,
+    onClose: (port: number) => void = () => {},
+  ) {
     this.onOpen = onOpen;
+    this.onClose = onClose;
   }
 
   get ports(): { port: number; primary: boolean }[] {
-    return [...this.handlers.keys()].map((port) => ({ port, primary: port === this.primary }));
+    return [...this.servers.keys()].map((port) => ({ port, primary: port === this.primary }));
   }
 
-  listen(port: number, handler: HttpHandler): void {
+  listen(port: number, server: HttpHandler | HttpServer): void {
     if (!Number.isInteger(port) || port < 1 || port > 65535)
       throw new SystemError('EINVAL', 'listen');
-    if (this.handlers.has(port)) throw new SystemError('EADDRINUSE', 'listen');
-    this.handlers.set(port, handler);
+    if (this.servers.has(port)) throw new SystemError('EADDRINUSE', 'listen');
+    this.servers.set(port, typeof server === 'function' ? { fetch: server } : server);
     this.primary ??= port;
     this.onOpen(port, port === this.primary);
   }
 
-  async handle(request: WireRequest): Promise<WireResponse> {
+  close(port: number): void {
+    if (!this.servers.delete(port)) return;
+    if (this.primary === port) this.primary = this.servers.keys().next().value ?? null;
+    this.onClose(port);
+  }
+
+  private resolve(request: WireRequest): { port: number | null; server: HttpServer | undefined } {
     const port = request.port ?? this.primary;
-    const handler = port === null ? undefined : this.handlers.get(port);
-    if (!handler) {
-      return text(
+    return { port, server: port === null ? undefined : this.servers.get(port) };
+  }
+
+  /** The most recent requests, oldest first (bounded). */
+  private readonly log: NetworkLogEntry[] = [];
+  private nextSeq = 1;
+
+  /** Requests served after `since` (a `seq`), oldest first. */
+  networkLog(since = 0): NetworkLogEntry[] {
+    return this.log.filter((e) => e.seq > since);
+  }
+
+  async handle(request: WireRequest): Promise<WireResponse> {
+    const started = performance.now();
+    const res = await this.serve(request);
+    this.log.push({
+      seq: this.nextSeq++,
+      time: Date.now(),
+      port: request.port ?? this.primary,
+      method: request.method,
+      path: request.path,
+      status: res.status,
+      durationMs: Math.round((performance.now() - started) * 10) / 10,
+      ...(request.from ? { from: request.from } : {}),
+    });
+    if (this.log.length > NETWORK_LOG_SIZE) this.log.splice(0, this.log.length - NETWORK_LOG_SIZE);
+    return res;
+  }
+
+  private async serve(request: WireRequest): Promise<WireResponse> {
+    const { port, server } = this.resolve(request);
+    if (!server) {
+      const res = text(
         502,
         'Bad Gateway',
         port === null
           ? 'No server is listening in this instance.'
           : `Nothing is listening on port ${port}.`,
       );
+      res.headers.push([NO_LISTENER_HEADER, '1']);
+      return res;
     }
     try {
-      return await handler(request);
+      return await server.fetch(request);
     } catch (err) {
       return text(500, 'Internal Server Error', err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /** Routes an upgrade; the socket is closed when nothing accepts it. */
+  upgrade(request: WireRequest, socket: MessagePort): void {
+    const { server } = this.resolve(request);
+    if (!server?.upgrade) {
+      socket.postMessage(null);
+      socket.close();
+      return;
+    }
+    server.upgrade(request, socket);
   }
 }

@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createTestModule } from './test-runner.ts';
+import { installStdioFds } from './fs-stdio.ts';
+import { createV8 } from './v8.ts';
+import { createHttp2 } from './http2.ts';
+import { createReadline } from './readline.ts';
 import { assertModule } from './assert.ts';
 import { bufferModule } from './buffer.ts';
 import type { createConsole } from './console.ts';
@@ -8,6 +13,8 @@ import { createOs } from './os.ts';
 import type { PosixPath } from './path.ts';
 import type { NodeProcess } from './process-object.ts';
 import { querystringModule } from './querystring.ts';
+import { diagnosticsChannelModule } from './diagnostics-channel.ts';
+import { asyncHooksModule } from './async-hooks.ts';
 import { stringDecoderModule } from './string-decoder.ts';
 import { urlModule } from './url.ts';
 import { utilModule } from './util.ts';
@@ -16,6 +23,12 @@ import { createConsumers, loadStreamModule } from './stream.ts';
 import { createChildProcess, createWatchers } from './child-process.ts';
 import type { EventLoop } from './event-loop.ts';
 import type { ProcessContext } from '@clientvm/process';
+import { createNet } from './net.ts';
+import type { NetModule } from './net.ts';
+import { createHttp } from './http.ts';
+import { createZlib } from './zlib.ts';
+import { cryptoModule } from './crypto.ts';
+import { createDns, createTls } from './dns-tls.ts';
 
 export interface BuiltinDeps {
   fs: NodeFs;
@@ -27,6 +40,8 @@ export interface BuiltinDeps {
   ctx: ProcessContext;
   loop: EventLoop;
   cwd: () => string;
+  /** The `worker_threads` module (created up front: a thread needs it before any require). */
+  workerThreads: Record<string, unknown>;
 }
 
 /**
@@ -68,6 +83,7 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     }));
   const defer = (fn: () => void) => (deps.timers['setImmediate'] as (f: () => void) => void)(fn);
   const fsFull = extendFs({ fs, path, stream: loadStream as never, defer });
+  installStdioFds(fsFull, () => process as never);
   const statForWatch = (p: string) =>
     fs.statSync(p, { throwIfNoEntry: false }) as { mtimeMs: number; size: number } | undefined;
   Object.assign(
@@ -119,6 +135,7 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     'assert/strict': assertModule.strict,
     buffer: bufferModule,
     console: deps.console,
+    crypto: cryptoModule,
     constants: { ...fs.constants, ...createOs(deps.env).constants.signals },
     events: eventsModule,
     fs: fsFull,
@@ -127,8 +144,11 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
     os: createOs(deps.env),
     path,
     'path/posix': path,
+    'path/win32': path.win32,
     process,
     querystring: querystringModule,
+    diagnostics_channel: diagnosticsChannelModule,
+    async_hooks: asyncHooksModule,
     string_decoder: stringDecoderModule,
     timers: deps.timers,
     'timers/promises': timersPromises,
@@ -171,6 +191,48 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   const lazy = (name: string, get: () => unknown) =>
     Object.defineProperty(table, name, { get, enumerable: true, configurable: true });
   lazy('stream', loadStream);
+  let net: NetModule | undefined;
+  const loadNet = () =>
+    (net ??= createNet({ ctx: deps.ctx, loop: deps.loop, stream: loadStream as never }));
+  let http: Record<string, unknown> | undefined;
+  let https: Record<string, unknown> | undefined;
+  lazy('net', () => loadNet().module);
+  let dns: Record<string, unknown> | undefined;
+  let tls: Record<string, unknown> | undefined;
+  lazy('dns', () => (dns ??= createDns()));
+  lazy('dns/promises', () => (dns ??= createDns())['promises']);
+  lazy('tls', () => (tls ??= createTls(loadNet())));
+  let readline: ReturnType<typeof createReadline> | undefined;
+  lazy('readline', () => (readline ??= createReadline()).readline);
+  lazy('readline/promises', () => (readline ??= createReadline()).promises);
+  let v8: Record<string, unknown> | undefined;
+  lazy('v8', () => (v8 ??= createV8()));
+  table['worker_threads'] = deps.workerThreads;
+  let testModule: Record<string, unknown> | undefined;
+  lazy(
+    'test',
+    () =>
+      (testModule ??= createTestModule({
+        write: (text) =>
+          (process as unknown as { stdout: { write(s: string): void } }).stdout.write(text),
+        setExitCode: (code) => ((process as unknown as { exitCode?: number }).exitCode = code),
+        hold: () => deps.loop.handle(),
+        assert: assertModule,
+        setImmediate: (fn) => (deps.timers['setImmediate'] as (f: () => void) => unknown)(fn),
+      })),
+  );
+  let http2: Record<string, unknown> | undefined;
+  lazy('http2', () => (http2 ??= createHttp2()));
+  let zlib: Record<string, unknown> | undefined;
+  lazy('zlib', () => (zlib ??= createZlib(loadStream as never)));
+  lazy(
+    'http',
+    () => (http ??= createHttp({ net: loadNet(), stream: loadStream as never }, 'http:')),
+  );
+  lazy(
+    'https',
+    () => (https ??= createHttp({ net: loadNet(), stream: loadStream as never }, 'https:')),
+  );
   lazy('stream/promises', () => loadStream()['promises']);
   lazy('stream/consumers', () => createConsumers(bufferModule.Buffer as never));
   lazy('_stream_readable', () => loadStream()['Readable']);

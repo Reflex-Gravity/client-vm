@@ -6,7 +6,10 @@
     { "path": "packages/kernel" },
     { "path": "packages/process" },
     { "path": "packages/node-compat" },
+    { "path": "packages/shell" },
     { "path": "packages/clientvm" },
-    { "path": "packages/sandbox-host" }
+    { "path": "packages/agent-api" },
+    { "path": "packages/sandbox-host" },
+    { "path": "examples/agent-playground" }
   ]
 }

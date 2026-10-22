@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClientVM agent playground</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        height: 100vh;
+      }
+      section {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding: 12px;
+        gap: 8px;
+      }
+      section + section {
+        border-left: 1px solid #8884;
+      }
+      pre {
+        flex: 1;
+        overflow: auto;
+        margin: 0;
+        padding: 8px;
+        background: #8881;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      textarea,
+      input,
+      select,
+      button {
+        font: inherit;
+      }
+      textarea {
+        min-height: 6em;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+      }
+      iframe {
+        flex: 1;
+        border: 1px solid #8884;
+        background: white;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      .row > input,
+      .row > select {
+        flex: 1;
+      }
+      h2 {
+        font-size: 14px;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <h2>Shell <small id="status">booting…</small></h2>
+      <form id="exec" class="row">
+        <input id="cmd" placeholder="Command, e.g. ls -la" autocomplete="off" />
+        <button>Run</button>
+      </form>
+      <pre id="terminal"></pre>
+      <h2>Agent tools</h2>
+      <div class="row">
+        <select id="tool"></select>
+        <button id="call">Call</button>
+      </div>
+      <textarea id="input" spellcheck="false"></textarea>
+      <pre id="result"></pre>
+    </section>
+    <section>
+      <h2>Preview <small id="url"></small></h2>
+      <iframe id="preview" title="Preview"></iframe>
+    </section>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

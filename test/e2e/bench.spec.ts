@@ -12,6 +12,8 @@ const SPAWN_SAMPLES = 20;
  */
 test('syscall latency and spawn benchmarks', async ({ page, browser }) => {
   const kernelBootMs = await openSandbox(page);
+  let shellLoop10kMs = 0;
+  let memory: unknown = null;
 
   const syscalls: Record<string, unknown> = {};
   for (const mode of ['waitAsync', 'postMessage'] as const) {
@@ -83,11 +85,36 @@ test('syscall latency and spawn benchmarks', async ({ page, browser }) => {
     await host(page, 'destroy', restored, true);
   }
 
+  // Instance creation (iframe on a new origin, kernel boot, SW link) after the first.
+  const creates: number[] = [];
+  for (let i = 0; i < 6; i++) {
+    const t0 = Date.now();
+    const id = await host(page, 'createInstance');
+    if (i > 0) creates.push(Date.now() - t0);
+    if (i === 5) {
+      // A tight shell loop: in-process builtins, no process spawns.
+      const s0 = Date.now();
+      const r = await host(
+        page,
+        'exec',
+        id,
+        'i=0; while [ $i -lt 10000 ]; do i=$((i+1)); done; echo $i',
+      );
+      expect(r.stdout).toBe('10000\n');
+      shellLoop10kMs = Date.now() - s0;
+      memory = await host(page, 'memory', id);
+    }
+    await host(page, 'destroy', id);
+  }
+
   const report = {
     date: new Date().toISOString(),
     browser: `${browser.browserType().name()} ${browser.version()}`,
     iterations: ITERATIONS,
     kernelBootMs: round(kernelBootMs),
+    instanceCreateMs: summarize(creates),
+    shellLoop10kMs,
+    memory,
     syscalls,
     spawn,
     persistence,

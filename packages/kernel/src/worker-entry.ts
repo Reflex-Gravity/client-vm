@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-import { RpcEndpoint, SystemError, decodeUtf8, encodeUtf8 } from '@clientvm/protocol';
+import {
+  MAILBOX_HOST,
+  NO_LISTENER_HEADER,
+  RpcEndpoint,
+  SystemError,
+  decodeUtf8,
+  encodeUtf8,
+  withTransfer,
+} from '@clientvm/protocol';
 import type {
+  ControllerRpc,
   FileKind,
   HttpRpc,
   InstanceEvents,
@@ -9,9 +18,12 @@ import type {
   PortLike,
   SpawnRequest,
   StatData,
+  WireRequest,
+  WireResponse,
   WireStat,
 } from '@clientvm/protocol';
 import {
+  MemoryVfs,
   OpfsBackend,
   Persister,
   S_IFDIR,
@@ -24,6 +36,9 @@ import {
 } from '@clientvm/vfs';
 import type { PersistenceBackend, Snapshot } from '@clientvm/vfs';
 import { HttpRouter, staticHandler } from './http.ts';
+import { Inbox, mailboxHandler } from './mailbox.ts';
+import { exportTree } from './mounts.ts';
+import { NetStack } from './net.ts';
 import { ModuleServer } from './module-server.ts';
 import { DEFAULT_ENV } from './commands.ts';
 import { Kernel } from './kernel.ts';
@@ -46,7 +61,23 @@ export type KernelWorkerOptions = Pick<
    * origin's OPFS, guarded by a Web Lock so only one tab owns it.
    */
   openPersistence?: () => Promise<{ backend: PersistenceBackend; release(): void }>;
+  /**
+   * Measures the instance's memory in bytes. Dedicated workers lack
+   * `performance.measureUserAgentSpecificMemory`, so the instance page
+   * measures (its agent cluster: page, kernel and process workers).
+   */
+  measureMemory?: () => Promise<number | null>;
 };
+
+/** Sent by the kernel to the instance page; the page answers on `port` with {@link MemoryReply}. */
+export interface KernelMeasureMemoryMessage {
+  t: 'clientvm:measure-memory';
+  port: MessagePort;
+}
+
+export interface MemoryReply {
+  bytes: number | null;
+}
 
 /** Sent by the instance page when it is being hidden or unloaded. */
 export interface KernelFlushMessage {
@@ -123,8 +154,13 @@ export function serveInstance(
 ): Promise<ServedInstance> {
   let methods: InstanceRpc | undefined;
   // eslint-disable-next-line prefer-const -- assigned after the endpoint that boot() emits through
-  let rpc: RpcEndpoint<InstanceRpc, InstanceEvents>;
-  const ready = boot(init, options, (event, ...args) => rpc.emit(event, ...args)).then((booted) => {
+  let rpc: RpcEndpoint<InstanceRpc, InstanceEvents & ControllerRpc>;
+  const ready = boot(
+    init,
+    options,
+    (event, ...args) => rpc.emit(event, ...args),
+    (method, ...args) => rpc.call(method, ...args),
+  ).then((booted) => {
     methods = booted.methods;
     return booted.served;
   });
@@ -133,12 +169,13 @@ export function serveInstance(
       (_target, name: string) =>
       async (...args: unknown[]) => {
         await ready;
-        const method = (methods as unknown as Record<string, (...a: unknown[]) => unknown>)[name];
-        if (!method) throw new SystemError('ENOSYS', name);
+        const table = methods as unknown as Record<string, (...a: unknown[]) => unknown>;
+        const method = Object.hasOwn(table, name) ? table[name] : undefined;
+        if (typeof method !== 'function') throw new SystemError('ENOSYS', name);
         return method(...args);
       },
   });
-  rpc = new RpcEndpoint<InstanceRpc, InstanceEvents>(port, gated);
+  rpc = new RpcEndpoint<InstanceRpc, InstanceEvents & ControllerRpc>(port, gated);
   return ready;
 }
 
@@ -147,10 +184,16 @@ type Emit = <K extends keyof InstanceEvents>(
   ...args: Parameters<InstanceEvents[K]>
 ) => void;
 
+type CallController = <K extends keyof ControllerRpc>(
+  method: K,
+  ...args: Parameters<ControllerRpc[K]>
+) => Promise<Awaited<ReturnType<ControllerRpc[K]>>>;
+
 async function boot(
   init: InstanceInit,
   options: KernelWorkerOptions,
   emit: Emit,
+  callController: CallController,
 ): Promise<{ methods: InstanceRpc; served: ServedInstance }> {
   let store: { backend: PersistenceBackend; release(): void } | null = null;
   let restored: { snapshot: Snapshot; generation: number } | null = null;
@@ -164,7 +207,18 @@ async function boot(
     }
   }
 
-  const { quotaBytes, maxInodes, maxProcesses } = init.limits ?? {};
+  const { quotaBytes, maxInodes, maxProcesses, maxCpuMs } = init.limits ?? {};
+
+  // Ports are announced only once a service worker link exists, so a preview
+  // opened in response always reaches the kernel.
+  let httpLinked = false;
+  const router = new HttpRouter(
+    (port, primary) => {
+      if (httpLinked) emit('portOpen', port, primary);
+    },
+    (port) => emit('portClose', port),
+  );
+  const net = new NetStack(router);
   const kernel = new Kernel({
     createProcessWorker: options.createProcessWorker,
     ...(options.commands ? { commands: options.commands } : {}),
@@ -174,6 +228,8 @@ async function boot(
       ...(maxInodes === undefined ? {} : { maxInodes }),
     },
     ...(maxProcesses === undefined ? {} : { maxProcesses }),
+    ...(typeof maxCpuMs === 'number' && maxCpuMs > 0 ? { maxCpuMs } : {}),
+    net,
     ...(restored ? { snapshot: restored.snapshot } : init.image ? { image: init.image } : {}),
   });
   if (!restored) {
@@ -190,20 +246,45 @@ async function boot(
     await persister?.flush();
   };
 
-  // Ports are announced only once a service worker link exists, so a preview
-  // iframe opened in response always reaches the kernel.
-  let httpLinked = false;
   const modules = new ModuleServer(kernel.vfs);
-  const router = new HttpRouter((port, primary) => {
-    if (httpLinked) emit('portOpen', port, primary);
-  });
+  const inbox = new Inbox();
+  const mailbox = mailboxHandler({ id: init.id, name: init.name ?? null }, inbox, (to, message) =>
+    callController('mailboxSend', to, message),
+  );
+  /** Requests from processes to `http://<peer>.internal/`: the mailbox, or another instance. */
+  const fetchPeer = async (req: WireRequest & { peer: string }): Promise<WireResponse> => {
+    if (req.peer === MAILBOX_HOST) return mailbox(req);
+    try {
+      return await callController('netFetch', req.peer, req);
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        status: code === 'ERR_NO_CAPABILITY' ? 403 : 502,
+        statusText: code === 'ERR_NO_CAPABILITY' ? 'Forbidden' : 'Bad Gateway',
+        headers: [
+          ['content-type', 'text/plain; charset=utf-8'],
+          // An unknown instance refuses connections, like a closed port.
+          ...(code === 'ERR_NO_INSTANCE'
+            ? ([[NO_LISTENER_HEADER, '1']] as [string, string][])
+            : []),
+        ],
+        body: encodeUtf8(`ClientVM: ${message}\n`),
+      };
+    }
+  };
   const attachHttpPort = (port: MessagePort) => {
     new RpcEndpoint<HttpRpc, Record<string, never>>(port, {
       fetch: async (req) => {
+        if (typeof req.peer === 'string')
+          return transferBody(await fetchPeer(req as WireRequest & { peer: string }));
         // Module requests (a process importing from the VFS) only come from the instance origin itself.
         if (req.port === null && modules.handles(new URL(req.path, 'http://x').pathname))
           return modules.handle(req);
-        return router.handle(req);
+        return transferBody(await router.handle(req));
+      },
+      upgrade: async (req, socket) => {
+        if (socket instanceof MessagePort) router.upgrade(req, socket);
       },
     });
     if (httpLinked) return;
@@ -297,7 +378,13 @@ async function boot(
         );
         proc.writeStdin(null);
       }
+      const timeout = request.timeoutMs;
+      const timer =
+        typeof timeout === 'number' && Number.isFinite(timeout) && timeout > 0
+          ? setTimeout(() => proc.kill('SIGTERM'), timeout)
+          : undefined;
       const { code, signal } = await proc.exit;
+      if (timer !== undefined) clearTimeout(timer);
       const { spawnedAt, readyAt, exitedAt } = proc.timing;
       return {
         code,
@@ -327,6 +414,17 @@ async function boot(
         : null,
     }),
     flush,
+    linkPort(port, channel) {
+      if (!Number.isInteger(port) || !(channel instanceof MessagePort))
+        throw new SystemError('EINVAL', 'linkPort');
+      // A port origin only ever reaches its own port; module routes stay on the instance origin.
+      new RpcEndpoint<HttpRpc, Record<string, never>>(channel, {
+        fetch: async (req) => transferBody(await router.handle({ ...req, port })),
+        upgrade: async (req, socket) => {
+          if (socket instanceof MessagePort) router.upgrade({ ...req, port }, socket);
+        },
+      });
+    },
     serveStatic(port, dir) {
       if (typeof dir !== 'string' || !dir.startsWith('/'))
         throw new SystemError('EINVAL', 'listen');
@@ -336,6 +434,52 @@ async function boot(
       if (!persister || !store) return;
       persister.close();
       await purgePersisted(store.backend);
+    },
+    mailboxDeliver(from, fromName, message) {
+      if (typeof from !== 'string') throw new SystemError('EINVAL', 'mailbox');
+      inbox.deliver({ from, fromName: typeof fromName === 'string' ? fromName : null, message });
+    },
+    async fetchPort(request) {
+      // The controller already routed it here; serve it as a local request.
+      const req: WireRequest = { ...request };
+      delete req.peer;
+      return transferBody(await router.handle(req));
+    },
+    exportTree(path, snapshot) {
+      if (typeof path !== 'string' || !path.startsWith('/'))
+        throw new SystemError('EINVAL', 'export');
+      const vfs =
+        snapshot === null ? kernel.vfs : MemoryVfs.fromSnapshot(kernel.getSnapshot(snapshot));
+      return exportTree(vfs, path);
+    },
+    mountMirror(path, entries) {
+      if (typeof path !== 'string' || !path.startsWith('/') || !Array.isArray(entries))
+        throw new SystemError('EINVAL', 'mount');
+      kernel.mounts.mount(path, entries);
+    },
+    mirrorUpdate(path, ops) {
+      if (typeof path !== 'string' || !Array.isArray(ops)) throw new SystemError('EINVAL', 'mount');
+      kernel.mounts.update(path, ops);
+    },
+    async measureMemory() {
+      if (options.measureMemory) {
+        const bytes = await options.measureMemory();
+        return bytes === null ? null : { bytes };
+      }
+      const perf = performance as Performance & {
+        measureUserAgentSpecificMemory?: () => Promise<{ bytes: number }>;
+      };
+      if (!perf.measureUserAgentSpecificMemory) return null;
+      try {
+        return { bytes: (await perf.measureUserAgentSpecificMemory()).bytes };
+      } catch {
+        return null;
+      }
+    },
+    networkLog: (since) => router.networkLog(typeof since === 'number' ? since : 0),
+    unmount(path) {
+      if (typeof path !== 'string') throw new SystemError('EINVAL', 'umount');
+      kernel.mounts.unmount(path);
     },
     async shutdown() {
       kernel.killAll('SIGKILL');
@@ -350,6 +494,11 @@ async function boot(
   };
 
   return { methods, served: { kernel, flush, attachHttpPort } };
+}
+
+/** Streams are transferred to the service worker rather than cloned (they cannot be). */
+function transferBody(res: WireResponse): WireResponse {
+  return res.body instanceof ReadableStream ? withTransfer(res, [res.body]) : res;
 }
 
 function kindOf(mode: number): FileKind {

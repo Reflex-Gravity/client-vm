@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import type { WireRequest, WireResponse } from './http-rpc.ts';
+import type { NetworkLogEntry } from './preview-rpc.ts';
 import type { SyscallMode } from './process-messages.ts';
 
 /**
@@ -12,7 +14,9 @@ export type FileKind = 'file' | 'dir' | 'symlink';
 export interface InstanceInit {
   /** Instance id, also the first DNS label of the instance origin. */
   id: string;
-  limits?: { quotaBytes?: number; maxInodes?: number; maxProcesses?: number };
+  /** The instance's name (its `.internal` host name besides the id), if it has one. */
+  name?: string;
+  limits?: { quotaBytes?: number; maxInodes?: number; maxProcesses?: number; maxCpuMs?: number };
   /** Boot from a filesystem image (fork) instead of the default seed. */
   image?: Uint8Array[];
   /** Files to write after boot: path -> contents (directories are created). Ignored when restoring persisted state. */
@@ -42,7 +46,17 @@ export type WireFsEvent =
   | { type: 'create' | 'modify' | 'delete'; path: string }
   | { type: 'rename'; from: string; to: string };
 
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP';
+/** One node of an exported subtree; `rel` is relative to the export root ('' is the root). */
+export type TreeEntry =
+  | { rel: string; type: 'dir'; mode: number }
+  | { rel: string; type: 'file'; mode: number; data: Uint8Array }
+  | { rel: string; type: 'symlink'; target: string };
+
+/** An update to a mirrored mount: replace the subtree at `at`, or delete it. */
+export type MirrorOp =
+  { op: 'put'; at: string; entries: TreeEntry[] } | { op: 'delete'; at: string };
+
+export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGINT' | 'SIGHUP' | 'SIGPIPE' | 'SIGXCPU';
 
 export interface SpawnRequest {
   argv: string[];
@@ -51,6 +65,8 @@ export interface SpawnRequest {
   syscallMode?: SyscallMode;
   /** For `run`: bytes written to stdin before it is closed. `spawn` keeps stdin open. */
   stdin?: string | Uint8Array;
+  /** For `run`: send SIGTERM to the process (and its children) after this many milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface RunResult {
@@ -100,8 +116,45 @@ export type InstanceRpc = {
    * served at the instance origin's root.
    */
   serveStatic(port: number, dir: string): void;
+  /**
+   * Serves HTTP for one virtual port on `channel` (the other end belongs to
+   * that port origin's service worker, via the controller's bridge page).
+   */
+  linkPort(port: number, channel: MessagePort): void;
   /** Kills all processes and flushes persisted state; the controller removes the iframe afterwards. */
   shutdown(): Promise<void>;
+  /** Puts a mailbox message from another instance (or the host) in this instance's inbox. */
+  mailboxDeliver(from: string, fromName: string | null, message: unknown): void;
+  /** Serves a request from another instance (`http://<this>.internal:<port>/`) on a virtual port. */
+  fetchPort(request: WireRequest): Promise<WireResponse>;
+  /** Copies the subtree at `path` (of a snapshot, or the live tree when null) for a mount. */
+  exportTree(path: string, snapshot: number | null): TreeEntry[];
+  /** Creates a read-only mirrored mount at `path` (absent or an empty directory). */
+  mountMirror(path: string, entries: TreeEntry[]): void;
+  /** Applies source changes to a mirrored mount. */
+  mirrorUpdate(path: string, ops: MirrorOp[]): void;
+  /** Removes a mount, leaving an empty directory. */
+  unmount(path: string): void;
+  /** Requests served on virtual ports after `since` (a `seq`). */
+  networkLog(since: number): NetworkLogEntry[];
+  /**
+   * Memory used by this instance's origin (kernel and processes), from
+   * `performance.measureUserAgentSpecificMemory()`; null where the browser
+   * cannot measure it. May wait for a garbage collection.
+   */
+  measureMemory(): Promise<{ bytes: number } | null>;
+};
+
+/**
+ * Requests a kernel makes of the controller. The controller checks each one
+ * against the calling instance's capabilities; failures carry `code`
+ * `ERR_NO_CAPABILITY` or `ERR_NO_INSTANCE`.
+ */
+export type ControllerRpc = {
+  /** Sends a mailbox message as this instance. */
+  mailboxSend(to: string, message: unknown): void;
+  /** Forwards a request to `http://<peer>.internal:<port>/`. */
+  netFetch(peer: string, request: WireRequest): Promise<WireResponse>;
 };
 
 export interface PersistInfo {
@@ -118,8 +171,10 @@ export type InstanceEvents = {
   output(pid: number, fd: 1 | 2, data: Uint8Array): void;
   exit(pid: number, code: number, signal: Signal | null): void;
   fsEvents(watchId: number, events: WireFsEvent[]): void;
-  /** A virtual port is accepting requests through the service worker. */
+  /** A virtual port is accepting requests. The controller links a port origin to it. */
   portOpen(port: number, primary: boolean): void;
+  /** A virtual port stopped listening. */
+  portClose(port: number): void;
 };
 
 /** Messages exchanged between the controller and the instance page during the handshake. */
@@ -131,5 +186,7 @@ export const SIGNAL_NUMBERS: Record<Signal, number> = {
   SIGHUP: 1,
   SIGINT: 2,
   SIGKILL: 9,
+  SIGPIPE: 13,
+  SIGXCPU: 24,
   SIGTERM: 15,
 };

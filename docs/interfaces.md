@@ -24,17 +24,35 @@ affect decisions, CLAUDE.md.
 | `InstanceOptions.fs.persist`, `Instance.flush()`, `destroy({ purge })` | done (2c): write-behind OPFS persistence, one tab per persistent instance (`EBUSY` otherwise) |
 | `InstanceOptions.fs.from` (`FileTree` or `SnapshotId`), `fs.quotaBytes`, `limits.maxProcesses` | done |
 | `Instance.fs`: `readFile writeFile readdir stat mkdir rm rename symlink watch` | done (`watch` is recursive) |
-| `Instance.fs.mount` | Phase 4 → `NotImplementedError` |
-| `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `kill`, `exit` | done. `stdin` writes reject until node-compat reads stdin. Output is buffered without bound until read |
+| `Instance.fs.mount`/`unmount` | done (4c): read-only mirrors of another instance's directory (kept in step from its watch events) or of a snapshot; needs a `mount` capability; writes under a mount fail with `EROFS`, including through symlinks; writable mounts reject with `ERR_NOT_SUPPORTED` |
+| `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `stdin`, `kill`, `exit` | done. `stdin` writes reach the process (`process.stdin`, `fs.read(0)`); closing it sends EOF. Unread output is buffered up to 8 MiB per stream, then dropped with a note on that stream (5c) |
+| `Limits.maxCpuMs` | done (5c): a watchdog pings each process; one that runs JavaScript for `maxCpuMs` without yielding (time blocked in syscalls does not count) is killed with `SIGXCPU` (exit 152) |
+| `Limits.maxMemoryMB` | accepted, not enforced (open-questions.md) |
+| `Instance.measureMemory()` | done (5c): bytes for the instance page and kernel worker via `performance.measureUserAgentSpecificMemory()` on the instance origin; process workers are not attributed by Chromium. Tracked by the benchmark gate |
 | `Instance.snapshot()` → `"<instanceId>:<n>"` | done. Held by the source kernel; gone when it is destroyed |
-| `Instance.fork()` | done: image export → new origin |
+| `Instance.createChild(opts)` | done (4e): a child instance with a fresh filesystem; needs `spawn-instance` like `fork` |
+| `@clientvm/agent-api` `createAgentTools({ instance })` | done (4e): LLM tool definitions and a dispatcher ([agent-api.md](agent-api.md)) |
+| `Instance.fork()` | done: image export → new origin. Since 4a it needs a `spawn-instance` capability, whose limits bound the child's |
 | `Instance.destroy()` | done |
-| `Instance.exec` | Phase 3 (needs the shell) → `NotImplementedError` |
-| `Instance.onPortOpen` | done (2d): fires for open and future virtual ports with a preview URL. Until `http.createServer` exists (Phase 3), ports are opened with the internal `serveStatic` |
-| `Instance.mailbox`, `Instance.grant` | Phase 4 → `NotImplementedError` |
+| `Instance.exec` | done (3c): `sh -c` to completion with `cwd`, `env`, `stdin`, `timeoutMs` (SIGTERM to the shell and every process it started) |
+| `Instance.onPortOpen` | done (3d): fires for open and future virtual ports with the port's own origin, `https://<id>-p<port>.<sandbox-domain>/` (ADR 0008), once its service worker is linked |
+| `Instance.onPortClose` | done (3d): fires when a reported port stops listening (its server closed or its process exited) |
+| `InstanceOptions.name`, `Instance.name` | done (4a): a DNS label, unique among live instances; the instance's `<name>.internal` host name |
+| `ClientVM.grant`/`revoke`, `Instance.grant`/`revoke`/`capabilities`, `InstanceOptions.capabilities` | done (4a): the controller's capability table. Instances grant what is about themselves or delegate what they hold; children get no more than their parent could grant (docs/phase4-plan.md) |
+| `Instance.mailbox` | done (4a): `send` needs a `channel` capability; JSON values up to 1 MiB; delivery goes to host listeners and to the kernel inbox, which processes read at `http://mailbox.internal/` |
+| `Instance.openPreview(port, opts)` → `Preview` | done (4d): an iframe on the port origin driven through the injected agent: `snapshot` (outline with `[ref=eN]` targets, optional HTML), `click`, `type`, `press`, `waitFor`, `evaluate`, `screenshot` (PNG via SVG `foreignObject`), `console` (captured from the first script of each page, across navigations), `navigate`, `reload`, `close` |
+| `Instance.networkLog(since)` | done (4d): the last 500 requests served on virtual ports (method, path, status, time to headers, requesting instance) |
+| `http://<name>.internal:<port>/` from processes | done (4b): needs a `net` capability for the peer (and port); HTTP only, responses stream |
 
-Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`,
-`ERR_BOOT_TIMEOUT`, `ERR_INSTANCE_PROTOCOL`, `ERR_DESTROYED`, ...). Errors from inside an instance
+Instances that crash (their renderer process dies) are detected by a heartbeat
+(`ClientVMOptions.heartbeatMs`, default 5000; a kernel silent for four intervals is gone): the
+instance is torn down, its processes exit with `SIGKILL`, and pending and later calls reject with
+`ERR_INSTANCE_CRASHED`. At most 64 ports per instance get a port origin (bridge iframe); further
+ports are not reported by `onPortOpen`.
+
+Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`, `ERR_INSTANCE_CRASHED`,
+`ERR_BOOT_TIMEOUT`, `ERR_INSTANCE_PROTOCOL`, `ERR_DESTROYED`, `ERR_NO_CAPABILITY`,
+`ERR_NO_INSTANCE`, `ERR_INVALID_CAPABILITY`, `ERR_INVALID_MESSAGE`, ...). Errors from inside an instance
 keep the system error `code` (`ENOENT`, `EAGAIN`, ...).
 
 ## Internal interfaces (not public API)
@@ -46,3 +64,5 @@ keep the system error `code` (`ENOENT`, `EAGAIN`, ...).
   | Promise<…>`. `ctx` provides `argv`, `env`, `cwd`, `syscall`, `stdout`, and `stderr`.
 - **Instance RPC** (`@clientvm/protocol` `InstanceRpc` / `InstanceEvents`): what an instance kernel
   serves to the controller over its MessagePort, plus the handshake messages.
+- **Controller RPC** (`ControllerRpc`): requests a kernel makes of the controller on the same
+  port (`mailboxSend`, `netFetch`). They run with the calling instance's capabilities.

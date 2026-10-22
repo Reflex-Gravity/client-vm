@@ -194,6 +194,11 @@ export class SyscallServer {
     }
   }
 
+  /** True while the process is parked in a syscall (it cannot run JavaScript then). */
+  get waiting(): boolean {
+    return this.busy || Atomics.load(this.ch.header, Slot.STATE) === State.REQUEST;
+  }
+
   close(): void {
     this.closed = true;
     // Wake a parked listen() loop so it can observe `closed`.

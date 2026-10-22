@@ -135,6 +135,7 @@ test.describe('instances', () => {
     await openHost(page);
     const a = await host(page, 'createInstance', {
       fs: { from: { app: { 'index.js': "console.log('v1')" } } },
+      capabilities: [{ kind: 'spawn-instance' }],
     });
     expect((await host(page, 'run', a, { argv: ['node', '/app/index.js'] })).stdout).toBe('v1\n');
     const b = await host(page, 'fork', a);
@@ -153,6 +154,91 @@ test.describe('instances', () => {
     await host(page, 'writeFile', a, '/tmp/state', 'after');
     const restored = await host(page, 'createInstance', { fs: { from: snap } });
     expect(await host(page, 'readFile', restored, '/tmp/state')).toBe('before');
+  });
+
+  test('port origins are capped per instance', async ({ page }) => {
+    await openHost(page);
+    const id = await host(page, 'createInstance');
+    // 70 listening ports; the controller opens bridges for at most 64.
+    const server = host(
+      page,
+      'exec',
+      id,
+      `node -e "const h = require('http'); for (let p = 4000; p < 4070; p++) h.createServer((q, r) => r.end()).listen(p); setTimeout(() => process.exit(0), 20000)"`,
+    ).catch(() => null);
+    await expect.poll(() => host(page, 'portBridges'), { timeout: 15_000 }).toBe(64);
+    await page.waitForTimeout(1000);
+    expect(await host(page, 'portBridges')).toBe(64);
+    await host(page, 'destroy', id);
+    await server;
+  });
+
+  test('a crashed instance fails its calls and leaves the host and other instances running', async ({
+    page,
+    browser,
+  }) => {
+    await openHost(page, { heartbeatMs: 500 });
+    const a = await host(page, 'createInstance');
+    const b = await host(page, 'createInstance');
+    // Playwright treats any crashed frame process as a crashed page, so after
+    // the crash the host page is reached over raw CDP.
+    const cdp = await browser.newBrowserCDPSession();
+    const { targetInfos } = (await cdp.send('Target.getTargets')) as {
+      targetInfos: { type: string; url: string; targetId: string }[];
+    };
+    const targetOf = (pred: (t: { type: string; url: string }) => boolean) =>
+      targetInfos.find(pred)!.targetId;
+    const replies = new Map<number, (v: unknown) => void>();
+    cdp.on(
+      'Target.receivedMessageFromTarget' as never,
+      ((e: { message: string }) => {
+        const m = JSON.parse(e.message) as {
+          id: number;
+          result?: { result?: { value?: unknown } };
+        };
+        replies.get(m.id)?.(m.result?.result?.value);
+      }) as never,
+    );
+    const session = async (targetId: string) =>
+      (
+        (await cdp.send('Target.attachToTarget', { targetId, flatten: false })) as {
+          sessionId: string;
+        }
+      ).sessionId;
+    let nextId = 1;
+    const send = (sessionId: string, method: string, params: unknown = {}) =>
+      new Promise<unknown>((resolve) => {
+        const id = nextId++;
+        replies.set(id, resolve);
+        void cdp.send(
+          'Target.sendMessageToTarget' as never,
+          { sessionId, message: JSON.stringify({ id, method, params }) } as never,
+        );
+      });
+    const hostSession = await session(
+      targetOf((t) => t.type === 'page' && t.url.startsWith('http://localhost')),
+    );
+    const evalHost = (expression: string) =>
+      send(hostSession, 'Runtime.evaluate', {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+
+    void send(
+      await session(targetOf((t) => t.type === 'iframe' && t.url.includes(`//${a}.`))),
+      'Page.crash',
+    );
+
+    await expect
+      .poll(() => evalHost('JSON.stringify(__clientvm.list())'), { timeout: 10_000 })
+      .toBe(JSON.stringify([b]));
+    expect(await evalHost(`__clientvm.exec('${a}', 'true').then(() => 'ok', (e) => e.code)`)).toBe(
+      'ERR_INSTANCE_CRASHED',
+    );
+    expect(await evalHost(`__clientvm.exec('${b}', 'echo alive').then((r) => r.stdout)`)).toBe(
+      'alive\n',
+    );
   });
 
   test('destroy removes the instance and its iframe', async ({ page }) => {

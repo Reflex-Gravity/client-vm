@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { HandshakeMessage, InstanceInit } from '@clientvm/protocol';
+import type { HandshakeMessage, InstanceInit, PortBridgeMessage } from '@clientvm/protocol';
 import { ClientVMError } from './errors.ts';
 
 export interface ConnectOptions {
@@ -90,6 +90,81 @@ export function connectInstance(options: ConnectOptions): Promise<Connection> {
       iframe.contentWindow!.postMessage(connect, origin, transfer);
       cleanup();
       resolve({ iframe, port: channel.port1 });
+    };
+    window.addEventListener('message', onMessage);
+    container.append(iframe);
+  });
+}
+
+export interface PortBridgeOptions {
+  /** The port origin, e.g. `https://<id>-p3000.sandbox.example.dev`. */
+  origin: string;
+  path: string;
+  port: number;
+  container: HTMLElement;
+  timeoutMs: number;
+  /** Gives the kernel one end of a fresh channel for this port. */
+  link(channel: MessagePort): Promise<void>;
+}
+
+/**
+ * Loads the bridge page on a port origin and connects its service worker to
+ * the kernel (ADR 0008). Resolves once the first link is in place; later
+ * reconnect requests from the bridge (SW restarts or updates) are served
+ * until the iframe is removed.
+ */
+export function connectPortBridge(options: PortBridgeOptions): Promise<HTMLIFrameElement> {
+  const { origin, path, port, container, timeoutMs, link } = options;
+  const iframe = document.createElement('iframe');
+  const url = new URL(path, origin);
+  url.searchParams.set('parent', location.origin);
+  iframe.src = url.href;
+  iframe.title = `ClientVM port ${port}`;
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.tabIndex = -1;
+  Object.assign(iframe.style, {
+    position: 'absolute',
+    width: '0',
+    height: '0',
+    border: '0',
+    visibility: 'hidden',
+  });
+
+  const sendChannel = async () => {
+    const channel = new MessageChannel();
+    await link(channel.port1);
+    const msg: PortBridgeMessage = { t: 'clientvm:port-connect', v: 1, port };
+    iframe.contentWindow?.postMessage(msg, origin, [channel.port2]);
+  };
+
+  return new Promise((resolve, reject) => {
+    let ready = false;
+    const timer = setTimeout(() => {
+      if (ready) return;
+      window.removeEventListener('message', onMessage);
+      iframe.remove();
+      reject(
+        new ClientVMError(
+          `port origin ${origin} did not respond within ${timeoutMs} ms`,
+          'ERR_BOOT_TIMEOUT',
+        ),
+      );
+    }, timeoutMs);
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframe.contentWindow || event.origin !== origin) return;
+      if (!iframe.isConnected) {
+        window.removeEventListener('message', onMessage);
+        return;
+      }
+      const msg = event.data as Partial<PortBridgeMessage> | null;
+      if (msg?.v !== 1) return;
+      if (msg.t === 'clientvm:port-hello' || msg.t === 'clientvm:port-reconnect') {
+        sendChannel().catch(() => {});
+      } else if (msg.t === 'clientvm:port-ready' && !ready) {
+        ready = true;
+        clearTimeout(timer);
+        resolve(iframe);
+      }
     };
     window.addEventListener('message', onMessage);
     container.append(iframe);

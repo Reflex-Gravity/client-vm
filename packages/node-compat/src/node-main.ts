@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-import { SystemError } from '@clientvm/protocol';
+import { nativeStandIn } from './standins.ts';
+import { NO_LISTENER_HEADER, SystemError } from '@clientvm/protocol';
 import { ExitSignal } from '@clientvm/process';
 import type { ProcessContext } from '@clientvm/process';
 import { createConsole } from './console.ts';
+import { netError, virtualUrl } from './net.ts';
 import { NODE_EXEC_PATH, NODE_VERSION } from './constants.ts';
 import { createEventLoop } from './event-loop.ts';
 import { createFs } from './fs.ts';
@@ -12,31 +14,68 @@ import { createProcessObject } from './process-object.ts';
 import { createModuleSystem, requireOf } from './module/cjs-loader.ts';
 import { EsmResolver } from './module/esm-resolve.ts';
 import { installEsmRuntime } from './module/esm-runtime.ts';
+import { createWorkerThreads, receiveLinkInit } from './worker-threads.ts';
+import type { WorkerThreads } from './worker-threads.ts';
+import { analyzeEsm, tokenize } from './module/lexer.ts';
 import type { EsmRuntime } from './module/esm-runtime.ts';
 import type { ResolverFs } from './module/resolve.ts';
 import type { NodeFs } from './fs.ts';
 import { createBuiltins } from './builtins.ts';
 import { bufferModule } from './buffer.ts';
 import { warningHook } from './events.ts';
+import type { EventEmitter } from './events.ts';
+import { attachIpcToProcess } from './child-process.ts';
 import { deprecationHook } from './util.ts';
 
 type Invocation =
   | { kind: 'eval'; code: string; print: boolean; rest: string[] }
-  | { kind: 'script'; script: string; rest: string[] }
+  | { kind: 'script'; script: string; rest: string[]; check?: boolean }
+  | { kind: 'version' }
   | { kind: 'error'; message: string };
+
+/**
+ * Options that tune V8 or diagnostics in Node and have no effect here. They
+ * are accepted so scripts and tools that pass them still run.
+ */
+const IGNORED_OPTION =
+  /^--(no-warnings|no-deprecation|enable-source-maps|trace-warnings|trace-deprecation|trace-uncaught|throw-deprecation|pending-deprecation|preserve-symlinks|preserve-symlinks-main|expose-gc|abort-on-uncaught-exception|(no-)?experimental-[a-z-]+(=.*)?|max-old-space-size=\d+|max-semi-space-size=\d+|stack-size=\d+|stack-trace-limit=\d+|unhandled-rejections=(strict|warn|none|throw|warn-with-error-code))$/;
+
+/** fetch() that reaches this instance's own servers for `http://localhost:<port>` URLs. */
+function localFetch(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (input, init) => {
+    const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url;
+    const local = virtualUrl(url);
+    if (!local) return fetch(input, init);
+    return fetch(input instanceof Request ? new Request(local, input) : local, init).then((res) => {
+      if (!res.headers.has(NO_LISTENER_HEADER)) return res;
+      // As undici reports a refused connection.
+      const port = new URL(url).port || '80';
+      throw new TypeError('fetch failed', {
+        cause: netError('ECONNREFUSED', 'connect', '127.0.0.1', Number(port)),
+      });
+    });
+  };
+}
 
 /** Exit code Node uses for invalid command-line arguments. */
 const BAD_OPTION_EXIT_CODE = 9;
 
 export function parseNodeArgs(args: readonly string[]): Invocation {
   let print = false;
+  let check = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--') {
       const script = args[i + 1];
       if (script === undefined) return { kind: 'error', message: 'node: REPL is not supported' };
-      return { kind: 'script', script, rest: args.slice(i + 2) };
+      return { kind: 'script', script, rest: args.slice(i + 2), ...(check ? { check } : {}) };
     }
+    if (arg === '-c' || arg === '--check') {
+      check = true;
+      continue;
+    }
+    if (arg === '-v' || arg === '--version') return { kind: 'version' };
+    if (IGNORED_OPTION.test(arg)) continue;
     if (arg === '-p' || arg === '--print') {
       print = true;
       // `-p <code>` is shorthand for `-p -e <code>`.
@@ -62,17 +101,35 @@ export function parseNodeArgs(args: readonly string[]): Invocation {
       };
     }
     if (arg.startsWith('-')) return { kind: 'error', message: `node: bad option: ${arg}` };
-    return { kind: 'script', script: arg, rest: args.slice(i + 1) };
+    return { kind: 'script', script: arg, rest: args.slice(i + 1), ...(check ? { check } : {}) };
   }
+  if (check) return { kind: 'error', message: 'node: --check needs a script file' };
   return { kind: 'error', message: 'node: REPL is not supported' };
 }
 
 /** The `node` command: runs `-e`/`-p` code or a CommonJS script against the Node-compat globals. */
 export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
+  let threads: WorkerThreads | undefined;
+  try {
+    return await runNode(ctx, (t) => (threads = t));
+  } finally {
+    // A worker thread's last message to its parent: everything it posted is delivered first.
+    threads?.signalExit();
+  }
+}
+
+async function runNode(
+  ctx: ProcessContext,
+  onThreads: (threads: WorkerThreads) => void,
+): Promise<number> {
   const invocation = parseNodeArgs(ctx.argv.slice(1));
   if (invocation.kind === 'error') {
     ctx.stderr.write(`${invocation.message}\n`);
     return BAD_OPTION_EXIT_CODE;
+  }
+  if (invocation.kind === 'version') {
+    ctx.stdout.write(`${NODE_VERSION}\n`);
+    return 0;
   }
 
   const state = { cwd: ctx.cwd, exiting: false };
@@ -105,6 +162,26 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
   warningHook.emit = (w) => emitWarning(w);
   deprecationHook.emit = (msg, code) => emitWarning(msg, 'DeprecationWarning', code);
   const env = () => proc['env'] as Record<string, string>;
+  // A linked child (worker thread or fork) hears from its parent before running anything.
+  const link = ctx.threadPort ? await receiveLinkInit(ctx.threadPort) : null;
+  const thread = link?.t === 'init' && ctx.threadPort ? { port: ctx.threadPort, init: link } : null;
+  if (link?.t === 'ipc-init' && ctx.threadPort) {
+    attachIpcToProcess(
+      proc as unknown as EventEmitter & Record<string, unknown>,
+      ctx.threadPort,
+      link.serialization,
+      () => loop.handle(),
+    );
+  }
+  const workerThreads = createWorkerThreads({
+    ctx,
+    loop,
+    path,
+    cwd: () => state.cwd,
+    env: () => proc.env as Record<string, string>,
+    thread,
+  });
+  onThreads(workerThreads);
   const builtins = createBuiltins({
     fs,
     path,
@@ -115,6 +192,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     ctx,
     loop,
     cwd: () => state.cwd,
+    workerThreads: workerThreads.module,
   });
   const resolverFs = resolverFsFrom(fs);
   const esm = new EsmResolver(resolverFs);
@@ -128,6 +206,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     cwd: () => state.cwd,
     env,
     emitWarning: (msg, type, code) => emitWarning(msg, type, code),
+    nativeStandIn: (filename, requireFile) => nativeStandIn(fs, filename, ctx.pid, requireFile),
     compile: (source, filename) =>
       (0, eval)(`${esmRuntime.rewriteDynamicImports(source)}\n//# sourceURL=${filename}`) as (
         ...args: unknown[]
@@ -140,6 +219,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     path,
     cwd: () => state.cwd,
     mainFile: () => mainFile,
+    hold: () => loop.handle(),
   });
 
   // One process per worker, so the worker's globals are this process's globals.
@@ -149,10 +229,21 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     process: proc,
     console,
     Buffer: bufferModule.Buffer,
-    ...(loop.fetch ? { fetch: loop.fetch } : {}),
+    ...(loop.fetch ? { fetch: localFetch(loop.fetch) } : {}),
     setImmediate: loop.timers.setImmediate,
     clearImmediate: loop.timers.clearImmediate,
   });
+  // In Node the globals are the buffer module's functions. (Defined, not assigned:
+  // the worker's own atob/btoa are inherited and assignment may not shadow them.)
+  for (const name of ['atob', 'btoa'] as const) {
+    Object.defineProperty(g, name, {
+      value: bufferModule[name],
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+  matchNodeGlobalEnumerability(globalThis);
 
   /** Runs 'exit' listeners once (Node emits it on normal exit and on process.exit()). */
   const finish = (code: number): number => {
@@ -162,7 +253,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
         proc.emit('exit', proc.exitCode ?? code);
       } catch (err) {
         if (err instanceof ExitSignal) return err.code;
-        reportUncaught(ctx, err);
+        reportUncaught(ctx, err, workerThreads);
         return 7;
       }
     }
@@ -185,7 +276,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
         if (err instanceof ExitSignal) return resolve(err.code);
         error = err;
       }
-      reportUncaught(ctx, error);
+      reportUncaught(ctx, error, workerThreads);
       resolve(finish(1));
     };
     globalThis.addEventListener('error', (e) => {
@@ -216,6 +307,17 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
       const code = esmRuntime.rewriteDynamicImports(invocation.code);
       const result: unknown = (0, eval)(`${code}\n//# sourceURL=[eval]`);
       if (invocation.print) console.log(result);
+    } else if (invocation.check) {
+      // `node --check`: parse without running.
+      const file = Module._resolveFilename(scriptPath!, null, true);
+      const source = resolverFs.readFile(file) ?? '';
+      const format = esm.format(file, () => source);
+      const error = await syntaxCheck(source, format === 'module');
+      if (error) {
+        ctx.stderr.write(`${file}\n${error.name}: ${error.message}\n\nNode.js ${NODE_VERSION}\n`);
+        return finish(1);
+      }
+      return finish(0);
     } else {
       // Node resolves the entry with CommonJS rules, then picks the loader by format.
       mainFile = Module._resolveFilename(scriptPath!, null, true);
@@ -234,7 +336,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
       err = inner;
     }
     if (!handled) {
-      reportUncaught(ctx, err);
+      reportUncaught(ctx, err, workerThreads);
       return finish(1);
     }
   }
@@ -244,10 +346,101 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     proc.emit('beforeExit', proc.exitCode ?? 0);
     return loop.drain();
   });
-  return Promise.race([drained.then(() => finish(0)), fatal]);
+  // Not Promise.race: it iterates its argument, and user code may have
+  // replaced Array iteration by now (Node's shutdown never calls user code).
+  return new Promise<number>((resolve, reject) => {
+    drained.then(() => finish(0)).then(resolve, reject);
+    fatal.then(resolve, reject);
+  });
 }
 
-function reportUncaught(ctx: ProcessContext, err: unknown): void {
+/**
+ * Returns the syntax error in `source`, if any, without running it. Modules
+ * are linked as a blob with their static imports blanked out and a `throw`
+ * first, so nothing executes.
+ */
+async function syntaxCheck(source: string, isModule: boolean): Promise<Error | null> {
+  const body = source.startsWith('#!') ? `//${source.slice(2)}` : source;
+  if (!isModule) {
+    try {
+      new Function('exports', 'require', 'module', '__filename', '__dirname', body);
+      return null;
+    } catch (err) {
+      return err instanceof SyntaxError ? err : null;
+    }
+  }
+  let code = body;
+  try {
+    const imports = analyzeEsm(body, tokenize(body)).imports;
+    // Re-exports (`export ... from`) would load their modules too.
+    for (const imp of [...imports].reverse()) {
+      code =
+        code.slice(0, imp.statementStart) +
+        code.slice(imp.statementStart, imp.statementEnd).replace(/[^\n]/g, ' ') +
+        code.slice(imp.statementEnd);
+    }
+  } catch {
+    // The lexer could not tokenize it; let the engine report the error.
+  }
+  const url = URL.createObjectURL(new Blob([`throw 0;\n${code}`], { type: 'text/javascript' }));
+  try {
+    await import(/* @vite-ignore */ url);
+    return null;
+  } catch (err) {
+    return err instanceof SyntaxError ? err : null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** The globals Node reports from `Object.keys(globalThis)` (everything else is non-enumerable). */
+const NODE_ENUMERABLE_GLOBALS = new Set([
+  'global',
+  'clearImmediate',
+  'setImmediate',
+  'clearInterval',
+  'clearTimeout',
+  'setInterval',
+  'setTimeout',
+  'queueMicrotask',
+  'structuredClone',
+  'atob',
+  'btoa',
+  'performance',
+  'fetch',
+  'crypto',
+  'navigator',
+]);
+
+/**
+ * Worker-only globals (`postMessage`, `onmessage`, `name`, ...) stay usable
+ * but stop showing up in `for (k in globalThis)`, and Node's own enumerable
+ * globals are enumerable, so code that inspects the global object (test
+ * harnesses, leak checks) sees what it would in Node.
+ */
+function matchNodeGlobalEnumerability(scope: object): void {
+  for (let o: object | null = scope; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+    for (const key of Object.getOwnPropertyNames(o)) {
+      const d = Object.getOwnPropertyDescriptor(o, key);
+      if (!d) continue;
+      const enumerable = NODE_ENUMERABLE_GLOBALS.has(key);
+      if (d.enumerable === enumerable) continue;
+      if (d.configurable) Object.defineProperty(o, key, { ...d, enumerable });
+      // A fixed inherited constant: a non-enumerable own copy hides it from for-in.
+      else if (o !== scope && !Object.hasOwn(scope, key))
+        Object.defineProperty(scope, key, {
+          value: (scope as Record<string, unknown>)[key],
+          enumerable: false,
+          configurable: true,
+          writable: true,
+        });
+    }
+  }
+}
+
+function reportUncaught(ctx: ProcessContext, err: unknown, threads?: WorkerThreads): void {
+  // In a worker thread the error goes to the parent's Worker 'error' event.
+  if (threads?.reportError(err)) return;
   const text = err instanceof Error ? inspect(err) : `Uncaught ${inspect(err)}`;
   ctx.stderr.write(`${text}\n\nNode.js ${NODE_VERSION}\n`);
 }

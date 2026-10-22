@@ -109,7 +109,8 @@ class EventEmitterImpl {
     let doError = type === 'error';
     const events = this._events;
     if (events !== undefined) {
-      if (doError && events[errorMonitor] !== undefined) this.emit(errorMonitor, ...args);
+      if (doError && events[errorMonitor] !== undefined)
+        Reflect.apply(this.emit, this, [errorMonitor, ...args]);
       doError = doError && events['error'] === undefined;
     } else if (!doError) {
       return false;
@@ -127,95 +128,28 @@ class EventEmitterImpl {
     if (handler === undefined) return false;
     if (typeof handler === 'function') {
       const result = Reflect.apply(handler, this, args);
-      if (result !== undefined && result !== null) this.addCatch(result, type, args);
+      if (result !== undefined && result !== null) addCatch(this, result, type, args);
     } else {
+      // Index loops, as Node's own: user code may have replaced Array iteration.
       const listeners = handler.slice();
-      for (const listener of listeners) {
-        const result = Reflect.apply(listener, this, args);
-        if (result !== undefined && result !== null) this.addCatch(result, type, args);
+      for (let i = 0; i < listeners.length; i++) {
+        const result = Reflect.apply(listeners[i]!, this, args);
+        if (result !== undefined && result !== null) addCatch(this, result, type, args);
       }
     }
     return true;
   }
 
-  /** @internal */
-  addCatch(promise: unknown, type: string | symbol, args: unknown[]): void {
-    if (!this[kCapture]) return;
-    const then = (promise as { then?: unknown }).then;
-    if (typeof then !== 'function') return;
-    then.call(promise, undefined, (err: unknown) => {
-      queueMicrotask(() => {
-        const handler = (this as unknown as Record<symbol, unknown>)[captureRejectionSymbol];
-        if (typeof handler === 'function') {
-          this[kCapture] = false;
-          try {
-            handler.call(this, err, type, ...args);
-          } finally {
-            this[kCapture] = true;
-          }
-        } else {
-          const prev = this[kCapture];
-          try {
-            this[kCapture] = false;
-            this.emit('error', err);
-          } finally {
-            this[kCapture] = prev ?? false;
-          }
-        }
-      });
-    });
-  }
-
   addListener(type: string | symbol, listener: Listener): this {
-    return this.add(type, listener, false);
+    return addListenerImpl(this, type, listener, false);
   }
 
   on(type: string | symbol, listener: Listener): this {
-    return this.add(type, listener, false);
+    return addListenerImpl(this, type, listener, false);
   }
 
   prependListener(type: string | symbol, listener: Listener): this {
-    return this.add(type, listener, true);
-  }
-
-  /** @internal */
-  add(type: string | symbol, listener: Listener, prepend: boolean): this {
-    checkListener(listener);
-    let events = this._events;
-    if (events === undefined) {
-      events = this._events = Object.create(null) as Handlers;
-      this._eventsCount = 0;
-    } else if (events['newListener'] !== undefined) {
-      this.emit('newListener', type, (listener as Partial<OnceWrapper>).listener ?? listener);
-      events = this._events;
-    }
-    const existing = events[type];
-    if (existing === undefined) {
-      events[type] = listener;
-      this._eventsCount++;
-      return this;
-    }
-    const list =
-      typeof existing === 'function'
-        ? (events[type] = prepend ? [listener, existing] : [existing, listener])
-        : existing;
-    if (typeof existing !== 'function') {
-      if (prepend) list.unshift(listener);
-      else list.push(listener);
-    }
-    const max = this.getMaxListeners();
-    const warned = list as Listener[] & { warned?: boolean };
-    if (max > 0 && list.length > max && !warned.warned) {
-      warned.warned = true;
-      const name = typeof type === 'symbol' ? type.toString() : type;
-      const w = new Error(
-        `Possible EventEmitter memory leak detected. ${list.length} ${name} listeners added to ${this.constructor.name === 'EventEmitter' ? '[EventEmitter]' : `[${this.constructor.name}]`}. MaxListeners is ${max}. Use emitter.setMaxListeners() to increase limit`,
-      );
-      w.name = 'MaxListenersExceededWarning';
-      Object.assign(w, { emitter: this, type, count: list.length });
-      warningHook.emit(w);
-    }
-    return this;
+    return addListenerImpl(this, type, listener, true);
   }
 
   once(type: string | symbol, listener: Listener): this {
@@ -351,12 +285,41 @@ for (const key of Reflect.ownKeys(EventEmitterImpl)) {
   if (key === 'prototype' || key === 'length' || key === 'name') continue;
   Object.defineProperty(EventEmitter, key, Object.getOwnPropertyDescriptor(EventEmitterImpl, key)!);
 }
-// Instance properties Node puts on the prototype, so subclasses that never call super still work.
-Object.assign(EventEmitter.prototype, {
-  _events: undefined,
-  _eventsCount: 0,
-  _maxListeners: undefined,
+// Node's aliases are the same function objects; subclasses (minipass) rely on
+// that when they override one name and call super with the other.
+Object.defineProperty(EventEmitterImpl.prototype, 'on', {
+  ...Object.getOwnPropertyDescriptor(EventEmitterImpl.prototype, 'addListener')!,
 });
+Object.defineProperty(EventEmitterImpl.prototype, 'off', {
+  ...Object.getOwnPropertyDescriptor(EventEmitterImpl.prototype, 'removeListener')!,
+});
+// Node's prototype is built by assignment, so its methods are enumerable, in
+// this order, after three instance fields (kept there so subclasses that
+// never call super still work). config-chain copies Object.keys() of it.
+{
+  const proto = EventEmitterImpl.prototype as unknown as Record<string, unknown>;
+  const methods = [
+    'setMaxListeners',
+    'getMaxListeners',
+    'emit',
+    'addListener',
+    'on',
+    'prependListener',
+    'once',
+    'prependOnceListener',
+    'removeListener',
+    'off',
+    'removeAllListeners',
+    'listeners',
+    'rawListeners',
+    'listenerCount',
+    'eventNames',
+  ];
+  const saved = methods.map((k) => Object.getOwnPropertyDescriptor(proto, k)!);
+  for (const k of methods) delete proto[k];
+  Object.assign(proto, { _events: undefined, _eventsCount: 0, _maxListeners: undefined });
+  methods.forEach((k, i) => Object.defineProperty(proto, k, { ...saved[i], enumerable: true }));
+}
 EventEmitter.EventEmitter = EventEmitter;
 
 function onceWrap(
@@ -561,3 +524,84 @@ export const eventsModule = Object.assign(EventEmitter, {
   usingDomains: false,
   default: EventEmitter,
 });
+
+/** captureRejections: routes a listener's rejected promise to the emitter. */
+function addCatch(
+  self: EventEmitterImpl,
+  promise: unknown,
+  type: string | symbol,
+  args: unknown[],
+): void {
+  if (!self[kCapture]) return;
+  const then = (promise as { then?: unknown }).then;
+  if (typeof then !== 'function') return;
+  then.call(promise, undefined, (err: unknown) => {
+    queueMicrotask(() => {
+      const handler = (self as unknown as Record<symbol, unknown>)[captureRejectionSymbol];
+      if (typeof handler === 'function') {
+        self[kCapture] = false;
+        try {
+          handler.call(self, err, type, ...args);
+        } finally {
+          self[kCapture] = true;
+        }
+      } else {
+        const prev = self[kCapture];
+        try {
+          self[kCapture] = false;
+          self.emit('error', err);
+        } finally {
+          self[kCapture] = prev ?? false;
+        }
+      }
+    });
+  });
+}
+
+/**
+ * Shared by on/addListener/prependListener. A module function, not a method:
+ * subclasses define their own `add` (chokidar's FSWatcher does).
+ */
+function addListenerImpl<T extends EventEmitterImpl>(
+  self: T,
+  type: string | symbol,
+  listener: Listener,
+  prepend: boolean,
+): T {
+  checkListener(listener);
+  let events = self._events;
+  if (events === undefined) {
+    events = self._events = Object.create(null) as Handlers;
+    self._eventsCount = 0;
+  } else if (events['newListener'] !== undefined) {
+    self.emit('newListener', type, (listener as Partial<OnceWrapper>).listener ?? listener);
+    events = self._events;
+  }
+  const existing = events[type];
+  if (existing === undefined) {
+    events[type] = listener;
+    self._eventsCount++;
+    return self;
+  }
+  const list =
+    typeof existing === 'function'
+      ? (events[type] = prepend ? [listener, existing] : [existing, listener])
+      : existing;
+  if (typeof existing !== 'function') {
+    if (prepend) list.unshift(listener);
+    else list.push(listener);
+  }
+  const max = self.getMaxListeners();
+  const warned = list as Listener[] & { warned?: boolean };
+  if (max > 0 && list.length > max && !warned.warned) {
+    warned.warned = true;
+    const name = typeof type === 'symbol' ? type.toString() : type;
+    const w = new Error(
+      `Possible EventEmitter memory leak detected. ${list.length} ${name} listeners added to ${self.constructor.name === 'EventEmitter' ? '[EventEmitter]' : `[${self.constructor.name}]`}. MaxListeners is ${max}. Use emitter.setMaxListeners() to increase limit`,
+    );
+    w.name = 'MaxListenersExceededWarning';
+    Object.assign(w, { emitter: self, type, count: list.length });
+    warningHook.emit(w);
+  }
+  return self;
+}

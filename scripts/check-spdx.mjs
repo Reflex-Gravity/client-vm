@@ -31,7 +31,9 @@ for await (const file of walk(ROOT)) {
   const firstLine = (await readFile(file, 'utf8')).split('\n', 1)[0];
   // Vendored third-party code keeps its own license identifier.
   const vendored =
-    file.includes('/vendor/') && firstLine?.startsWith('// SPDX-License-Identifier: ');
+    (file.includes('/vendor/') && firstLine?.startsWith('// SPDX-License-Identifier: ')) ||
+    // Node's own tests, kept byte for byte (line numbers matter); see that directory's LICENSE.
+    file.includes('/test/conformance/node-tests/');
   if (firstLine !== HEADER && !vendored) missing.push(relative(ROOT, file));
 }
 

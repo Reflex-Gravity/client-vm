@@ -20,11 +20,17 @@ export const Errno = {
   EMFILE: 24,
   EFBIG: 27,
   ENOSPC: 28,
+  EROFS: 30,
   ENAMETOOLONG: 36,
   ENOSYS: 38,
   ENOTEMPTY: 39,
   ELOOP: 40,
+  EPIPE: 32,
   EADDRINUSE: 98,
+  EADDRNOTAVAIL: 99,
+  ECONNRESET: 104,
+  ETIMEDOUT: 110,
+  ECONNREFUSED: 111,
 } as const;
 
 export type ErrnoCode = keyof typeof Errno;
@@ -48,11 +54,17 @@ const DESCRIPTIONS: Record<ErrnoCode, string> = {
   EMFILE: 'too many open files',
   EFBIG: 'file too large',
   ENOSPC: 'no space left on device',
+  EROFS: 'read-only file system',
   ENAMETOOLONG: 'name too long',
   ENOSYS: 'function not implemented',
   ENOTEMPTY: 'directory not empty',
   ELOOP: 'too many symbolic links encountered',
+  EPIPE: 'broken pipe',
   EADDRINUSE: 'address already in use',
+  EADDRNOTAVAIL: 'address not available',
+  ECONNRESET: 'connection reset by peer',
+  ETIMEDOUT: 'connection timed out',
+  ECONNREFUSED: 'connection refused',
 };
 
 const BY_NUMBER = new Map<number, ErrnoCode>(

@@ -283,15 +283,14 @@ function styleText(_format: string | string[], text: string): string {
 }
 
 function debuglog(section: string) {
-  const enabled = new RegExp(
-    `^(${(globalThis as { process?: { env?: Record<string, string> } }).process?.env?.['NODE_DEBUG'] ?? ''}`
-      .split(/[\s,]+/)
-      .filter(Boolean)
-      .map((s) => s.replace(/[|\\{}()[\]^$+?.]/g, '\\$&').replace(/\*/g, '.*'))
-      .join('|') + ')$',
-    'i',
-  );
-  const on = enabled.source !== '^()$' && enabled.test(section);
+  const patterns = (
+    (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.['NODE_DEBUG'] ??
+    ''
+  )
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((s) => s.replace(/[|\\{}()[\]^$+?.]/g, '\\$&').replace(/\*/g, '.*'));
+  const on = patterns.length > 0 && new RegExp(`^(${patterns.join('|')})$`, 'i').test(section);
   const log = (...args: unknown[]) => {
     if (on) console.error('%s %d: %s', section.toUpperCase(), 0, format(...args));
   };
@@ -397,7 +396,43 @@ Object.assign(inspect, {
 });
 
 /** The `util` builtin module. */
+interface CallSite {
+  functionName: string;
+  scriptId: string;
+  scriptName: string;
+  lineNumber: number;
+  columnNumber: number;
+  column: number;
+}
+
+/** `util.getCallSites(frames = 10)`: the caller's stack, parsed from V8's stack text. */
+function getCallSites(frameCount?: unknown, _options?: unknown): CallSite[] {
+  const limit = typeof frameCount === 'number' ? Math.max(0, Math.min(frameCount, 200)) : 10;
+  const E = Error as ErrorConstructor & { stackTraceLimit: number };
+  const saved = E.stackTraceLimit;
+  E.stackTraceLimit = limit + 1;
+  const stack = new Error().stack ?? '';
+  E.stackTraceLimit = saved;
+  const sites: CallSite[] = [];
+  for (const line of stack.split('\n').slice(2)) {
+    const m = /^\s*at (?:(.*?) \()?(.*?):(\d+):(\d+)\)?$/.exec(line);
+    if (!m) continue;
+    const column = Number(m[4]);
+    sites.push({
+      functionName: m[1] ?? '',
+      scriptId: '0',
+      scriptName: m[2]!,
+      lineNumber: Number(m[3]),
+      columnNumber: column,
+      column,
+    });
+    if (sites.length >= limit) break;
+  }
+  return sites;
+}
+
 export const utilModule: Record<string, unknown> = {
+  getCallSites,
   format,
   formatWithOptions: (_opts: unknown, ...args: unknown[]) => format(...args),
   inspect,

@@ -30,6 +30,11 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | Sync syscall wake | Kernel parks on each channel with `Atomics.waitAsync`; postMessage doorbell kept as fallback (ADR 0002, measured in `docs/spike-results.md`) |
 | Instance isolation | **One kernel per instance, on the instance's own origin** (hidden iframe). The controller on the host page brokers cross-instance work (ADR 0003). Instance pages use **Document-Isolation-Policy**, so host apps need no COOP/COEP (ADR 0005) |
 | VFS storage | **Memory-first VFS**; OPFS is write-behind persistence only (ADR 0004) |
+| Native packages | Native addons/binaries still do not run. **esbuild and rollup are swapped for their official WebAssembly builds** of the same version, fetched and integrity-checked on first use, so stock Vite projects work unchanged (ADR 0013) |
+| npm | The unmodified npm release Node 24 bundles, fetched and SHA-512-verified on first use into `/usr/local/lib/node_modules/npm` (ADR 0012) |
+| Shell commands | Builtins and Linux commands run **in-process in the shell's worker** when `PATH` resolves to their marker file; anything else is spawned. Every command is also a standalone runtime. One interpreter for `sh`/`bash`, diffed against real bash (ADR 0011) |
+| git | **isomorphic-git, fetched and integrity-checked on first use** like npm; porcelain output diffed against real git. Remotes need a CORS proxy (ADR 0014) |
+| Node conformance | Node 24.11's `lib/path.js` and the passing subset of Node's `test/parallel` are **vendored unmodified** and run in CI (ADR 0015) |
 
 ## 3. Non-goals for v1
 
@@ -88,7 +93,7 @@ clientvm/
 │  ├─ process/            # worker bootstrap, sync-syscall bridge (Atomics), stdio, signals
 │  ├─ node-compat/        # Node core module shims + CJS/ESM resolution
 │  ├─ shell/              # shell parser/interpreter + builtin commands
-│  ├─ net/                # virtual network switch, service-worker routing, mailbox
+│  ├─ (net/)              # not created: cross-instance routing lives in the controller (docs/phase4-plan.md)
 │  ├─ sandbox-host/       # static sandbox page, service worker, COOP/COEP setup
 │  ├─ agent-api/          # high-level API for agents (fs, exec, spawn-instance, observe)
 │  └─ clientvm/           # public entry point re-exporting a stable API
@@ -189,11 +194,11 @@ Agent-facing tools (in `agent-api`): `fs.*`, `exec`, `spawnInstance`, `readConso
 
 **Phase 2: Host kernel (done; see docs/decisions/0003–0005).** Full VFS (OPFS backend, symlinks, watchers, CoW snapshots/forks, quotas), instance manager, process table, sandbox-origin plumbing and service worker.
 
-**Phase 3: JS tier.** Node-compat shims (`fs path buffer stream events crypto zlib http https net os child_process worker_threads url util assert timers` etc.), CJS and ESM resolution including `exports` maps, shell and commands, **run real npm** (`npm install` works), Vite dev server with HMR through the service worker, and a golden React+Vite template running end to end.
+**Phase 3: JS tier (done; see docs/phase3-plan.md, ADRs 0006–0013).** Node-compat shims (`fs path buffer stream events crypto zlib http https net os child_process worker_threads url util assert timers` etc.), CJS and ESM resolution including `exports` maps, shell and commands, **run real npm** (`npm install` works), Vite dev server with HMR through the service worker, and a golden React+Vite template running end to end.
 
-**Phase 4: Multi-instance and agent API.** Mailbox, virtual network between instances, capability grants, mounts, snapshot/fork, the agent-facing tool API, driveable preview.
+**Phase 4: Multi-instance and agent API (done; see docs/phase4-plan.md).** Mailbox, virtual network between instances, capability grants, mounts, snapshot/fork, the agent-facing tool API, driveable preview.
 
-**Phase 5: Hardening.** Conformance suites, fuzzing (VFS, resolver, shell parser), resource limits, performance work (consider Rust/WASM only where profiling proves need), pnpm support, docs and examples.
+**Phase 5: Hardening (done; see docs/phase5-plan.md, ADRs 0014–0015, docs/security-review.md).** Conformance suites, fuzzing (VFS, resolver, shell parser), resource limits, performance work (consider Rust/WASM only where profiling proves need), pnpm support, docs and examples.
 
 ## 9. Quality bar ("battle-tested")
 

@@ -31,6 +31,10 @@ export function startProcessWorker(scope: ProcessScopeLike, runtimes: RuntimeTab
       stdin.push(msg.data);
       return;
     }
+    if (msg.t === 'ping') {
+      scope.postMessage({ t: 'pong', n: msg.n });
+      return;
+    }
     for (const l of listeners) l(msg);
   });
 }
@@ -86,6 +90,7 @@ async function run(
     stderr: stream('stderr'),
     stdin,
     send: (message) => scope.postMessage(message),
+    ...(init.threadPort ? { threadPort: init.threadPort } : {}),
     onMessage(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

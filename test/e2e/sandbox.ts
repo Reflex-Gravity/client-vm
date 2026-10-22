@@ -15,28 +15,101 @@ export interface RunResult {
 
 type SyscallMode = 'waitAsync' | 'postMessage';
 
+/** Mirrors `Capability` from @clientvm/clientvm. */
+export type Capability =
+  | { kind: 'mount'; from: string; path: string; readOnly: boolean }
+  | { kind: 'channel'; peer: string }
+  | { kind: 'net'; peer: string; ports?: number[] }
+  | { kind: 'spawn-instance'; limits?: { maxProcesses?: number; quotaBytes?: number } };
+
+export type Outcome = { ok: true; value?: unknown } | { ok: false; code: string; message: string };
+
 interface HostWindow {
   __clientvm: {
     hostCrossOriginIsolated: boolean;
     createInstance(options?: unknown): Promise<string>;
     run(id: string, request: { argv: string[]; syscallMode?: SyscallMode }): Promise<RunResult>;
+    exec(
+      id: string,
+      commandLine: string,
+      opts?: {
+        cwd?: string;
+        env?: Record<string, string>;
+        stdin?: string;
+        timeoutMs?: number;
+      },
+    ): Promise<{ code: number; signal?: string; stdout: string; stderr: string }>;
     spawnAndCollect(
       id: string,
       cmd: string,
       args: string[],
       killAfterMs?: number,
     ): Promise<{ stdout: string[]; stderr: string; code: number; signal?: string }>;
+    startServer(
+      id: string,
+      cmd: string,
+      args: string[],
+      opts: { cwd?: string; env?: Record<string, string> },
+      port: number,
+    ): Promise<{ pid: number; url: string }>;
+    output(pid: number): string;
+    kill(id: string, pid: number): Promise<void>;
     writeFile(id: string, path: string, data: string): Promise<void>;
     readFile(id: string, path: string): Promise<string>;
     readdir(id: string, path: string): Promise<string[]>;
     snapshot(id: string): Promise<string>;
-    fork(id: string): Promise<string>;
+    fork(id: string, options?: unknown): Promise<string>;
+    grant(to: string, cap: Capability): void;
+    /** `op` is grant/revoke (to, cap), send (to, message) or fork (options). */
+    as(
+      id: string,
+      op: 'grant' | 'revoke' | 'send' | 'fork' | 'mount' | 'unmount',
+      ...args: unknown[]
+    ): Promise<Outcome>;
+    capabilities(id: string): Capability[];
+    recordMail(id: string): void;
+    mail(id: string): { from: string; message: unknown }[];
+    drive(id: string, port: number, path?: string): Promise<number>;
+    previewCall(handle: number, method: string, ...args: unknown[]): Promise<unknown>;
+    pipeThrough(
+      id: string,
+      cmd: string,
+      args: string[],
+      chunks: string[],
+    ): Promise<{ stdout: string; code: number }>;
+    agent(id: string): number;
+    memory(id: string): Promise<{ instanceMB: number | null }>;
+    agentCall(
+      handle: number,
+      tool: string,
+      input: unknown,
+    ): Promise<{
+      content: { type: string; text?: string; source?: { data: string } }[];
+      is_error?: boolean;
+    }>;
+    networkLog(
+      id: string,
+      since?: number,
+    ): Promise<
+      {
+        seq: number;
+        method: string;
+        path: string;
+        status: number;
+        port: number | null;
+        from?: string;
+      }[]
+    >;
     destroy(id: string, purge?: boolean): Promise<void>;
     flush(id: string): Promise<void>;
     serveStatic(id: string, port: number, dir: string): Promise<string>;
     openPreview(url: string): Promise<void>;
-    usage(id: string): Promise<{ persist: { generation: number; restored: boolean } | null }>;
+    usage(id: string): Promise<{
+      processes: number;
+      persist: { generation: number; restored: boolean } | null;
+    }>;
     list(): string[];
+    portBridges(): number;
   };
 }
 
@@ -45,8 +118,14 @@ export type HostApi = HostWindow['__clientvm'];
 const defaultInstance = new WeakMap<Page, string>();
 
 /** Opens the host page; `coi` serves it with COOP/COEP to test the fallback mode. */
-export async function openHost(page: Page, options: { coi?: boolean } = {}): Promise<void> {
-  await page.goto(options.coi ? '/?coi=1' : '/');
+export async function openHost(
+  page: Page,
+  options: { coi?: boolean; heartbeatMs?: number } = {},
+): Promise<void> {
+  const query = new URLSearchParams();
+  if (options.coi) query.set('coi', '1');
+  if (options.heartbeatMs) query.set('heartbeat', String(options.heartbeatMs));
+  await page.goto(query.size ? `/?${query}` : '/');
   await page.waitForFunction(() => document.getElementById('status')?.textContent === 'ready');
 }
 

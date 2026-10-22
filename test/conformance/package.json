@@ -5,8 +5,11 @@
   "license": "Apache-2.0",
   "description": "Differential tests comparing ClientVM against real Node.js.",
   "dependencies": {
+    "@clientvm/kernel": "workspace:*",
     "@clientvm/node-compat": "workspace:*",
+    "@clientvm/process": "workspace:*",
     "@clientvm/protocol": "workspace:*",
+    "@clientvm/shell": "workspace:*",
     "@clientvm/vfs": "workspace:*"
   }
 }
