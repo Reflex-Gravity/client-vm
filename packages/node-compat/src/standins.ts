@@ -52,7 +52,17 @@ export interface StandInHost {
     options: { cwd: string },
   ): { status: number | null; stderr: unknown; error?: Error };
   warn(message: string): void;
+  /** Blocks for `ms` between install attempts (default: Atomics.wait). */
+  sleep?(ms: number): void;
 }
+
+/** Pauses before the second and third npm attempts at a stand-in install. */
+const RETRY_DELAYS_MS = [1000, 3000];
+/** npm failures worth another attempt: the network or the registry, not the request. */
+const TRANSIENT =
+  /network|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|\bE5\d\d\b/i;
+
+const blockFor = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /** Rewrites the ES modules of `"type": "module"` packages under `nodeModules` as CommonJS. */
 function convertEsmPackages(fs: Fs, nodeModules: string): void {
@@ -179,11 +189,19 @@ function installWithNpm(
       '--no-fund',
       '--force',
     ];
-    const r = host.spawnSync('npm', [...args, '--ignore-scripts', '--loglevel=error', spec], {
-      cwd: staging,
-    });
-    if (r.error) throw r.error;
-    if (r.status !== 0) throw new Error(`npm exited with ${r.status}: ${String(r.stderr).trim()}`);
+    for (let attempt = 0; ; attempt++) {
+      const r = host.spawnSync('npm', [...args, '--ignore-scripts', '--loglevel=error', spec], {
+        cwd: staging,
+      });
+      if (r.error) throw r.error;
+      if (r.status === 0) break;
+      const stderr = String(r.stderr).trim();
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !TRANSIENT.test(stderr))
+        throw new Error(`npm exited with ${r.status}: ${stderr}`);
+      host.warn(`ClientVM: npm could not reach the registry for ${spec}; retrying\n`);
+      (host.sleep ?? blockFor)(delay);
+    }
     convertEsmPackages(fs, `${staging}/node_modules`);
     PATCHES[name]?.(fs, `${staging}/node_modules/${name}`);
     fs.rmSync(dir, { recursive: true, force: true });

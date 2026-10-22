@@ -67,5 +67,6 @@
     shared reservation, as on Node.
   - Tailwind 4 with Vite 8 works unchanged (dev server picking up new classes, `vite build`).
     Each rescan is a full scan of the sources, which is fast for agent-sized projects.
-  - These npm-installed stand-ins need the registry at first use through npm, not a single fetch, so a
-    flaky network shows up as npm's error followed by the native-binding error.
+  - These npm-installed stand-ins need the registry at first use through npm, not a single
+    fetch. A transient npm failure (network, timeout, 5xx) is retried twice, after 1 s and 3 s,
+    with a warning; after that, or offline, npm's error is followed by the native-binding error.

@@ -103,10 +103,11 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   are covered. Next.js uses SWC (`@swc/wasm`) and needs a stand-in mapping and an e2e test.
   WASI bindings built by napi-rs load the same way as rolldown's (node:wasi plus
   `worker_threads`).
-- **Stand-in install needs the registry at first use.** rolldown's and lightningcss's stand-ins
-  install with npm inside the instance (they have dependencies). One e2e run saw npm fail with a
-  `network error` mid-install; the next run passed. The warning names the package, and the next
-  run retries, but an offline or flaky host gets the native-binding error.
+- **Stand-in install needs the registry at first use.** rolldown's, lightningcss's and oxide's
+  stand-ins install with npm inside the instance (they have dependencies). A transient npm
+  failure (network, timeout, 5xx) is retried twice, after 1 s and 3 s; an offline host still
+  gets the native-binding error. Offline hosts can point npm at a registry mirror they serve
+  (`npm_config_registry` in the instance env); a bundled same-origin copy is still open.
 - **Unused native downloads.** npm fetches platform binaries (`@esbuild/linux-x64`, about 10 MB)
   that ClientVM never runs. Reporting a platform no native package targets would skip them, but
   it would also break packages that pick a binding by platform (rollup throws before `require`).
