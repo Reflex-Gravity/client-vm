@@ -35,6 +35,15 @@ instance origin `https://<id>.<sandbox-domain>/`. No server-side code runs.
 The development and preview servers (`packages/sandbox-host/vite.config.ts`) apply these headers
 to `*.localhost`. Set `CLIENTVM_FRAME_ANCESTORS` to add the CSP header.
 
+## Check your deployment
+
+```sh
+node scripts/check-sandbox-headers.mjs 'https://{id}.myapp-sandbox.dev' --app https://myapp.example
+```
+
+It requests an instance page, the service worker and a port origin on random subdomains and
+fails if a requirement above is not met (it warns when `frame-ancestors` is missing).
+
 ## In your app
 
 ```ts

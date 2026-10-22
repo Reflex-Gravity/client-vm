@@ -62,6 +62,12 @@ export interface ClientVMOptions {
   container?: HTMLElement;
   /** Default 15000. */
   bootTimeoutMs?: number;
+  /**
+   * How often the controller checks that each instance's kernel is alive
+   * (default 5000 ms). A kernel that has not answered for four intervals is
+   * treated as crashed: its calls reject with `ERR_INSTANCE_CRASHED`.
+   */
+  heartbeatMs?: number;
 }
 
 /**
@@ -87,6 +93,12 @@ export function createClientVM(options: ClientVMOptions): ClientVM {
 type CreateOptions = InstanceOptions & { image?: Uint8Array[]; grantedBy?: InstanceId };
 
 const MAX_MESSAGE_BYTES = 1 << 20;
+/**
+ * Port origins (one bridge iframe each) an instance may have open at once.
+ * The kernel reports ports, so without a cap a hostile instance could make
+ * the host page create an iframe per port number.
+ */
+const MAX_PORT_ORIGINS = 64;
 
 class Controller implements ClientVM {
   readonly options: Required<Omit<ClientVMOptions, 'container'>> & { container?: HTMLElement };
@@ -99,6 +111,7 @@ class Controller implements ClientVM {
     this.options = {
       instancePath: '/__clientvm/instance.html',
       bootTimeoutMs: 15_000,
+      heartbeatMs: 5_000,
       ...options,
     };
   }
@@ -167,6 +180,7 @@ class Controller implements ClientVM {
       throw err;
     }
     this.instances.set(id, instance);
+    instance.startHeartbeat(this.options.heartbeatMs);
     if (name !== undefined) this.names.set(name, id);
     for (const cap of capabilities) this.caps.grant(id, cap);
     return instance;
@@ -281,6 +295,7 @@ class InstanceImpl implements Instance {
   /** Bridge iframe per port origin (null while linking). */
   private readonly portBridges = new Map<number, HTMLIFrameElement | null>();
   private destroyed = false;
+  private endReason: 'destroyed' | 'crashed' = 'destroyed';
 
   constructor(
     controller: Controller,
@@ -319,6 +334,7 @@ class InstanceImpl implements Instance {
       portOpen: (port) => {
         if (!Number.isInteger(port) || port < 1 || port > 65535 || this.portBridges.has(port))
           return;
+        if (this.portBridges.size >= MAX_PORT_ORIGINS) return;
         this.portBridges.set(port, null);
         void this.openPortOrigin(port);
       },
@@ -328,6 +344,12 @@ class InstanceImpl implements Instance {
         this.portBridges.delete(port);
         if (this.openPorts.delete(port)) for (const cb of this.portCloseListeners) cb(port);
       },
+    });
+    // Chromium fires `close` on a MessagePort when its entangled port's
+    // context goes away: here, the instance's renderer crashed or its
+    // iframe was removed. Calls still pending would otherwise never settle.
+    port.addEventListener('close', () => {
+      if (!this.destroyed) this.teardown('crashed');
     });
     this.fs = new InstanceFs(this);
     this.mailbox = {
@@ -698,9 +720,42 @@ class InstanceImpl implements Instance {
     }
   }
 
+  private heartbeat: ReturnType<typeof setInterval> | undefined;
+
+  /**
+   * @internal Detects a crashed instance (its renderer process died, taking
+   * the kernel with it). Chromium does not yet fire `close` on the port, so
+   * the kernel is pinged; it answers from its event loop, which our kernel
+   * code never blocks for long.
+   */
+  startHeartbeat(intervalMs: number): void {
+    // A ping counts as lost only when it has been unanswered for four
+    // intervals *and* four ticks: hidden tabs throttle timers to about one a
+    // minute and frozen pages run none, so wall time alone would misfire.
+    let sentAt = 0;
+    let ticksWaiting = 0;
+    let inFlight = false;
+    this.heartbeat = setInterval(() => {
+      if (inFlight) {
+        ticksWaiting++;
+        if (ticksWaiting >= 4 && Date.now() - sentAt > intervalMs * 4) this.teardown('crashed');
+        return;
+      }
+      inFlight = true;
+      ticksWaiting = 0;
+      sentAt = Date.now();
+      const settle = () => void (inFlight = false);
+      this.rpc.call('ping').then(settle, settle);
+    }, intervalMs);
+  }
+
   /** @internal Removes the iframe and settles anything still pending. */
-  teardown(): void {
+  teardown(reason: 'destroyed' | 'crashed' = 'destroyed'): void {
+    if (this.destroyed) return;
     this.destroyed = true;
+    this.endReason = reason;
+    clearInterval(this.heartbeat);
+    this.rpc.close(this.endedError());
     for (const proc of this.processes.values()) proc.deliverExit(137, 'SIGKILL');
     this.processes.clear();
     this.watchers.clear();
@@ -730,8 +785,13 @@ class InstanceImpl implements Instance {
 
   /** @internal */
   assertAlive(): void {
-    if (this.destroyed)
-      throw new ClientVMError(`instance ${this.id} was destroyed`, 'ERR_DESTROYED');
+    if (this.destroyed) throw this.endedError();
+  }
+
+  private endedError(): ClientVMError {
+    return this.endReason === 'crashed'
+      ? new ClientVMError(`instance ${this.id} crashed`, 'ERR_INSTANCE_CRASHED')
+      : new ClientVMError(`instance ${this.id} was destroyed`, 'ERR_DESTROYED');
   }
 }
 

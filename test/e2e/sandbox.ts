@@ -109,6 +109,7 @@ interface HostWindow {
       persist: { generation: number; restored: boolean } | null;
     }>;
     list(): string[];
+    portBridges(): number;
   };
 }
 
@@ -117,8 +118,14 @@ export type HostApi = HostWindow['__clientvm'];
 const defaultInstance = new WeakMap<Page, string>();
 
 /** Opens the host page; `coi` serves it with COOP/COEP to test the fallback mode. */
-export async function openHost(page: Page, options: { coi?: boolean } = {}): Promise<void> {
-  await page.goto(options.coi ? '/?coi=1' : '/');
+export async function openHost(
+  page: Page,
+  options: { coi?: boolean; heartbeatMs?: number } = {},
+): Promise<void> {
+  const query = new URLSearchParams();
+  if (options.coi) query.set('coi', '1');
+  if (options.heartbeatMs) query.set('heartbeat', String(options.heartbeatMs));
+  await page.goto(query.size ? `/?${query}` : '/');
   await page.waitForFunction(() => document.getElementById('status')?.textContent === 'ready');
 }
 

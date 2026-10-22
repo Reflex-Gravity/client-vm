@@ -87,6 +87,8 @@ export interface HostApi {
   openPreview(url: string): Promise<void>;
   usage(id: string): Promise<unknown>;
   list(): string[];
+  /** Bridge iframes the controller has created for port origins. */
+  portBridges(): number;
   watch(id: string, path: string): Promise<() => unknown[]>;
 }
 
@@ -98,8 +100,11 @@ declare global {
   }
 }
 
+const heartbeat = Number(new URLSearchParams(location.search).get('heartbeat'));
 const vm = createClientVM({
   sandboxOrigin: (id) => `${location.protocol}//${id}.${location.host}`,
+  // Tests shorten the crash-detection interval with ?heartbeat=<ms>.
+  ...(heartbeat > 0 ? { heartbeatMs: heartbeat } : {}),
 });
 const instances = new Map<string, Instance>();
 const outputs = new Map<number, string>();
@@ -278,6 +283,7 @@ window.__clientvm = {
   usage: (id) =>
     (get(id) as Instance & { rpc: { call(m: 'usage'): Promise<unknown> } }).rpc.call('usage'),
   list: () => vm.listInstances().map((i) => i.id),
+  portBridges: () => document.querySelectorAll('iframe[src*="/__clientvm/port.html"]').length,
   async watch(id, path) {
     const events: unknown[] = [];
     get(id).fs.watch(path, (e) => events.push(e));

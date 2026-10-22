@@ -169,8 +169,9 @@ export function serveInstance(
       (_target, name: string) =>
       async (...args: unknown[]) => {
         await ready;
-        const method = (methods as unknown as Record<string, (...a: unknown[]) => unknown>)[name];
-        if (!method) throw new SystemError('ENOSYS', name);
+        const table = methods as unknown as Record<string, (...a: unknown[]) => unknown>;
+        const method = Object.hasOwn(table, name) ? table[name] : undefined;
+        if (typeof method !== 'function') throw new SystemError('ENOSYS', name);
         return method(...args);
       },
   });

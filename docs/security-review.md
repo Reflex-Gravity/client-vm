@@ -16,8 +16,9 @@ independent review, including a manual attempt to break each boundary, is still 
 |---|---|---|---|
 | 1.1 | No instance code runs on the host app's origin | Instances boot in iframes on `<id>.<sandbox-domain>`; `test/e2e/instances.spec.ts` (instances are isolated while the host page is not) | tested |
 | 1.2 | The handshake accepts only the parent window at its claimed origin, once | `packages/sandbox-host/src/instance.ts` checks `event.source` and `event.origin`; the controller pins `targetOrigin` | by design |
-| 1.3 | The controller validates every value an instance sends (RPC replies, events, controller RPC requests) | `packages/clientvm/src/validate.ts`, exercised by every e2e test; no dedicated negative tests | by design; **open**: add negative tests |
-| 1.4 | A hostile instance cannot make the controller throw, hang, or allocate without bound | Message validation and output caps (8 MiB per stream); no fuzzing of the controller's message handlers yet | **open**: fuzz controller inputs with malformed messages |
+| 1.3 | The controller validates every value an instance sends (RPC replies, events, controller RPC requests) | `packages/clientvm/src/validate.ts`; `validate.test.ts` feeds every guard 3,000 random values and requires a well-formed result or `ERR_INSTANCE_PROTOCOL` | tested |
+| 1.4 | A hostile instance cannot make the controller throw, hang, or allocate without bound | `packages/protocol/src/rpc.test.ts`: 5,000 seeded malformed messages never throw, method names never reach `Object.prototype`, a throwing handler does not break the link. Output caps (8 MiB per stream); at most 64 port origins (bridge iframes) per instance (`instances.spec.ts`). A crashed or unresponsive kernel is detected by a heartbeat and its calls reject with `ERR_INSTANCE_CRASHED` instead of hanging (`instances.spec.ts`). Output for pids the controller did not spawn is dropped. Not bounded yet: the rate of mailbox and `netFetch` requests | tested; **open**: rate limits for controller RPC |
+| 1.6 | A crashed instance does not take down the host page or other instances | `instances.spec.ts` crashes one instance's renderer (CDP `Page.crash`) and checks the host page and another instance still work | tested |
 | 1.5 | `frame-ancestors` restricts embedding in production deployments | Documented in hosting.md; the dev server supports `CLIENTVM_FRAME_ANCESTORS` | by design (deployment) |
 
 ## 2. Instance ↔ instance (boundary 2)
@@ -30,7 +31,7 @@ independent review, including a manual attempt to break each boundary, is still 
 | 2.4 | Mailbox messages are re-serialized, so instances never share objects | `packages/clientvm/src/controller.ts`; `multi.spec.ts` | tested |
 | 2.5 | Read-only mounts reject every write path, including through symlinks | `multi.spec.ts` (mounts), kernel unit tests (`EROFS`) | tested |
 | 2.6 | An instance id never collides with another instance's port origin (`-p<digits>`) | `PORT_SUFFIX` check in `packages/clientvm/src/controller.ts` | by design |
-| 2.7 | Site isolation: whether Chromium puts same-site instance origins in separate renderer processes | Not measured. Matters for Spectre-class attacks between instances | **open**: measure, and recommend the Public Suffix List |
+| 2.7 | Site isolation: whether Chromium puts same-site instance origins in separate renderer processes | Measured on Chromium 141 with `*.localhost` origins: each instance iframe is an out-of-process frame, the renderer count grows with each instance, and crashing one instance's renderer leaves the host page and other instances running (1.6). In every run the instance frames were in different processes from the host page. Not yet measured on a real registrable domain, where Chromium may consolidate same-site frames under memory pressure | tested (localhost); **open**: repeat on a production domain; recommend the Public Suffix List |
 
 ## 3. Kernel ↔ process (boundary 3)
 
@@ -66,7 +67,7 @@ independent review, including a manual attempt to break each boundary, is still 
 | # | Property | How it is checked | Status |
 |---|---|---|---|
 | 6.1 | The sandbox domain is a separate registrable domain, sets no cookies and has no authenticated endpoints | hosting.md requirements | by design (deployment) |
-| 6.2 | Required headers are sent on every instance response | `packages/sandbox-host/vite.config.ts` for dev; integrators' hosting for production | **open**: ship a header-check script integrators can run against their deployment |
+| 6.2 | Required headers are sent on every instance response | `scripts/check-sandbox-headers.mjs <url template>` checks a deployment (isolation headers, no cookies, `frame-ancestors`, service-worker scope and caching, wildcard port origins); `hosting.spec.ts` runs it against the preview server in CI | tested (dev server); integrators run it on their deployment |
 | 6.3 | Outbound `fetch` from instances can reach any CORS-enabled endpoint from the user's browser | Documented; no capability gate | **open** (design question in open-questions.md) |
 
 ## Before 1.0

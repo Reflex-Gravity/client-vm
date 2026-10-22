@@ -44,7 +44,13 @@ affect decisions, CLAUDE.md.
 | `Instance.networkLog(since)` | done (4d): the last 500 requests served on virtual ports (method, path, status, time to headers, requesting instance) |
 | `http://<name>.internal:<port>/` from processes | done (4b): needs a `net` capability for the peer (and port); HTTP only, responses stream |
 
-Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`,
+Instances that crash (their renderer process dies) are detected by a heartbeat
+(`ClientVMOptions.heartbeatMs`, default 5000; a kernel silent for four intervals is gone): the
+instance is torn down, its processes exit with `SIGKILL`, and pending and later calls reject with
+`ERR_INSTANCE_CRASHED`. At most 64 ports per instance get a port origin (bridge iframe); further
+ports are not reported by `onPortOpen`.
+
+Errors raised by the controller are `ClientVMError` with a `code` (`ERR_NOT_ISOLATED`, `ERR_INSTANCE_CRASHED`,
 `ERR_BOOT_TIMEOUT`, `ERR_INSTANCE_PROTOCOL`, `ERR_DESTROYED`, `ERR_NO_CAPABILITY`,
 `ERR_NO_INSTANCE`, `ERR_INVALID_CAPABILITY`, `ERR_INVALID_MESSAGE`, ...). Errors from inside an instance
 keep the system error `code` (`ENOENT`, `EAGAIN`, ...).

@@ -19,7 +19,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - **Cross-origin isolation for iframes on wildcard subdomains:** whether the host app also needs
   COOP/COEP or can embed a cross-origin-isolated iframe (`allow="cross-origin-isolated"`), and how
   that interacts with third-party embeds.
-- **Process/site isolation** for same-site subdomains (see security.md).
+- **Process/site isolation** for same-site subdomains: measured on `*.localhost` (each instance
+  gets its own renderer process; security-review.md 2.7). Repeat on a real registrable domain.
+- **MessagePort `close` events** are not in Chromium 141, so crashed instances are found by a
+  heartbeat (up to four `heartbeatMs` intervals). Switch to the event when it ships.
 - **Minimum Chromium version:** test which release first supports `Document-Isolation-Policy`
   well enough for instance pages, and pin it in compatibility.md.
 - ~~Cross-origin isolation for iframes on wildcard subdomains~~: resolved with
