@@ -236,6 +236,8 @@ export interface ShellHost {
   ppid?: number;
   /** Job control over spawned programs (the process runtime has it). */
   jobs?: JobControl;
+  /** Tells the kernel which signals `trap` handles (names like `SIGINT`; others are ignored). */
+  catchSignals?(signals: readonly string[]): void;
 }
 
 export interface Job {

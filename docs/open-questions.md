@@ -52,8 +52,10 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   When `rmSync` lands in node-compat (Phase 3), decide whether to replicate the quirk.
 
 - ~~Per-process CPU budgets~~: `limits.maxCpuMs` kills a process that runs without yielding
-  (5c). Still open: how a process gets a `SIGINT`-style signal while it is blocked in
-  `Atomics.wait`. A signal slot in the channel header is one option.
+  (5c). Signals to a process blocked in a syscall (`execSync`) use a slot in the channel header
+  where the process publishes the signals it catches (ADR 0017 amendment): uncaught ones end it
+  at once, caught ones wait for the call to return. Still open: a process blocked in its own
+  `Atomics.wait` (not a syscall) cannot run a handler until it wakes.
 - **`maxMemoryMB` is not enforced.** `performance.measureUserAgentSpecificMemory()` on the
   instance page counts the page and the kernel worker but not process workers (nested workers
   are not attributed), and each measurement waits for a GC (10–60 s). Options: estimate from
@@ -119,6 +121,12 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   Next keeps request state in `AsyncLocalStorage`, which loses its store across `await` (below).
   WASI bindings built by napi-rs load the same way as rolldown's (node:wasi plus
   `worker_threads`).
+- **TypeScript 7 is a native binary.** `typescript@7` (npm `latest` since 2026) is the Go
+  compiler: a per-platform executable with no JavaScript API and no WebAssembly build, so `tsc`
+  from a fresh `npm i typescript` cannot run in ClientVM, and ts-node needs TypeScript's JS API.
+  `create-vite` templates pin `typescript ~6.0.3` (JavaScript), and `tsc -b && vite build` from
+  the `react-ts` template works end to end (measured 2026-10-23). Agents should keep projects
+  on TypeScript 6 until there is a WebAssembly build to stand in (ADR 0013).
 - **Stand-in install needs the registry at first use.** rolldown's, lightningcss's and oxide's
   stand-ins install with npm inside the instance (they have dependencies). A transient npm
   failure (network, timeout, 5xx) is retried twice, after 1 s and 3 s; an offline host still

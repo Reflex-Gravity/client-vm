@@ -9,9 +9,11 @@ export {
   SyscallClient,
   SyscallError,
   SyscallServer,
+  catchesSignal,
   continueStopped,
   createChannelBuffer,
   markStopped,
+  setCaughtSignals,
   waitWhileStopped,
 } from './syscall-channel.ts';
 export type { SyscallClientOptions, SyscallHandler } from './syscall-channel.ts';

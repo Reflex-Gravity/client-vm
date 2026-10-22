@@ -57,5 +57,65 @@ export function createConsole(stdout: OutputStream, stderr: OutputStream) {
         write(stdout, [`${label}: ${(performance.now() - t).toFixed(3)}ms`, ...args]);
     },
     table: (data: unknown) => write(stdout, [data]),
+    Console,
   };
+}
+
+type Writable = { write(chunk: string): unknown };
+
+/**
+ * `console.Console` / `require('console').Console`: a console over any
+ * writable streams, `new Console(stdout, stderr)` or `new Console({ stdout, stderr })`.
+ * Subclasses (Jest's CustomConsole) extend it, so its methods are on the prototype.
+ */
+interface ConsoleClass {
+  new (
+    stdout: Writable | { stdout: Writable; stderr?: Writable },
+    stderr?: Writable,
+  ): ReturnType<typeof createConsole>;
+}
+
+const IMPL = Symbol('clientvm.console');
+
+const Console = function Console(
+  this: Record<PropertyKey, unknown> | undefined,
+  out: Writable | { stdout: Writable; stderr?: Writable },
+  err?: Writable,
+) {
+  if (!(this instanceof Console)) return new (Console as unknown as ConsoleClass)(out, err);
+  const opts = 'stdout' in out && typeof (out as { write?: unknown }).write !== 'function';
+  const stdout = (opts ? (out as { stdout: Writable }).stdout : out) as Writable;
+  const stderr = (
+    opts ? ((out as { stderr?: Writable }).stderr ?? stdout) : (err ?? stdout)
+  ) as Writable;
+  this[IMPL] = createConsole(stdout as OutputStream, stderr as OutputStream);
+  return undefined;
+} as unknown as ConsoleClass;
+
+for (const name of [
+  'log',
+  'info',
+  'debug',
+  'error',
+  'warn',
+  'trace',
+  'dir',
+  'assert',
+  'group',
+  'groupEnd',
+  'count',
+  'countReset',
+  'time',
+  'timeEnd',
+  'timeLog',
+  'table',
+] as const) {
+  Object.defineProperty(Console.prototype, name, {
+    value: function (this: Record<PropertyKey, unknown>, ...args: unknown[]) {
+      const impl = this[IMPL] as Record<string, (...a: unknown[]) => unknown>;
+      return impl[name]!(...args);
+    },
+    writable: true,
+    configurable: true,
+  });
 }

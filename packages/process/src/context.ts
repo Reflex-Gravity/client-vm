@@ -35,6 +35,13 @@ export interface ProcessContext {
    * SIGCHLD and SIGWINCH). Returns an unsubscribe function.
    */
   onSignal(handler: (signal: Signal) => boolean): () => void;
+  /**
+   * Declares which signals this process's handlers take. The kernel needs it
+   * while the process is blocked in a syscall (spawnSync): an uncaught signal
+   * then takes its default action at once, and a caught one waits until the
+   * call returns. Replaces the previous declaration from the same caller key.
+   */
+  catchSignals(key: string, signals: readonly Signal[]): void;
 }
 
 /** A process's controlling terminal. */

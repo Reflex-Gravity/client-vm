@@ -925,6 +925,7 @@ async function trap(sh: Shell, argv: string[], io: Io): Promise<number> {
     if (action === null) sh.state.traps.delete(sig);
     else sh.state.traps.set(sig, action);
   }
+  sh.host.catchSignals?.([...sh.state.traps.keys()].map((s) => `SIG${s}`));
   return 0;
 }
 

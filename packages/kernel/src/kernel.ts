@@ -7,6 +7,7 @@ import {
   STOP_SIGNALS,
   SyscallServer,
   SystemError,
+  catchesSignal,
   continueStopped,
   createChannelBuffer,
   decode,
@@ -505,12 +506,23 @@ export class Kernel {
         post({ t: 'signal', signal });
         // Ignored, a stop (the process reports it), or pending until a stopped process continues.
         if (IGNORED_BY_DEFAULT.has(signal) || STOP_SIGNALS.has(signal) || entry.stopped) return;
+        const n = SIGNAL_NUMBERS[signal];
+        // Blocked in a syscall (spawnSync) it cannot act on the signal itself: one it does not
+        // catch takes its default action now, as on Linux; a caught one waits for the call.
+        if (server.waiting && !catchesSignal(channel, n)) {
+          settle(128 + n, signal);
+          return;
+        }
         // A process stuck in JavaScript cannot act on it; end it as the default action would.
+        // The grace period starts once it is out of any syscall.
         clearTimeout(graceTimer);
-        graceTimer = setTimeout(
-          () => settle(128 + SIGNAL_NUMBERS[signal], signal),
-          SIGNAL_GRACE_MS,
-        );
+        const arm = () => {
+          if (timing.exitedAt !== undefined) return;
+          graceTimer = server.waiting
+            ? setTimeout(arm, 50)
+            : setTimeout(() => settle(128 + n, signal), SIGNAL_GRACE_MS);
+        };
+        arm();
       },
       writeStdin: (data) => {
         if (options.pty && tty) {

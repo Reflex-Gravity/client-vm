@@ -27,6 +27,8 @@ const Slot = {
   TOTAL: 4,
   /** 1 while the process is stopped (job control); it waits on this slot. */
   STOPPED: 5,
+  /** Bit n set: the process has a handler for signal number n (written by the process). */
+  CAUGHT: 6,
 } as const;
 
 const HEADER_SLOTS = 8;
@@ -298,4 +300,18 @@ export function continueStopped(sab: SharedArrayBuffer): void {
   const header = new Int32Array(sab, 0, HEADER_SLOTS);
   Atomics.store(header, Slot.STOPPED, 0);
   Atomics.notify(header, Slot.STOPPED);
+}
+
+/** Process side: publishes which signal numbers it has handlers for (a bitmask of 1 << n). */
+export function setCaughtSignals(sab: SharedArrayBuffer, mask: number): void {
+  Atomics.store(new Int32Array(sab, 0, HEADER_SLOTS), Slot.CAUGHT, mask);
+}
+
+/**
+ * Kernel side: whether the process handles signal number `n`. The kernel
+ * asks while the process is blocked in a syscall and cannot act on a signal
+ * itself (an uncaught one then takes its default action at once).
+ */
+export function catchesSignal(sab: SharedArrayBuffer, n: number): boolean {
+  return (Atomics.load(new Int32Array(sab, 0, HEADER_SLOTS), Slot.CAUGHT) & (1 << n)) !== 0;
 }

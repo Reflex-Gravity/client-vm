@@ -4,7 +4,7 @@
 
 import { createFs, createPosixPath } from '@clientvm/node-compat';
 import type { ProcessContext, Runtime, RuntimeTable } from '@clientvm/process';
-import { SIGNAL_NUMBERS, SystemError } from '@clientvm/protocol';
+import { SIGNAL_NUMBERS, SystemError, isSignal } from '@clientvm/protocol';
 import type { ErrnoCode, KernelToProcess, StdioMode } from '@clientvm/protocol';
 import { COMMANDS } from './commands/index.ts';
 import { basename } from './commands/util.ts';
@@ -173,7 +173,14 @@ function hostFor(ctx: ProcessContext, commands: Readonly<Record<string, CommandF
     ),
   );
   const spawn = createSpawner(ctx);
-  return { fs, spawn, jobs: spawn.jobs, commands, pid: ctx.pid };
+  return {
+    fs,
+    spawn,
+    jobs: spawn.jobs,
+    commands,
+    pid: ctx.pid,
+    catchSignals: (names) => ctx.catchSignals('trap', names.filter(isSignal)),
+  };
 }
 
 const SET_FLAGS = new Set([

@@ -52,6 +52,19 @@ const sandbox = {};
 vm.runInNewContext('globalThis.m = (globalThis.m || {}); globalThis.m.page = JSON.stringify([1])', sandbox);
 console.log('vm', JSON.stringify(sandbox), typeof globalThis.m, vm.runInNewContext('a + 1', { a: 41 }));
 
+// console.Console, extended as Jest's CustomConsole does.
+const { Console } = require('console');
+const lines = [];
+const sink = () => new (require('stream').Writable)({ write(c, _e, cb) { lines.push(String(c)); cb(); } });
+class Mine extends Console { log(...a) { super.log('mine:', ...a); } }
+new Mine({ stdout: sink() }).log('hi', 1);
+new Console(sink()).error('to stderr fallback');
+console.log('Console', JSON.stringify(lines), typeof console.Console);
+
+// repl: the module loads (ts-node needs it) without starting one.
+const repl = require('repl');
+console.log('repl', typeof repl.start, typeof repl.REPLServer, new repl.Recoverable(new SyntaxError('x')) instanceof SyntaxError);
+
 // inspector: no debugger attached.
 console.log('inspector', require('inspector').url(), typeof require('inspector').Session);
 

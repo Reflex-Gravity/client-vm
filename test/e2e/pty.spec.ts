@@ -302,5 +302,34 @@ const server = require('http').createServer((q, r) => r.end('ok')).listen(3100);
     await expect
       .poll(() => host(page, 'terminalExit', u.pid))
       .toEqual({ code: 138, signal: 'SIGUSR1' });
+
+    // Blocked in execSync (a syscall) longer than the 1 s grace period: a caught signal waits
+    // for the call to return, as in Node; an uncaught one ends the process at once.
+    const blocking = `require('child_process').execSync('node -e "setTimeout(() => {}, 2500)"'); console.log('sync done');`;
+    const caught = await terminal(
+      page,
+      id,
+      ['-e', `process.on('SIGTERM', () => console.log('caught')); ${blocking}`],
+      'node',
+      false,
+    );
+    await page.waitForTimeout(700);
+    await host(page, 'terminalKill', caught.pid, 'SIGTERM');
+    await expect
+      .poll(() => host(page, 'terminalExit', caught.pid), { timeout: 10_000 })
+      .toEqual({
+        code: 0,
+      });
+    expect(plain(await host(page, 'terminalOutput', caught.pid))).toBe('sync done\ncaught\n');
+
+    const uncaught = await terminal(page, id, ['-e', blocking], 'node', false);
+    await page.waitForTimeout(700);
+    const killedAt = Date.now();
+    await host(page, 'terminalKill', uncaught.pid, 'SIGTERM');
+    await expect
+      .poll(() => host(page, 'terminalExit', uncaught.pid))
+      .toEqual({ code: 143, signal: 'SIGTERM' });
+    expect(Date.now() - killedAt).toBeLessThan(900);
+    expect(plain(await host(page, 'terminalOutput', uncaught.pid))).not.toContain('sync done');
   });
 });

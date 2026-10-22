@@ -6,6 +6,7 @@ import {
   SyscallClient,
   encodeUtf8,
   markStopped,
+  setCaughtSignals,
   waitWhileStopped,
 } from '@clientvm/protocol';
 import type { KernelToProcess, ProcessToKernel, Signal, WindowSize } from '@clientvm/protocol';
@@ -185,6 +186,8 @@ async function run(
       : {},
   );
 
+  /** Signals each part of the runtime handles (node's process listeners, the shell's traps). */
+  const caught = new Map<string, readonly Signal[]>();
   const ctx: ProcessContext = {
     pid: init.pid,
     argv: init.argv,
@@ -202,6 +205,12 @@ async function run(
       return () => listeners.delete(listener);
     },
     onSignal: (handler) => signals.on(handler),
+    catchSignals(key, list) {
+      caught.set(key, list);
+      let mask = 0;
+      for (const l of caught.values()) for (const s of l) mask |= 1 << SIGNAL_NUMBERS[s];
+      setCaughtSignals(init.channel, mask);
+    },
   };
 
   // The kernel resolved argv[0] to a runtime name before spawning.

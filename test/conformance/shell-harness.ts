@@ -166,6 +166,7 @@ export class InThreadKernel {
       },
       // The in-thread kernel terminates on kill; nothing is delivered to handlers.
       onSignal: () => () => {},
+      catchSignals: () => {},
     };
 
     void (async () => {

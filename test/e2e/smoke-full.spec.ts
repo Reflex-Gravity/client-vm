@@ -89,7 +89,11 @@ test('npm smoke: the most-downloaded packages install and load', async ({ page }
     if (all.code !== 0) {
       // Find which packages fail to install, so the rest still count.
       for (const name of batch) {
-        const one = await install(id, [name]);
+        let one = await install(id, [name]);
+        // A peer conflict with another package of the batch in this shared package.json
+        // (each installs fine alone): retry without enforcing peers between them.
+        if (one.code !== 0 && /ERESOLVE/.test(one.stderr))
+          one = await install(id, ['--legacy-peer-deps', name]);
         if (one.code === 0) continue;
         // Another platform's binary (the musl builds): npm on Node refuses it too.
         results[name] = /EBADPLATFORM|notsup/.test(one.stderr)

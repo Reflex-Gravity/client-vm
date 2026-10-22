@@ -88,3 +88,12 @@ Asked for in the roadmap, so the "no job control" simplification above is lifted
   stop them; bash would stop its external `sleep`. A job started with `&` and brought to
   the foreground with `fg` does not read the terminal (it was started without it).
 
+### Signals to a process blocked in a syscall
+
+A process blocked in a synchronous syscall (`execSync`, `spawnSync`) cannot run a handler, and
+the 1 s grace period used to end it even when it had one. The process now publishes the signal
+numbers it catches in another slot of its channel header (node's `process` listeners, the
+shell's traps, the interactive shell's own). For a blocked process the kernel reads it: an
+uncaught signal takes its default action at once, as on Linux; a caught one is delivered and
+its grace period starts only once the call returns, so the handler runs then, as in Node.
+

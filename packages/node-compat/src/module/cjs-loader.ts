@@ -89,6 +89,8 @@ export type ModuleConstructor = {
   Module: ModuleConstructor;
   /** @internal */
   _runMainFile(filename: string): unknown;
+  /** Requires each module as `node -r` does, from the working directory (ts-node, nyc). */
+  _preloadModules(requests: readonly string[] | undefined): void;
   /** @internal */
   _makeEvalModule(): ModuleLike;
 };
@@ -485,6 +487,14 @@ export function createModuleSystem(deps: ModuleSystemDeps): ModuleConstructor {
   };
 
   Module._runMainFile = (filename: string) => Module._load(filename, null, true);
+  Module._preloadModules = (requests) => {
+    if (!requests?.length) return;
+    // A module standing in the working directory, so `-r ./x` and packages resolve from there.
+    const parent = new Module('internal/preload');
+    parent.filename = path.join(deps.cwd(), '[preload]');
+    parent.paths = nodeModulePaths(deps.cwd());
+    for (const request of requests) parent.require(request);
+  };
   Module.runMain = (main?: string) => {
     const argv = (deps.builtins['process'] as { argv?: string[] } | undefined)?.argv;
     const file = main ?? argv?.[1];

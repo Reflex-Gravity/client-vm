@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createTestModule } from './test-runner.ts';
 import { installStdioFds } from './fs-stdio.ts';
+import { createRepl } from './repl.ts';
 import { createNodePunycode } from './vendor/node-punycode.ts';
 import { createInspector } from './inspector.ts';
 import { createV8 } from './v8.ts';
@@ -235,6 +236,8 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   lazy('inspector/promises', () => (inspector ??= createInspector()).promises);
   let wasi: Record<string, unknown> | undefined;
   lazy('wasi', () => (wasi ??= createWasi({ fs: fsFull as unknown as WasiFs, path })));
+  let repl: Record<string, unknown> | undefined;
+  lazy('repl', () => (repl ??= createRepl()));
   let punycode: unknown;
   lazy('punycode', () => (punycode ??= createNodePunycode(punycodeBinding, process)));
   table['worker_threads'] = deps.workerThreads;

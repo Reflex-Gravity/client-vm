@@ -377,6 +377,20 @@ export function createProcessObject(
     return true;
   };
   ctx.onSignal(onSignal);
+  // Tell the kernel which signals have listeners, for while the process is blocked in a syscall.
+  const publish = (adding?: Signal) =>
+    ctx.catchSignals(
+      'process',
+      (Object.keys(SIGNAL_NUMBERS) as Signal[]).filter(
+        (s) => s === adding || proc.listenerCount(s) > 0,
+      ),
+    );
+  proc.on('newListener', (event: unknown) => {
+    if (typeof event === 'string' && isSignal(event)) publish(event);
+  });
+  proc.on('removeListener', (event: unknown) => {
+    if (typeof event === 'string' && isSignal(event)) publish();
+  });
   return proc;
 }
 

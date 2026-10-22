@@ -263,6 +263,7 @@ export async function runInteractive(
     }
     return false;
   });
+  ctx.catchSignals('interactive', ['SIGINT', 'SIGTSTP', 'SIGWINCH', 'SIGTERM', 'SIGQUIT']);
 
   // Job control (Ctrl+Z, fg, bg): a stopped line becomes a job whose programs
   // leave the shell's process group, so the prompt's input and Ctrl+C no
