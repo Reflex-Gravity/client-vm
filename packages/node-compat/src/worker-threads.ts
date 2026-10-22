@@ -24,6 +24,8 @@ type Wire =
   | ThreadInit
   | { t: 'online' }
   | { t: 'message'; v: unknown }
+  /** The thread's last message, sent as it exits. */
+  | { t: 'exit' }
   | { t: 'error'; error: { name: string; message: string; stack?: string; code?: string } };
 
 /** Thread ids live above child_process ids in the kernel's per-process child table. */
@@ -169,6 +171,8 @@ export interface WorkerThreads {
   module: Record<string, unknown>;
   /** For a worker thread: reports an uncaught error to the parent (instead of printing it). */
   reportError(err: unknown): boolean;
+  /** For a worker thread: tells the parent nothing more will be posted. */
+  signalExit(): void;
 }
 
 export function createWorkerThreads(deps: Deps): WorkerThreads {
@@ -203,6 +207,9 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
     private readonly exited: Promise<number>;
     private resolveExit!: (code: number) => void;
     private terminated = false;
+    private sawExit = false;
+    private pendingExit: number | null = null;
+    private exitFallback: ReturnType<typeof setTimeout> | undefined;
     private readonly init: Omit<ThreadInit, 'threadId'>;
     private readonly initTransfer: Transferable[];
 
@@ -281,11 +288,24 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
         });
       } else if (msg.t === 'child-exit') {
         // A thread's exit code is its own; a kill (terminate) reports 1, as Node does.
-        this.finish(msg.code ?? 1);
+        const code = msg.code ?? 1;
+        // The kernel's exit notice and the thread's port are separate channels.
+        // Node emits everything the thread posted (an 'error' above all) before
+        // 'exit', so wait for the thread's last message; one killed outright
+        // never sends it.
+        if (this.port && !this.sawExit && !this.terminated) {
+          this.pendingExit = code;
+          this.exitFallback = setTimeout(() => this.finish(code), 500);
+        } else this.finish(code);
       }
     }
 
     private onPortMessage(data: Wire): void {
+      if (data?.t === 'exit') {
+        this.sawExit = true;
+        if (this.pendingExit !== null) this.finish(this.pendingExit);
+        return;
+      }
       if (data?.t === 'online') this.emit('online');
       else if (data?.t === 'message') this.emit('message', unwrapPorts(data.v, hold));
       else if (data?.t === 'error') {
@@ -299,6 +319,7 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
 
     private finish(code: number): void {
       if (this.exitCode !== null) return;
+      clearTimeout(this.exitFallback);
       this.exitCode = this.terminated ? 1 : code;
       workers.delete(this.id);
       this.port?.close();
@@ -383,6 +404,9 @@ export function createWorkerThreads(deps: Deps): WorkerThreads {
       if (!thread) return false;
       thread.port.postMessage({ t: 'error', error: serializeError(err) } satisfies Wire);
       return true;
+    },
+    signalExit() {
+      thread?.port.postMessage({ t: 'exit' } satisfies Wire);
     },
   };
 }

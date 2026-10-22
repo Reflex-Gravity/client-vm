@@ -109,6 +109,19 @@ export function parseNodeArgs(args: readonly string[]): Invocation {
 
 /** The `node` command: runs `-e`/`-p` code or a CommonJS script against the Node-compat globals. */
 export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
+  let threads: WorkerThreads | undefined;
+  try {
+    return await runNode(ctx, (t) => (threads = t));
+  } finally {
+    // A worker thread's last message to its parent: everything it posted is delivered first.
+    threads?.signalExit();
+  }
+}
+
+async function runNode(
+  ctx: ProcessContext,
+  onThreads: (threads: WorkerThreads) => void,
+): Promise<number> {
   const invocation = parseNodeArgs(ctx.argv.slice(1));
   if (invocation.kind === 'error') {
     ctx.stderr.write(`${invocation.message}\n`);
@@ -168,6 +181,7 @@ export async function nodeRuntime(ctx: ProcessContext): Promise<number> {
     env: () => proc.env as Record<string, string>,
     thread,
   });
+  onThreads(workerThreads);
   const builtins = createBuiltins({
     fs,
     path,
