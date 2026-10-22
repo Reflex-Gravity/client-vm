@@ -40,7 +40,7 @@ independent review, including a manual attempt to break each boundary, is still 
 | 3.1 | The kernel decodes every syscall defensively (`EINVAL`/`ENOSYS`, never a crash) | `packages/kernel/src/dispatcher.test.ts`; codec fuzzing in `test/conformance/fuzz.test.ts` | tested |
 | 3.2 | Each process has its own syscall channel; processes cannot read each other's traffic | One SharedArrayBuffer per process (`packages/kernel/src/kernel.ts`) | by design |
 | 3.3 | Process limits: `maxProcesses`, 1024 open files, `quotaBytes`/`maxInodes`, `maxCpuMs` | `instances.spec.ts` (process limit, `ENOSPC`), `threads.spec.ts` (`maxCpuMs`), `dispatcher.test.ts` (`EMFILE`) | tested |
-| 3.4 | Memory per instance is bounded | `maxMemoryMB` is accepted but not enforced | **open** |
+| 3.4 | Memory per instance is bounded | `maxMemoryMB` is accepted but not enforced. Measured on Chromium 156: workers expose no heap measurement (open-questions.md), so it cannot be enforced per process from JavaScript. An instance that exhausts memory crashes its own renderer process, which the controller detects (1.6) | **open** (decision needed) |
 | 3.5 | Threads and forked children obey the same limits as processes | They are kernel processes (`threads.spec.ts`) | tested |
 | 3.6 | The kernel shares its origin with hostile code, so a process may tamper with the kernel; the damage stays in that instance | Follows from 2.1 and 1.3 | by design |
 

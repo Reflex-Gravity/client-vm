@@ -59,7 +59,13 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   instance page counts the page and the kernel worker but not process workers (nested workers
   are not attributed), and each measurement waits for a GC (10–60 s). Options: estimate from
   `performance.memory` in each process (non-standard, coarse), have each process report its own
-  heap, or rely on Chromium's per-tab OOM handling and document it.
+  heap, or rely on Chromium's per-tab OOM handling and document it. Measured 2026-10-22 on
+  Chromium 156: dedicated workers have neither `performance.memory` nor
+  `measureUserAgentSpecificMemory` (even cross-origin isolated), so a process cannot report its
+  own heap; only the window has `performance.memory`. What bounds memory today is that each
+  instance renders in its own process and a crashed one is detected (security-review.md 1.6,
+  2.7). Decision needed: keep `maxMemoryMB` as an advisory value, remove it, or document the
+  per-renderer bound as the limit.
 - `Buffer`: implement it in node-compat (TS) or vendor the `buffer` package? The latter is a
   runtime dependency, so it would need justification.
 - Event-loop liveness: how to keep a process alive for pending promises (`fetch`, streams) without
