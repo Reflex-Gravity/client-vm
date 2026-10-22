@@ -9,7 +9,10 @@ export {
   SyscallClient,
   SyscallError,
   SyscallServer,
+  continueStopped,
   createChannelBuffer,
+  markStopped,
+  waitWhileStopped,
 } from './syscall-channel.ts';
 export type { SyscallClientOptions, SyscallHandler } from './syscall-channel.ts';
 export { RpcEndpoint, RpcError, Transfer, withTransfer } from './rpc.ts';
@@ -27,7 +30,13 @@ export type {
   SyscallMode,
   TtyInfo,
 } from './process-messages.ts';
-export { IGNORED_BY_DEFAULT, KERNEL_SIGNALS, SIGNAL_NUMBERS, isSignal } from './instance-rpc.ts';
+export {
+  IGNORED_BY_DEFAULT,
+  KERNEL_SIGNALS,
+  SIGNAL_NUMBERS,
+  STOP_SIGNALS,
+  isSignal,
+} from './instance-rpc.ts';
 export type {
   FileKind,
   HandshakeMessage,

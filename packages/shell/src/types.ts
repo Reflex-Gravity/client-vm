@@ -57,3 +57,19 @@ export interface SpawnStdio {
  * SystemError (ENOENT, EACCES, ENOEXEC, EAGAIN) when it cannot start.
  */
 export type Spawner = (argv: readonly string[], stdio: SpawnStdio) => Promise<number>;
+
+/**
+ * Job control over the programs a shell started (ids are the spawner's).
+ * Only the process runtime provides it; an interactive shell uses it for
+ * Ctrl+Z, `fg` and `bg`.
+ */
+export interface JobControl {
+  /** Programs started in the foreground that are still running (stopped or not). */
+  foreground(): number[];
+  /** Called with a program's id when it stops. */
+  onStop(listener: (id: number) => void): () => void;
+  /** Moves programs (and what they started) into the shell's process group, or groups of their own. */
+  setForeground(ids: readonly number[], foreground: boolean): void;
+  /** Signals programs and everything they started. */
+  signal(ids: readonly number[], signal: 'SIGCONT' | 'SIGHUP'): void;
+}

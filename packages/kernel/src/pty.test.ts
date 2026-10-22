@@ -37,13 +37,14 @@ describe('Pty cooked mode', () => {
     expect(t.shown()).toBe('abc\b \b\b \b\b \bx^[\b \b\b \b\r\n');
   });
 
-  it('Ctrl+C and Ctrl+\\ drop the line and signal the foreground', () => {
+  it('Ctrl+C, Ctrl+\\ and Ctrl+Z drop the line and signal the foreground', () => {
     const t = setup();
     t.type('sleep 1\x03');
     t.type('x\x1c');
-    expect(t.signals).toEqual(['SIGINT', 'SIGQUIT']);
+    t.type('vim\x1a');
+    expect(t.signals).toEqual(['SIGINT', 'SIGQUIT', 'SIGTSTP']);
     expect(t.delivered).toEqual([]);
-    expect(t.shown()).toBe('sleep 1^C\r\nx^\\\r\n');
+    expect(t.shown()).toBe('sleep 1^C\r\nx^\\\r\nvim^Z\r\n');
   });
 
   it('Ctrl+D is end-of-file on an empty line, and sends a partial line as is', () => {

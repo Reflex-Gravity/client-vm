@@ -37,5 +37,5 @@ Still open (docs/open-questions.md): whether the agent may read the user's termi
 | Slice | State |
 |---|---|
 | T1 | Done |
-| T2 | Done. Measured: 5 ms keystroke to echo, about 12 ms Ctrl+C to prompt (ADR 0017). Not done: job control (Ctrl+Z, `fg`/`bg`), differential sessions against bash in a real PTY |
+| T2 | Done. Measured: 5 ms keystroke to echo, about 12 ms Ctrl+C to prompt (ADR 0017). Job control (ADR 0017 amendment) and screen-for-screen differential sessions against bash in a real PTY (`pty-differential.spec.ts`) added since |
 | T3 | Done: `attachShell` and `attachActivityView` draw at most once a frame with a bounded backlog (a flood's oldest lines are skipped with a notice), link `http://localhost:<port>` for the instance's open ports to their previews (OSC 8, added after sanitizing), and keep scrollback in `sessionStorage` (`persist`). The playground's terminal page has shell tabs (`+`), search (`@xterm/addon-search`) and restores its tabs and scrollback after a reload |

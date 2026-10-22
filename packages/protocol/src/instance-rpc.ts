@@ -67,6 +67,9 @@ export type Signal =
   | 'SIGALRM'
   | 'SIGTERM'
   | 'SIGCHLD'
+  | 'SIGCONT'
+  | 'SIGSTOP'
+  | 'SIGTSTP'
   | 'SIGXCPU'
   | 'SIGWINCH';
 
@@ -220,12 +223,26 @@ export const SIGNAL_NUMBERS: Record<Signal, number> = {
   SIGALRM: 14,
   SIGTERM: 15,
   SIGCHLD: 17,
+  SIGCONT: 18,
+  SIGSTOP: 19,
+  SIGTSTP: 20,
   SIGXCPU: 24,
   SIGWINCH: 28,
 };
 
 /** Signals whose default action is to ignore them; every other default action terminates. */
-export const IGNORED_BY_DEFAULT: ReadonlySet<Signal> = new Set<Signal>(['SIGCHLD', 'SIGWINCH']);
+export const IGNORED_BY_DEFAULT: ReadonlySet<Signal> = new Set<Signal>([
+  'SIGCHLD',
+  'SIGCONT',
+  'SIGWINCH',
+]);
+
+/**
+ * Signals whose default action stops the process until SIGCONT (job
+ * control, Ctrl+Z). SIGSTOP cannot be caught. A stopped process blocks in
+ * `Atomics.wait` on its syscall channel ({@link waitWhileStopped}).
+ */
+export const STOP_SIGNALS: ReadonlySet<Signal> = new Set<Signal>(['SIGSTOP', 'SIGTSTP']);
 
 /**
  * Signals the kernel applies itself instead of delivering: SIGKILL cannot be

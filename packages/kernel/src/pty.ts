@@ -23,6 +23,7 @@ const MAX_LINE = 4096;
 
 const INTR = '\x03';
 const QUIT = '\x1c';
+const SUSP = '\x1a';
 const EOF = '\x04';
 const ERASE = '\x7f';
 const ERASE_BS = '\x08';
@@ -63,11 +64,11 @@ export class Pty {
     for (const ch of this.decoder.decode(data, { stream: true })) {
       // ICRNL: Enter sends \r; programs read \n.
       const c = ch === '\r' ? '\n' : ch;
-      if (c === INTR || c === QUIT) {
+      if (c === INTR || c === QUIT || c === SUSP) {
         echo += `${caret(c)}\r\n`;
         flushEcho();
         this.line = [];
-        this.hooks.signal(c === INTR ? 'SIGINT' : 'SIGQUIT');
+        this.hooks.signal(c === INTR ? 'SIGINT' : c === QUIT ? 'SIGQUIT' : 'SIGTSTP');
       } else if (c === '\n') {
         echo += '\r\n';
         flushEcho();

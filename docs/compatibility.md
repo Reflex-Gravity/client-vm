@@ -131,8 +131,8 @@ pipes to and from `node`, is in `test/e2e/shell.spec.ts`. Design:
 | Scripts: `sh file`, `./file` with shebang, `sh -c 'cmd' name args`, script on stdin | full (tested surface) | Run one complete command (line) at a time, like bash. Syntax errors use bash's two-line format |
 | Background jobs `&`, `wait`, `$!` | partial | Run in the shell's worker; they end when the shell exits. Spawned programs keep running |
 | Process substitution `<(cmd)` | partial | Implemented with a temp file (the command finishes first). `>(cmd)` is not supported |
-| Interactive shell (`bash -i`, or no script on a terminal) | partial | e2e `pty.spec.ts`. PS1/PS2 with bash escapes, line editing, history (`~/.bash_history`, ↑/↓, the `history` builtin with `n` and `-c`), Tab completion of commands and paths, continuation lines, Ctrl+C, `[n]+ Done` notices. No job control (Ctrl+Z, `fg`, `bg`), `!` history expansion, aliases, or `~/.bashrc` |
-| Arrays (`a=(...)`, `${a[@]}`), `mapfile`, `select`, `coproc`, `time`, job control | none | `declare -a` and `read -a` fail with a clear error |
+| Interactive shell (`bash -i`, or no script on a terminal) | partial | e2e `pty.spec.ts`. PS1/PS2 with bash escapes, line editing, history (`~/.bash_history`, ↑/↓, the `history` builtin with `n` and `-c`), Tab completion of commands and paths, continuation lines, Ctrl+C, `[n]+ Done` notices, job control (Ctrl+Z, `fg`, `bg`, `jobs`; ADR 0017). No SIGTTIN, `!` history expansion, aliases, or `~/.bashrc` |
+| Arrays (`a=(...)`, `${a[@]}`), `mapfile`, `select`, `coproc`, `time` | none | `declare -a` and `read -a` fail with a clear error |
 | `type`/`declare -f` printing function bodies | none | `type -t` works |
 | Locale | partial | Text is UTF-8 (`LANG=C.UTF-8`). `LC_ALL=C` byte semantics (e.g. `${#x}` in bytes) are not emulated |
 

@@ -4,8 +4,10 @@ import {
   IGNORED_BY_DEFAULT,
   KERNEL_SIGNALS,
   SIGNAL_NUMBERS,
+  STOP_SIGNALS,
   SyscallServer,
   SystemError,
+  continueStopped,
   createChannelBuffer,
   decode,
   encode,
@@ -102,7 +104,7 @@ class Terminal {
     this.pty = new Pty(size, {
       output: onOutput,
       deliver: (data) => {
-        const reader = this.readers.findLast((r) => r.pgid === this.foreground);
+        const reader = this.readers.findLast((r) => r.pgid === this.foreground && !r.stopped);
         reader?.post({ t: 'stdin', data });
       },
       signal: (signal) => this.signalForeground(signal),
@@ -140,7 +142,14 @@ class Terminal {
 /** The kernel's view of a running process. */
 interface ProcEntry {
   readonly handle: ProcessHandle;
-  readonly pgid: number;
+  /** Changes when a shell moves a job between the foreground and the background (setpgid). */
+  pgid: number;
+  /** Stopped by job control (SIGTSTP/SIGSTOP) until SIGCONT. */
+  stopped: boolean;
+  /** Live children (spawn and spawnSync), for signals to a whole job. */
+  readonly descendants: Set<ProcessHandle>;
+  /** Told when the process stops or continues (its parent, which reports it as child-stopped). */
+  readonly onJobState: Set<(state: { stopped: boolean; signal?: Signal }) => void>;
   /** The controlling terminal, and which stdio streams are it. */
   readonly tty: { term: Terminal; stdin: boolean; stdout: boolean; stderr: boolean } | null;
   post(msg: KernelToProcess, transfer?: Transferable[]): void;
@@ -364,6 +373,11 @@ export class Kernel {
         case 'signal-ack':
           clearTimeout(graceTimer);
           break;
+        case 'stopped':
+          clearTimeout(graceTimer);
+          entry.stopped = true;
+          for (const l of entry.onJobState) l({ stopped: true, signal: msg.signal });
+          break;
         case 'tty-mode':
           if (tty?.stdin) tty.term.setRaw(entry, msg.raw === true);
           break;
@@ -373,9 +387,19 @@ export class Kernel {
         case 'child-stdin':
           children.get(msg.id)?.writeStdin(msg.data);
           break;
-        case 'child-kill':
-          children.get(msg.id)?.kill(msg.signal);
+        case 'child-kill': {
+          const child = children.get(msg.id);
+          if (child) {
+            if (msg.tree) this.signalTree(child, msg.signal);
+            else child.kill(msg.signal);
+          }
           break;
+        }
+        case 'child-setpgid': {
+          const child = children.get(msg.id);
+          if (child) this.setTreeGroup(child, msg.foreground ? entry.pgid : child.pid);
+          break;
+        }
         case 'watch':
           try {
             const id = msg.id;
@@ -427,7 +451,7 @@ export class Kernel {
       const watchdog = setInterval(() => {
         const now = performance.now();
         if (timing.exitedAt !== undefined) return clearInterval(watchdog);
-        if (server.waiting || timing.readyAt === undefined) lastSeen = now;
+        if (server.waiting || entry.stopped || timing.readyAt === undefined) lastSeen = now;
         if (now - lastSeen > maxCpuMs) {
           clearInterval(watchdog);
           options.onStderr?.(
@@ -473,8 +497,14 @@ export class Kernel {
           settle(128 + SIGNAL_NUMBERS[signal], signal);
           return;
         }
+        if (signal === 'SIGCONT' && entry.stopped) {
+          entry.stopped = false;
+          continueStopped(channel);
+          for (const l of entry.onJobState) l({ stopped: false });
+        }
         post({ t: 'signal', signal });
-        if (IGNORED_BY_DEFAULT.has(signal)) return;
+        // Ignored, a stop (the process reports it), or pending until a stopped process continues.
+        if (IGNORED_BY_DEFAULT.has(signal) || STOP_SIGNALS.has(signal) || entry.stopped) return;
         // A process stuck in JavaScript cannot act on it; end it as the default action would.
         clearTimeout(graceTimer);
         graceTimer = setTimeout(
@@ -497,7 +527,15 @@ export class Kernel {
         tty.term.resize(size);
       },
     };
-    const entry: ProcEntry = { handle, pgid, tty, post };
+    const entry: ProcEntry = {
+      handle,
+      pgid,
+      tty,
+      post,
+      stopped: false,
+      descendants,
+      onJobState: new Set(),
+    };
     this.processes.set(pid, handle);
     this.entries.set(pid, entry);
     tty?.term.attach(entry);
@@ -554,11 +592,34 @@ export class Kernel {
     descendants.add(child);
     if (link) post({ t: 'child-spawned', id, pid: child.pid, port: link.port1 }, [link.port1]);
     else post({ t: 'child-spawned', id, pid: child.pid });
+    const onJobState = (state: { stopped: boolean; signal?: Signal }) =>
+      post(
+        state.stopped
+          ? { t: 'child-stopped', id, signal: state.signal ?? 'SIGSTOP' }
+          : { t: 'child-continued', id },
+      );
+    this.entries.get(child.pid)?.onJobState.add(onJobState);
     void child.exit.then(({ code, signal }) => {
       children.delete(id);
       descendants.delete(child);
       post({ t: 'child-exit', id, code: signal ? null : code, signal });
     });
+  }
+
+  /** Signals a process and everything it started (`kill` of a job). */
+  private signalTree(handle: ProcessHandle, signal: Signal): void {
+    const entry = this.entries.get(handle.pid);
+    const below = entry ? [...entry.descendants] : [];
+    handle.kill(signal);
+    for (const d of below) this.signalTree(d, signal);
+  }
+
+  /** Moves a process and everything it started into process group `pgid`. */
+  private setTreeGroup(handle: ProcessHandle, pgid: number): void {
+    const entry = this.entries.get(handle.pid);
+    if (!entry) return;
+    entry.pgid = pgid;
+    for (const d of entry.descendants) this.setTreeGroup(d, pgid);
   }
 
   /**

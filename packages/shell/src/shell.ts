@@ -47,7 +47,7 @@ import {
   trimPattern,
   unescapePattern,
 } from './pattern.ts';
-import type { CommandContext, CommandFn, ExecOptions, Spawner } from './types.ts';
+import type { CommandContext, CommandFn, ExecOptions, JobControl, Spawner } from './types.ts';
 import { BUILTIN_MARKER } from '@clientvm/protocol';
 
 // ------------------------------------------------------------------ signals
@@ -234,14 +234,28 @@ export interface ShellHost {
   /** This shell's pid ($$). */
   pid: number;
   ppid?: number;
+  /** Job control over spawned programs (the process runtime has it). */
+  jobs?: JobControl;
 }
 
-interface Job {
+export interface Job {
   id: number;
   pid: number;
   command: string;
   done: Promise<number>;
   status: number | null;
+  /** Stopped by Ctrl+Z (interactive shells). */
+  stopped?: boolean;
+  /** The programs of a job that was stopped (spawner ids), for `fg` and `bg`. */
+  programs?: number[];
+}
+
+/** What `fg` and `bg` need from an interactive shell. */
+export interface ForegroundJobs {
+  /** Continues `job` in the foreground and waits for it (or for it to stop again). */
+  fg(job: Job, io: Io): Promise<number>;
+  /** Continues a stopped `job` in the background. */
+  bg(job: Job): void;
 }
 
 type Resolved =
@@ -356,6 +370,8 @@ export class Shell {
   interactive = false;
   /** Aborted when Ctrl+C interrupts the current interactive line. */
   interrupt: AbortSignal | null = null;
+  /** `fg` and `bg` (set by an interactive shell with job control). */
+  foregroundJobs: ForegroundJobs | null = null;
   /** The interactive shell's command history (the `history` builtin); null when not interactive. */
   history: ShellHistory | null = null;
   /** The line being run at an interactive prompt, which names its background jobs. */
@@ -2092,6 +2108,39 @@ export class Shell {
 
   jobList(): Job[] {
     return [...this.jobs.values()];
+  }
+
+  /** Records a line stopped by Ctrl+Z as a job; `done` settles when it finishes. */
+  addStoppedJob(command: string, done: Promise<number>, programs: number[]): Job {
+    const pid = Shell.nextPid++;
+    const job: Job = {
+      id: this.nextJob++,
+      pid,
+      command,
+      status: null,
+      stopped: true,
+      programs,
+      done: Promise.resolve(0),
+    };
+    job.done = done.then(
+      (status) => (job.status = status),
+      () => (job.status = 1),
+    );
+    this.jobs.set(pid, job);
+    return job;
+  }
+
+  /** Drops a job without a Done notice (`fg` waited for it). */
+  forgetJob(job: Job): void {
+    this.jobs.delete(job.pid);
+  }
+
+  /** A job by spec: `%n`, `%%`/`%+` or none (the most recent), or a pid. */
+  findJob(spec: string | undefined): Job | undefined {
+    const all = [...this.jobs.values()];
+    if (spec === undefined || spec === '%%' || spec === '%+' || spec === '%') return all.at(-1);
+    if (spec.startsWith('%')) return all.find((j) => j.id === Number(spec.slice(1)));
+    return this.jobs.get(Number(spec));
   }
 
   /** Runs a file of shell code in this shell (`.` / `source`). */

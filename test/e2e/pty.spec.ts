@@ -189,6 +189,54 @@ rl.question('name? ', (a) => { console.log('hi ' + a); rl.close(); });`,
     await t.expect(/\[1\]\+ {2}Done {20}node -e "setTimeout\(\(\) => \{\}, 1500\)"\n/);
   });
 
+  test('job control: Ctrl+Z stops a program, jobs lists it, bg and fg continue it', async ({
+    page,
+  }) => {
+    await openHost(page);
+    const id = await host(page, 'createInstance');
+    await host(
+      page,
+      'writeFile',
+      id,
+      '/home/user/tick.js',
+      `let n = 0; setInterval(() => console.log('tick', ++n), 150);
+process.stdin.on('data', (d) => console.log('read', JSON.stringify(String(d))));`,
+    );
+    const t = await terminal(page, id);
+    await t.mark();
+    await t.type('node tick.js\r');
+    await t.expect(/tick 2\n/);
+
+    // Ctrl+Z: the program stops and the prompt comes back, with $? = 148.
+    await t.mark();
+    await t.type('\x1a');
+    await t.expect(/\^Z\n\[1\]\+ {2}Stopped {20}node tick\.js\n[^\n]*\$ $/);
+    // Stopped means stopped: no ticks while at the prompt, and typed lines are the shell's.
+    const quiet = await t.run('echo status=$?');
+    expect(quiet).toContain('status=148');
+    await page.waitForTimeout(500);
+    expect(await t.since()).not.toContain('tick');
+    expect(await t.run('jobs')).toMatch(/\[1\]\+ {2}Stopped {20}node tick\.js\n/);
+
+    // bg: it runs again in the background, without the terminal's input.
+    await t.mark();
+    await t.type('bg\r');
+    await t.expect(/\[1\]\+ node tick\.js &\n/);
+    await t.expect(/tick \d+\n/);
+    expect(await t.run('jobs')).toMatch(/\[1\]\+ {2}Running {17}node tick\.js &\n/);
+
+    // fg: back in the foreground, where it reads the terminal and Ctrl+C ends it.
+    await t.mark();
+    await t.type('fg %1\r');
+    await t.expect(/node tick\.js\n/);
+    await t.type('hello\r');
+    await t.expect(/read "hello\\n"\n/);
+    await t.type('\x03');
+    await t.expect(/\^C\n[^\n]*\$ $/);
+    expect(await t.run('jobs; echo end')).toMatch(/\nend\n/);
+    expect(await t.since()).not.toContain('Stopped');
+  });
+
   test('history builtin: numbered list, a count, -c, and ~/.bash_history', async ({ page }) => {
     await openHost(page);
     const id = await host(page, 'createInstance');

@@ -1,6 +1,6 @@
 # ADR 0017: pseudo-terminals and signal delivery
 
-- **Status:** accepted (2026-10-22)
+- **Status:** accepted (2026-10-22); amended 2026-10-23 with job control (below)
 - **Context:** An interactive terminal (docs/terminal-plan.md, T2) needs what Linux gives a
   program on a terminal: `isatty()` true with a size, echo and line editing, raw mode for
   full-screen programs, Ctrl+C reaching the foreground job, and resize notifications. ClientVM's
@@ -59,6 +59,32 @@
     it, as on Linux). `Instance.exec` timeouts are unaffected unless the command traps SIGTERM.
   - The shell's spawned children read the terminal directly (`stdin: 'inherit'`) instead of
     having input copied through the shell, but only on a terminal. Pipes behave as before.
-  - Not yet: job control (Ctrl+Z, `fg`/`bg` that move the terminal between groups), SIGTTIN,
-    `stty`, a `kill` command, wide-character widths in line editing, and differential tests of
-    interactive sessions against real bash in a PTY.
+  - Not yet: SIGTTIN (a background job that reads the terminal simply gets no input), `stty`, a `kill` command, and wide-character widths in line editing. Interactive sessions are
+    diffed against real bash in a real PTY (`pty-differential.spec.ts`: both outputs are
+    drawn by `@xterm/headless` and the screens compared).
+
+## Amendment (2026-10-23): job control
+
+Asked for in the roadmap, so the "no job control" simplification above is lifted:
+
+- **Stopping.** SIGTSTP (Ctrl+Z in cooked mode, like `^C`) and SIGSTOP stop a process, and
+  SIGCONT continues it. A browser cannot pause a worker from outside, so a stopped process
+  stops itself: its default action marks a slot in its syscall channel's header, reports
+  `stopped` to the kernel and blocks in `Atomics.wait` on that slot until the kernel's SIGCONT
+  clears it. SIGSTOP cannot be caught; SIGTSTP can. Other signals to a stopped process wait
+  until it continues (no grace timer), except SIGKILL. A stopped process counts as waiting for
+  the CPU watchdog, and terminal input skips it.
+- **Process groups move.** `child-setpgid` puts a child and everything it started into the
+  parent's group (the terminal's foreground) or a group of its own; `child-kill` with `tree`
+  signals a whole job. Parents hear `child-stopped` and `child-continued`.
+- **The interactive shell** ignores SIGTSTP. A line whose programs stop becomes a Stopped job
+  (`[1]+  Stopped  cmd`, `$?` 148); its programs leave the shell's group, so the prompt's input
+  and Ctrl+C no longer reach them. `fg [%n]` moves a job back and waits for it (it can be
+  stopped again); `bg [%n]` continues it in its own group; `jobs` shows Running/Stopped/Done.
+  Exiting the shell hangs up stopped jobs and continues them so they can act on it.
+- **Limits.** A process that never returns to its event loop (a busy loop) cannot act on
+  SIGTSTP, as it cannot act on SIGINT; it is not stopped. Commands the shell runs in its own
+  worker (`sleep`, `cat`, `grep`, ...; ADR 0011) are not separate processes, so Ctrl+Z does not
+  stop them; bash would stop its external `sleep`. A job started with `&` and brought to
+  the foreground with `fg` does not read the terminal (it was started without it).
+

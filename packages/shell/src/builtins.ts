@@ -948,11 +948,44 @@ async function wait(sh: Shell, argv: string[], io: Io): Promise<number> {
 }
 
 async function jobs(sh: Shell, _argv: string[], io: Io): Promise<number> {
+  const all = sh.jobList();
   let out = '';
-  for (const j of sh.jobList())
-    out += `[${j.id}]  ${j.status === null ? 'Running' : 'Done'}\t\t${j.pid}\n`;
+  all.forEach((j, i) => {
+    const mark = i === all.length - 1 ? '+' : i === all.length - 2 ? '-' : ' ';
+    const state = j.status !== null ? 'Done' : j.stopped ? 'Stopped' : 'Running';
+    // bash's widths: Stopped takes 27 columns, Running and Done 24.
+    out += `[${j.id}]${mark}  ${state.padEnd(j.stopped ? 27 : 24)}${j.command}${j.stopped || j.status !== null ? '' : ' &'}\n`;
+  });
   await write(io, out);
   return 0;
+}
+
+/** `fg [%n]` and `bg [%n]`: job control in an interactive shell. */
+function jobBuiltin(name: 'fg' | 'bg'): Builtin {
+  return async (sh, argv, io) => {
+    const control = sh.foregroundJobs;
+    if (!control) {
+      await warn(sh, io, `${name}: no job control`);
+      return 1;
+    }
+    const spec = argv[1];
+    const job = sh.findJob(spec);
+    if (!job || job.status !== null) {
+      await warn(sh, io, `${name}: ${spec ?? 'current'}: no such job`);
+      return 1;
+    }
+    if (name === 'bg') {
+      if (!job.stopped) {
+        await warn(sh, io, `bg: job ${job.id} already in background`);
+        return 0;
+      }
+      control.bg(job);
+      await write(io, `[${job.id}]+ ${job.command} &\n`);
+      return 0;
+    }
+    await write(io, `${job.command}\n`);
+    return control.fg(job, io);
+  };
 }
 
 async function let_(sh: Shell, argv: string[], io: Io): Promise<number> {
@@ -1223,6 +1256,8 @@ export const BUILTINS: Record<string, Builtin> = {
   hash: async () => 0,
   wait,
   jobs,
+  fg: jobBuiltin('fg'),
+  bg: jobBuiltin('bg'),
   trap,
   umask: async (_sh, argv, io) => {
     if (argv.length === 1) await write(io, '0022\n');

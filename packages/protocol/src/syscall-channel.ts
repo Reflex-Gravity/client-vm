@@ -25,6 +25,8 @@ const Slot = {
   ERRNO: 3,
   /** Total length of the request/response being streamed. */
   TOTAL: 4,
+  /** 1 while the process is stopped (job control); it waits on this slot. */
+  STOPPED: 5,
 } as const;
 
 const HEADER_SLOTS = 8;
@@ -275,3 +277,25 @@ export class SyscallServer {
 
 const EMPTY = new Uint8Array(0);
 const ACK = new Uint8Array(0);
+
+/**
+ * Process side of a stop (job control): blocks the calling thread until the
+ * kernel continues it with {@link continueStopped}. The process reports
+ * `stopped` to the kernel after this marks it, so a SIGCONT cannot be lost.
+ */
+export function markStopped(sab: SharedArrayBuffer): void {
+  Atomics.store(new Int32Array(sab, 0, HEADER_SLOTS), Slot.STOPPED, 1);
+}
+
+/** Blocks while the process is marked stopped. */
+export function waitWhileStopped(sab: SharedArrayBuffer): void {
+  const header = new Int32Array(sab, 0, HEADER_SLOTS);
+  while (Atomics.load(header, Slot.STOPPED) === 1) Atomics.wait(header, Slot.STOPPED, 1);
+}
+
+/** Kernel side: wakes a stopped process (SIGCONT). */
+export function continueStopped(sab: SharedArrayBuffer): void {
+  const header = new Int32Array(sab, 0, HEADER_SLOTS);
+  Atomics.store(header, Slot.STOPPED, 0);
+  Atomics.notify(header, Slot.STOPPED);
+}

@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-import { IGNORED_BY_DEFAULT, SIGNAL_NUMBERS, SyscallClient, encodeUtf8 } from '@clientvm/protocol';
+import {
+  IGNORED_BY_DEFAULT,
+  SIGNAL_NUMBERS,
+  STOP_SIGNALS,
+  SyscallClient,
+  encodeUtf8,
+  markStopped,
+  waitWhileStopped,
+} from '@clientvm/protocol';
 import type { KernelToProcess, ProcessToKernel, Signal, WindowSize } from '@clientvm/protocol';
 import { ExitSignal } from './context.ts';
 import type { InputStream, OutputStream, ProcessContext, RuntimeTable, Tty } from './context.ts';
@@ -32,6 +40,7 @@ export function startProcessWorker(worker: ProcessScopeLike, runtimes: RuntimeTa
     if (msg.t === 'init') {
       if (started) return;
       started = true;
+      signals.channel = msg.channel;
       if (!msg.stdinOpen) stdin.push(null);
       if (msg.tty) tty = createTty(scope, msg.tty);
       void run(scope, runtimes, msg, stdin, listeners, signals, tty);
@@ -61,13 +70,23 @@ export function startProcessWorker(worker: ProcessScopeLike, runtimes: RuntimeTa
 function createSignals(scope: ProcessScopeLike) {
   const handlers = new Set<(signal: Signal) => boolean>();
   let ended = false;
+  /** Stops the whole worker until SIGCONT (job control). */
+  const stop = (signal: Signal, channel: SharedArrayBuffer) => {
+    markStopped(channel);
+    scope.postMessage({ t: 'stopped', signal });
+    waitWhileStopped(channel);
+  };
   return {
+    /** The syscall channel, whose header holds the stopped flag (set at init). */
+    channel: null as SharedArrayBuffer | null,
     on(handler: (signal: Signal) => boolean): () => void {
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
     deliver(signal: Signal): void {
       if (ended) return;
+      // SIGSTOP cannot be caught.
+      if (signal === 'SIGSTOP' && this.channel) return stop(signal, this.channel);
       let handled = false;
       for (const h of [...handlers]) {
         try {
@@ -81,6 +100,7 @@ function createSignals(scope: ProcessScopeLike) {
         return;
       }
       if (IGNORED_BY_DEFAULT.has(signal)) return;
+      if (STOP_SIGNALS.has(signal) && this.channel) return stop(signal, this.channel);
       // Default action: terminate, reporting the signal (exit status 128 + n).
       ended = true;
       scope.postMessage({ t: 'exit', code: 128 + SIGNAL_NUMBERS[signal], signal });

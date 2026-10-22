@@ -83,6 +83,9 @@ export type KernelToProcess =
   | { t: 'child-error'; id: number; code: string; message: string }
   | { t: 'child-output'; id: number; fd: 1 | 2; data: Uint8Array }
   | { t: 'child-exit'; id: number; code: number | null; signal: Signal | null }
+  /** The child stopped (Ctrl+Z, SIGTSTP/SIGSTOP), or continued after SIGCONT. */
+  | { t: 'child-stopped'; id: number; signal: Signal }
+  | { t: 'child-continued'; id: number }
   | { t: 'watch-event'; id: number; events: WireFsEvent[] }
   | NetToProcess;
 
@@ -97,12 +100,20 @@ export type ProcessToKernel =
   | { t: 'exit'; code: number; signal?: Signal }
   /** A handler took the last delivered signal (no default action). */
   | { t: 'signal-ack' }
+  /** The process stopped (a stop signal's default action) and waits for SIGCONT. */
+  | { t: 'stopped'; signal: Signal }
   /** Switches the terminal between raw and cooked input (`setRawMode`); needs stdin to be the terminal. */
   | { t: 'tty-mode'; raw: boolean }
   /** Starts a child process; `id` is chosen by the parent to correlate replies. */
   | { t: 'spawn'; id: number; request: ChildSpawnRequest }
   | { t: 'child-stdin'; id: number; data: Uint8Array | null }
-  | { t: 'child-kill'; id: number; signal: Signal }
+  /** With `tree`, the signal goes to the child and everything it started (a job). */
+  | { t: 'child-kill'; id: number; signal: Signal; tree?: boolean }
+  /**
+   * Moves the child and everything it started into the parent's process group
+   * (`foreground`: it gets terminal input and Ctrl+C) or a group of its own.
+   */
+  | { t: 'child-setpgid'; id: number; foreground: boolean }
   | { t: 'watch'; id: number; path: string; recursive: boolean }
   | { t: 'unwatch'; id: number }
   | NetToKernel;

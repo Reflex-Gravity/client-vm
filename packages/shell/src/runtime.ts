@@ -14,7 +14,7 @@ import { runInteractive } from './interactive.ts';
 import { Io, Shell, runCommandFn } from './shell.ts';
 import type { ShellHost } from './shell.ts';
 import { asShellFs } from './types.ts';
-import type { CommandFn, Spawner } from './types.ts';
+import type { CommandFn, JobControl, Spawner } from './types.ts';
 
 const PUMP_YIELD_BYTES = 64 * 1024;
 
@@ -52,9 +52,12 @@ function processSink(ctx: ProcessContext, fd: 1 | 2): Sink {
  * Spawns external programs as child processes of this process. Output the
  * shell routes to its own stdout/stderr is inherited (no copy through here).
  */
-export function createSpawner(ctx: ProcessContext): Spawner {
+export function createSpawner(ctx: ProcessContext): Spawner & { jobs: JobControl } {
   let nextId = 1;
   const handlers = new Map<number, (msg: KernelToProcess) => void>();
+  /** Programs started in the foreground and not yet exited. */
+  const foreground = new Set<number>();
+  const stopListeners = new Set<(id: number) => void>();
   ctx.onMessage((msg) => {
     if (
       msg.t === 'child-spawned' ||
@@ -63,9 +66,24 @@ export function createSpawner(ctx: ProcessContext): Spawner {
       msg.t === 'child-exit'
     ) {
       handlers.get(msg.id)?.(msg);
+    } else if (msg.t === 'child-stopped') {
+      for (const l of [...stopListeners]) l(msg.id);
     }
   });
-  return (argv, stdio) =>
+  const jobs: JobControl = {
+    foreground: () => [...foreground],
+    onStop(listener) {
+      stopListeners.add(listener);
+      return () => stopListeners.delete(listener);
+    },
+    setForeground(ids, fg) {
+      for (const id of ids) ctx.send({ t: 'child-setpgid', id, foreground: fg });
+    },
+    signal(ids, signal) {
+      for (const id of ids) ctx.send({ t: 'child-kill', id, signal, tree: true });
+    },
+  };
+  const spawn: Spawner = (argv, stdio) =>
     new Promise<number>((resolve, reject) => {
       const id = nextId++;
       // A foreground program reads the shell's terminal itself.
@@ -108,12 +126,14 @@ export function createSpawner(ctx: ProcessContext): Spawner {
           }
         }
       };
+      if (!stdio.background) foreground.add(id);
       handlers.set(id, (msg) => {
         switch (msg.t) {
           case 'child-spawned':
             if (stdinMode === 'pipe') void pump();
             break;
           case 'child-error':
+            foreground.delete(id);
             handlers.delete(id);
             reject(new SystemError(msg.code as ErrnoCode, 'spawn', argv[0]));
             break;
@@ -121,6 +141,7 @@ export function createSpawner(ctx: ProcessContext): Spawner {
             deliver(msg.fd === 1 ? stdio.stdout : stdio.stderr, msg.data);
             break;
           case 'child-exit':
+            foreground.delete(id);
             handlers.delete(id);
             pumping = false;
             void writes.then(() =>
@@ -141,6 +162,7 @@ export function createSpawner(ctx: ProcessContext): Spawner {
         },
       });
     });
+  return Object.assign(spawn, { jobs });
 }
 
 function hostFor(ctx: ProcessContext, commands: Readonly<Record<string, CommandFn>>): ShellHost {
@@ -150,7 +172,8 @@ function hostFor(ctx: ProcessContext, commands: Readonly<Record<string, CommandF
       createPosixPath(() => '/'),
     ),
   );
-  return { fs, spawn: createSpawner(ctx), commands, pid: ctx.pid };
+  const spawn = createSpawner(ctx);
+  return { fs, spawn, jobs: spawn.jobs, commands, pid: ctx.pid };
 }
 
 const SET_FLAGS = new Set([

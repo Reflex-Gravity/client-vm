@@ -13,7 +13,7 @@ import { BufferedSource } from './io.ts';
 import type { Sink, Source } from './io.ts';
 import { ParseError, parse } from './parser.ts';
 import { Interrupted } from './shell.ts';
-import type { Io, Shell } from './shell.ts';
+import type { Io, Job, Shell } from './shell.ts';
 
 /** Ubuntu's default bash prompt, in colour. */
 const DEFAULT_PS1 = '\\[\\e[1;32m\\]\\u@\\h\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]\\$ ';
@@ -218,28 +218,41 @@ export async function runInteractive(
   // terminal is raw, so it arrives as a key). Like bash, the shell waits for a
   // foreground program, which gets the signal too: the line stops only if
   // the program dies of it. Work running in the shell itself stops at once.
-  // Interactive shells ignore SIGTERM and SIGQUIT; SIGHUP ends them.
+  // Interactive shells ignore SIGTERM, SIGQUIT and SIGTSTP; SIGHUP ends them.
   let running: AbortController | null = null;
-  let foregroundPrograms = 0;
+  /** Programs in flight per line: a line stopped by Ctrl+Z keeps its own count. */
+  let lineGen = 0;
+  const inFlight = new Map<number, number>();
+  const count = (gen: number, d: number) => {
+    const n = (inFlight.get(gen) ?? 0) + d;
+    if (n === 0) inFlight.delete(gen);
+    else inFlight.set(gen, n);
+  };
+  /** Resolves `fg`'s wait when its job stops again (set while `fg` runs). */
+  let fgStopped: (() => void) | null = null;
+  const foregroundPrograms = () => (inFlight.get(lineGen) ?? 0) + (fgStopped ? 1 : 0);
   let sigintPending = false;
   const spawn = shell.host.spawn;
   shell.host.spawn = async (argv, stdio) => {
     if (stdio.background) return spawn(argv, stdio);
-    foregroundPrograms++;
+    const gen = lineGen;
+    count(gen, 1);
     try {
       const status = await spawn(argv, stdio);
-      if (status === 130 && sigintPending) running?.abort();
+      if (status === 130 && sigintPending && gen === lineGen) running?.abort();
       return status;
     } finally {
-      foregroundPrograms--;
-      if (foregroundPrograms === 0) sigintPending = false;
+      count(gen, -1);
+      if (foregroundPrograms() === 0) sigintPending = false;
     }
   };
   ctx.onSignal((signal) => {
     switch (signal) {
       case 'SIGINT':
-        if (foregroundPrograms > 0) sigintPending = true;
+        if (foregroundPrograms() > 0) sigintPending = true;
         else running?.abort();
+        return true;
+      case 'SIGTSTP':
         return true;
       case 'SIGWINCH':
         setSize();
@@ -250,6 +263,50 @@ export async function runInteractive(
     }
     return false;
   });
+
+  // Job control (Ctrl+Z, fg, bg): a stopped line becomes a job whose programs
+  // leave the shell's process group, so the prompt's input and Ctrl+C no
+  // longer reach them.
+  const control = shell.host.jobs;
+  /** Programs that belong to jobs, as opposed to the line now running. */
+  const jobPrograms = () => new Set(shell.jobList().flatMap((j) => j.programs ?? []));
+  let lineStopped: (() => void) | null = null;
+  control?.onStop((id) => {
+    if (fgStopped) return fgStopped();
+    if (!jobPrograms().has(id)) lineStopped?.();
+  });
+  const stoppedNotice = (job: Job) => err(`[${job.id}]+  ${'Stopped'.padEnd(27)}${job.command}\n`);
+  if (control) {
+    shell.foregroundJobs = {
+      fg: async (job) => {
+        const programs = job.programs ?? [];
+        job.stopped = false;
+        control.setForeground(programs, true);
+        control.signal(programs, 'SIGCONT');
+        const stopped = new Promise<'stopped'>((resolve) => (fgStopped = () => resolve('stopped')));
+        try {
+          const result = await Promise.race([job.done, stopped]);
+          if (result === 'stopped') {
+            job.stopped = true;
+            control.setForeground(programs, false);
+            stoppedNotice(job);
+            return 148;
+          }
+          // Finished in the foreground: no Done notice.
+          shell.forgetJob(job);
+          return result;
+        } finally {
+          fgStopped = null;
+          // A Ctrl+C that ended the job was the job's, not the next line's.
+          sigintPending = false;
+        }
+      },
+      bg: (job) => {
+        job.stopped = false;
+        control.signal(job.programs ?? [], 'SIGCONT');
+      },
+    };
+  }
 
   /** Reads one line with the editor; null at Ctrl+D on an empty line or a hang-up. */
   const readLine = async (prompt: string): Promise<string | null> => {
@@ -437,14 +494,33 @@ export async function runInteractive(
       ...(sink.inherit ? { inherit: sink.inherit } : {}),
     });
     const lineIo = io.with(1, { w: gate(io.stdout) }).with(2, { w: gate(io.stderr) });
+    lineGen++;
     const run = shell.runLine(src, lineIo);
     const interrupted = new Promise<'interrupted'>((resolve) =>
       controller.signal.addEventListener('abort', () => resolve('interrupted'), { once: true }),
     );
-    const result = await Promise.race([run, interrupted]);
+    const stopped = new Promise<'stopped'>((resolve) => (lineStopped = () => resolve('stopped')));
+    const result = await Promise.race([run, interrupted, stopped]);
+    lineStopped = null;
     running = null;
     shell.interrupt = null;
     shell.currentLine = '';
+    if (result === 'stopped') {
+      // Ctrl+Z (only reported with job control): the line's programs wait as
+      // a job, and the shell takes the terminal back.
+      const taken = jobPrograms();
+      const programs = (control?.foreground() ?? []).filter((id) => !taken.has(id));
+      control?.setForeground(programs, false);
+      const job = shell.addStoppedJob(
+        src.trim(),
+        run.then((r) => r.status),
+        programs,
+      );
+      stoppedNotice(job);
+      status = 148;
+      shell.state.status = 148;
+      continue;
+    }
     if (result === 'interrupted') {
       // The abandoned line stops at its next command or write.
       run.catch(() => {});
@@ -454,6 +530,12 @@ export async function runInteractive(
     }
     status = result.status;
     if (result.exit) break;
+  }
+  // Stopped jobs would wait forever: hang them up and let them run to act on it.
+  for (const job of shell.jobList()) {
+    if (!job.stopped || !control) continue;
+    control.signal(job.programs ?? [], 'SIGHUP');
+    control.signal(job.programs ?? [], 'SIGCONT');
   }
   return shell.exitWith(status, ioFor(input.source(new AbortController().signal)));
 }

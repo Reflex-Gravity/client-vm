@@ -36,6 +36,9 @@ export type Signal =
   | 'SIGALRM'
   | 'SIGTERM'
   | 'SIGCHLD'
+  | 'SIGCONT'
+  | 'SIGSTOP'
+  | 'SIGTSTP'
   | 'SIGXCPU'
   | 'SIGWINCH';
 
