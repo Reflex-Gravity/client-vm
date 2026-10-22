@@ -2,6 +2,8 @@
 import { createTestModule } from './test-runner.ts';
 import { installStdioFds } from './fs-stdio.ts';
 import { createV8 } from './v8.ts';
+import { createWasi } from './wasi.ts';
+import type { WasiFs } from './wasi.ts';
 import { createHttp2 } from './http2.ts';
 import { createReadline } from './readline.ts';
 import { assertModule } from './assert.ts';
@@ -212,6 +214,8 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   lazy('readline/promises', () => (readline ??= createReadline()).promises);
   let v8: Record<string, unknown> | undefined;
   lazy('v8', () => (v8 ??= createV8()));
+  let wasi: Record<string, unknown> | undefined;
+  lazy('wasi', () => (wasi ??= createWasi({ fs: fsFull as unknown as WasiFs, path })));
   table['worker_threads'] = deps.workerThreads;
   let testModule: Record<string, unknown> | undefined;
   lazy(
