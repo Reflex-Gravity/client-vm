@@ -1,10 +1,10 @@
 # ClientVM
 
 An open-source (Apache-2.0) browser runtime that runs Node.js-style workloads, a shell, and
-common Linux commands **entirely in the browser**, with no server-side compute. It is built for AI-agent
-app builders: each agent gets isolated
-instances with their own filesystem, processes, and network namespace, runs real `npm install`
-and `npm run dev`, and drives the app it built through a private, in-browser preview.
+common Linux commands **entirely in the browser**, with no server-side compute. It is built for
+AI-agent app builders: each agent gets isolated instances with their own filesystem, processes,
+and network namespace, runs real `npm install` and `npm run dev`, and drives the app it built
+through a private, in-browser preview.
 
 > **Status: pre-1.0 (Phases 0–5 implemented).** Not production-ready until the sandbox boundary
 > has had an independent [security review](docs/security-review.md). See [CLAUDE.md](CLAUDE.md)
