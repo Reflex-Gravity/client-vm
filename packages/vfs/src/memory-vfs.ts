@@ -196,6 +196,8 @@ export class MemoryVfs {
     this.rejectCreateWithSlash(path, 'open');
     const r = this.resolve(path, true, 'open');
     if (r.ino === undefined) {
+      // Through a symlink whose target ends in '/'.
+      if (r.trailingSlash) throw new SystemError('EISDIR', 'open', path);
       this.createFile(r, mode, data.slice(), 'open', path);
       this.emit('create', r);
       return;
@@ -224,6 +226,7 @@ export class MemoryVfs {
     // O_CREAT|O_EXCL never follows a final symlink.
     const r = this.resolve(dest, !exclusive, 'copyfile', src, dest);
     if (r.ino === undefined) {
+      if (r.trailingSlash) throw err('EISDIR');
       // Created, failed to read the directory, then unlinked: nothing is left.
       if (srcNode.kind === 'dir') throw err('EISDIR');
       const data = (srcNode as FileInode).data.slice(0, (srcNode as FileInode).size);
@@ -270,6 +273,8 @@ export class MemoryVfs {
     let ino = r.ino;
     if (ino === undefined) {
       if (!(flags & O_CREAT)) throw new SystemError('ENOENT', 'open', path);
+      // Through a symlink whose target ends in '/'.
+      if (r.trailingSlash) throw new SystemError('EISDIR', 'open', path);
       ino = this.createFile(r, mode, new Uint8Array(0), 'open', path);
       this.emit('create', r);
     } else {
@@ -766,7 +771,9 @@ export class MemoryVfs {
       throw new SystemError(code, syscall, errPath, dest);
     };
 
-    const trailingSlash = path.length > 1 && path.endsWith('/');
+    // A final symlink whose target ends in '/' counts as a trailing slash (Linux keeps the
+    // target's slash on its last component), so it becomes true while walking.
+    let trailingSlash = path.length > 1 && path.endsWith('/');
     const nameOnly = follow === 'name';
     const rawLast = path
       .split('/')
@@ -802,6 +809,7 @@ export class MemoryVfs {
       ) {
         if (++hops > MAX_SYMLINK_HOPS) fail('ELOOP');
         const target = child.target;
+        if (isLast && target.endsWith('/')) trailingSlash = true;
         queue.unshift(...target.split('/').filter((p) => p !== '' && p !== '.'));
         if (target.startsWith('/')) dirIno = ROOT_INO;
         if (queue.length === 0)
