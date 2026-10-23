@@ -1,8 +1,15 @@
 {
   "name": "@clientvm/shell",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "POSIX shell and Linux commands for ClientVM, implemented in TypeScript.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reflex-Gravity/client-vm.git",
+    "directory": "packages/shell"
+  },
+  "homepage": "https://github.com/Reflex-Gravity/client-vm#readme",
+  "bugs": "https://github.com/Reflex-Gravity/client-vm/issues",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -13,11 +20,16 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "dependencies": {
     "@clientvm/node-compat": "workspace:*",
     "@clientvm/process": "workspace:*",
     "@clientvm/protocol": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

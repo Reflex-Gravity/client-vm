@@ -7,3 +7,6 @@ playwright-report/
 bench-results.json
 .DS_Store
 dist-types/
+# Copied in by the release workflow
+packages/*/LICENSE
+packages/*/NOTICE

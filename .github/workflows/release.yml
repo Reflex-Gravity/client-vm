@@ -1,0 +1,45 @@
+name: Release
+
+# Publishes every non-private package under packages/ to npmjs.com when a
+# v<version> tag is pushed. All packages share one version; the tag must match it.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Check the tag matches every package version
+        run: node scripts/check-release-version.mjs "${GITHUB_REF_NAME#v}"
+      - run: pnpm check:spdx
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Ship LICENSE and NOTICE in every package
+        run: for d in packages/*/; do cp LICENSE NOTICE "$d"; done
+      # pnpm rewrites workspace:* to the real version and skips any package
+      # version that is already on the registry, so a failed run can be re-run.
+      - run: pnpm -r publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true

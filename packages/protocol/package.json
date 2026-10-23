@@ -1,8 +1,15 @@
 {
   "name": "@clientvm/protocol",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Typed message schemas, syscall channel and RPC for ClientVM.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reflex-Gravity/client-vm.git",
+    "directory": "packages/protocol"
+  },
+  "homepage": "https://github.com/Reflex-Gravity/client-vm#readme",
+  "bugs": "https://github.com/Reflex-Gravity/client-vm/issues",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -13,6 +20,11 @@
     }
   },
   "files": [
-    "dist"
-  ]
+    "dist",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }

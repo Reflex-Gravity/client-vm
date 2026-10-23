@@ -10,7 +10,8 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
 - Whether to add a pre-resolved install plan or shared package cache fast path once npm works.
   Answered for preset projects: built once, cached on the host origin (ADR 0018). Arbitrary
   `npm install`s still download per instance.
-- Package scope (`@clientvm/*` on npm) and sandbox domain availability.
+- Package scope (`@clientvm/*` on npm) and sandbox domain availability. Publishing targets
+  npmjs.com under `@clientvm` (docs/releasing.md); the npm org still has to be claimed.
 - **Should the agent see the user's terminal?** `onProcess` reports user and agent commands alike
   (told apart by `tag`), but `read_console` only covers processes the agent started. Giving the
   agent the user's output adds context and also exposes whatever the user typed or printed

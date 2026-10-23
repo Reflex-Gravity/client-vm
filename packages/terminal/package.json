@@ -1,8 +1,15 @@
 {
   "name": "@clientvm/terminal",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Terminal views of a ClientVM instance: the commands it runs and their live output.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reflex-Gravity/client-vm.git",
+    "directory": "packages/terminal"
+  },
+  "homepage": "https://github.com/Reflex-Gravity/client-vm#readme",
+  "bugs": "https://github.com/Reflex-Gravity/client-vm/issues",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -13,9 +20,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "dependencies": {
     "@clientvm/clientvm": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

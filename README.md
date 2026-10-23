@@ -239,7 +239,7 @@ To run e2e beside another checkout's servers, set `CLIENTVM_E2E_PORT` and
 | `examples/agent-playground` | A minimal host app: an instance, a command line with live command output, a preview, and the agent tools |
 
 Docs: [architecture](docs/architecture.md) · [interfaces](docs/interfaces.md) · [agent API](docs/agent-api.md) · [hosting](docs/hosting.md) ·
-[terminal plan](docs/terminal-plan.md) · [security](docs/security.md) · [security review](docs/security-review.md) · [open questions](docs/open-questions.md) · [decisions](docs/decisions/)
+[terminal plan](docs/terminal-plan.md) · [security](docs/security.md) · [security review](docs/security-review.md) · [open questions](docs/open-questions.md) · [releasing](docs/releasing.md) · [decisions](docs/decisions/)
 
 ## License
 

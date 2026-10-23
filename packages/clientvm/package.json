@@ -1,8 +1,15 @@
 {
   "name": "@clientvm/clientvm",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Public entry point for ClientVM.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reflex-Gravity/client-vm.git",
+    "directory": "packages/clientvm"
+  },
+  "homepage": "https://github.com/Reflex-Gravity/client-vm#readme",
+  "bugs": "https://github.com/Reflex-Gravity/client-vm/issues",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -13,9 +20,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "dependencies": {
     "@clientvm/protocol": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }
