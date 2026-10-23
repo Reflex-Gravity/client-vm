@@ -76,6 +76,13 @@ instance can read and tamper with it, which only affects that instance. Loading 
 structure and fails closed on corruption. Storage partitioning keys it by the host app's
 top-level site.
 
+Preset images (ADR 0018) are the one thing ClientVM keeps on the **host** origin, in Cache
+Storage (`clientvm-presets`) or a host-supplied `presetStore`. Only the controller writes them,
+from a builder instance that runs the pinned template and setup and never agent code, so an
+instance cannot plant files in another's starting image. Images hold public packages only and are
+validated at boot like any image; a stored image that fails its framing check is dropped and
+rebuilt.
+
 ## Known risks and open issues
 
 - **Spectre / high-resolution timers.** Cross-origin isolation re-enables SAB and precise timers.

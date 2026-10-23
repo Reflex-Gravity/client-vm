@@ -4,6 +4,7 @@
 // opens another), and everything the agent's tool calls run
 // (attachActivityView) in another tab. All are drawn by xterm.js, with search;
 // scrollback survives a reload, and port URLs in output open the preview.
+import type { PresetName } from '@clientvm/clientvm';
 import { createAgentTools } from '@clientvm/agent-api';
 import { attachActivityView, attachShell } from '@clientvm/terminal';
 import { STARTER, vm } from './sandbox.ts';
@@ -142,8 +143,15 @@ async function main(): Promise<void> {
     $('search-status').textContent = found ? 'found' : 'not found';
   });
 
+  // `?preset=vite-react-ts` starts from a ready Vite + React + TypeScript
+  // project (`npm run dev`). The first load builds it, about 10 s; later
+  // loads boot from the copy kept in this origin's Cache Storage.
+  const preset = new URLSearchParams(location.search).get('preset') as PresetName | null;
+  if (preset) $('status').textContent = `loading preset ${preset}…`;
   const instance = await vm.createInstance({
-    fs: { from: { home: { user: { app: { ...STARTER, ...DEMO_FILES } } } } },
+    ...(preset
+      ? { preset }
+      : { fs: { from: { home: { user: { app: { ...STARTER, ...DEMO_FILES } } } } } }),
     limits: { maxProcesses: 64, maxCpuMs: 30_000 },
   });
   $('status').textContent = `instance ${instance.id}`;

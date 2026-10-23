@@ -95,3 +95,18 @@ test('terminal page: interactive shell, Ctrl+C, history, and the agent tab', asy
   await page.getByRole('tab', { name: /Agent/ }).click();
   await expect(agent).toContainText('$ node build.js');
 });
+
+test('terminal page with ?preset=vite-react-ts: a ready Vite project', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto(
+    `http://localhost:${process.env['CLIENTVM_E2E_EXAMPLE_PORT']}/terminal.html?preset=vite-react-ts`,
+  );
+  await expect(page.locator('#status')).toContainText('instance', { timeout: 240_000 });
+  const shell = page.locator('#terminal .xterm-rows');
+  await expect(shell).toContainText('user@clientvm:~/app$');
+  await page.keyboard.type('ls src && npm run dev');
+  await page.keyboard.press('Enter');
+  await expect(shell).toContainText('App.tsx');
+  await expect(shell).toContainText('VITE v8.3.5', { timeout: 60_000 });
+  await expect(page.locator('#url')).toHaveText('port 5173', { timeout: 60_000 });
+});

@@ -36,6 +36,7 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | git | **isomorphic-git, fetched and integrity-checked on first use** like npm; porcelain output diffed against real git. Remotes need a CORS proxy (ADR 0014) |
 | Node conformance | Node 24.11's `lib/path.js` and the passing subset of Node's `test/parallel` are **vendored unmodified** and run in CI (ADR 0015) |
 | Terminal UI | `Instance.onProcess` (bounded replay) plus **`@clientvm/terminal`**, which has **no terminal-emulator dependency**: it writes to any xterm.js-compatible `write()`. Agent and user commands are separate processes told apart by `tag` (ADR 0016, docs/terminal-plan.md) |
+| Presets | **`createInstance({ preset: 'vite-react-ts' })`** boots a ready project (installed `node_modules`, stand-ins). Built once in a hidden builder instance that runs only the pinned template, and cached as an image in the **host origin's Cache Storage** (pluggable `presetStore`): the one place ClientVM keeps state on the host origin (ADR 0018) |
 | Terminals and signals | **Pseudo-terminals in the kernel** (line discipline, raw mode, window size; `spawn(..., { pty })`) and **delivered signals** (handlers, default actions, 1 s grace; SIGKILL/SIGPIPE/SIGXCPU immediate). Process groups with job control (Ctrl+Z, `fg`, `bg`; ADR 0017 amendment). Interactive `bash -i` with editing, history and completion (ADR 0017) |
 
 ## 3. Non-goals for v1
@@ -128,6 +129,7 @@ export interface InstanceOptions {
   name?: string;
   parent?: InstanceId;
   fs?: { from?: SnapshotId | FileTree; quotaBytes?: number; persist?: boolean };
+  preset?: 'vite-react-ts';                // ready project, cached on the host origin (ADR 0018)
   limits?: { maxProcesses?: number; maxMemoryMB?: number };
   capabilities?: Capability[];
 }

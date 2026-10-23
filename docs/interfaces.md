@@ -23,6 +23,7 @@ affect decisions, CLAUDE.md.
 | `createInstance`, `getInstance`, `listInstances` | done. `id` + `fs.persist` reattach to persisted storage |
 | `InstanceOptions.fs.persist`, `Instance.flush()`, `destroy({ purge })` | done (2c): write-behind OPFS persistence, one tab per persistent instance (`EBUSY` otherwise) |
 | `InstanceOptions.fs.from` (`FileTree` or `SnapshotId`), `fs.quotaBytes`, `limits.maxProcesses` | done |
+| `InstanceOptions.preset` (`'vite-react-ts'`), `ClientVMOptions.presetStore`, `cachePresetStore`, `memoryPresetStore` | done (ADR 0018): a ready project in `/home/user/app`, built once in a hidden instance and cached in the host origin's Cache Storage; `ERR_INVALID_PRESET` for unknown names or with `fs.from`, `ERR_PRESET_BUILD` if setup fails |
 | `Instance.fs`: `readFile writeFile readdir stat mkdir rm rename symlink watch` | done (`watch` is recursive) |
 | `Instance.fs.mount`/`unmount` | done (4c): read-only mirrors of another instance's directory (kept in step from its watch events) or of a snapshot; needs a `mount` capability; writes under a mount fail with `EROFS`, including through symlinks; writable mounts reject with `ERR_NOT_SUPPORTED` |
 | `Instance.spawn` → `Process` with streaming `stdout`/`stderr`, `stdin`, `kill`, `exit` | done. `stdin` writes reach the process (`process.stdin`, `fs.read(0)`); closing it sends EOF. Unread output is buffered up to 8 MiB per stream, then dropped with a note on that stream (5c) |

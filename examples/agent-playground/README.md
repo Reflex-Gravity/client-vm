@@ -33,6 +33,11 @@ http://localhost:5180/terminal.html is a StackBlitz-style terminal in
 shows the commands the side panel's agent tool calls run (`attachActivityView`), with their
 output and exit status.
 
+Add `?preset=vite-react-ts` (http://localhost:5180/terminal.html?preset=vite-react-ts) to start
+from a ready Vite + React + TypeScript project instead: `npm run dev` works right away. The first
+load builds it (about 10 s); later loads boot from the copy kept in this origin's Cache Storage
+(ADR 0018).
+
 xterm.js is the host app's choice, not a ClientVM dependency. The page loads version 6.0.0 from
 jsDelivr, pinned by hash in an import map, so it needs network access.
 

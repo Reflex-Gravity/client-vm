@@ -8,6 +8,8 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   scope, deferred.
 - CPU-emulator backend for a future `vm` tier: benchmark spike later, check licensing.
 - Whether to add a pre-resolved install plan or shared package cache fast path once npm works.
+  Answered for preset projects: built once, cached on the host origin (ADR 0018). Arbitrary
+  `npm install`s still download per instance.
 - Package scope (`@clientvm/*` on npm) and sandbox domain availability.
 - **Should the agent see the user's terminal?** `onProcess` reports user and agent commands alike
   (told apart by `tag`), but `read_console` only covers processes the agent started. Giving the

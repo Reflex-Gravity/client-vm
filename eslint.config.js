@@ -13,6 +13,8 @@ export default tseslint.config(
       'playwright-report/**',
       // Golden fixtures are ordinary user apps (CommonJS, Node globals).
       'test/fixtures/**',
+      // Preset templates are user apps too (packages/clientvm/presets, ADR 0018).
+      'packages/clientvm/presets/**',
       // Node's own tests, vendored byte for byte.
       'test/conformance/node-tests/**',
     ],

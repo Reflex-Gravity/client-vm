@@ -104,7 +104,22 @@ export interface InstanceOptions {
   };
   limits?: Omit<Limits, 'quotaBytes'>;
   capabilities?: Capability[];
+  /**
+   * Start from a ready-made project in `/home/user/app`: its files, installed
+   * `node_modules` and the WebAssembly stand-ins its toolchain uses. Built
+   * once in a hidden instance, then kept in the controller's preset store
+   * (`ClientVMOptions.presetStore`) and shared by every instance that asks
+   * for it. Cannot be combined with `fs.from`; a restored persistent
+   * filesystem still wins over it.
+   */
+  preset?: PresetName;
 }
+
+/**
+ * Presets {@link InstanceOptions.preset} accepts. `vite-react-ts`: Vite 8,
+ * React 19 and TypeScript; `npm run dev` starts it.
+ */
+export type PresetName = 'vite-react-ts';
 
 export interface InstanceInfo {
   id: InstanceId;

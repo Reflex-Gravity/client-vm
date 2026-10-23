@@ -22,6 +22,8 @@ import type {
 import { CapabilityTable, parseCapability, subjectOf } from './capabilities.ts';
 import { connectInstance, connectPortBridge } from './connect.ts';
 import { ClientVMError } from './errors.ts';
+import { PRESETS, PRESET_DIR, defaultPresetStore, isPresetName, presetKey } from './presets.ts';
+import type { PresetStore } from './presets.ts';
 import { PreviewImpl } from './preview.ts';
 import { ProcessLog } from './process-log.ts';
 import { ProcessHandleImpl } from './process.ts';
@@ -43,6 +45,7 @@ import type {
   Mailbox,
   MountSource,
   NetworkLogEntry,
+  PresetName,
   Preview,
   PreviewOptions,
   Process,
@@ -72,6 +75,12 @@ export interface ClientVMOptions {
    * treated as crashed: its calls reject with `ERR_INSTANCE_CRASHED`.
    */
   heartbeatMs?: number;
+  /**
+   * Where built preset images are kept (`InstanceOptions.preset`). Default:
+   * the host origin's Cache Storage, so a preset is built once per browser
+   * profile; in memory where Cache Storage is unavailable.
+   */
+  presetStore?: PresetStore;
 }
 
 /**
@@ -103,21 +112,29 @@ const MAX_MESSAGE_BYTES = 1 << 20;
  * the host page create an iframe per port number.
  */
 const MAX_PORT_ORIGINS = 64;
+/** How long a preset's setup (installs and downloads) may take in its builder. */
+const PRESET_BUILD_TIMEOUT_MS = 300_000;
 
 class Controller implements ClientVM {
-  readonly options: Required<Omit<ClientVMOptions, 'container'>> & { container?: HTMLElement };
+  readonly options: Required<Omit<ClientVMOptions, 'container' | 'presetStore'>> & {
+    container?: HTMLElement;
+  };
+  private readonly presetStore: PresetStore;
+  /** Preset images by store key, once loaded or while being built. */
+  private readonly presetImages = new Map<string, Promise<Uint8Array[]>>();
   private readonly instances = new Map<InstanceId, InstanceImpl>();
   private readonly names = new Map<string, InstanceId>();
   /** @internal */
   readonly caps = new CapabilityTable();
 
-  constructor(options: ClientVMOptions) {
+  constructor({ presetStore, ...options }: ClientVMOptions) {
     this.options = {
       instancePath: '/__clientvm/instance.html',
       bootTimeoutMs: 15_000,
       heartbeatMs: 5_000,
       ...options,
     };
+    this.presetStore = presetStore ?? defaultPresetStore();
   }
 
   async createInstance(opts: CreateOptions = {}): Promise<Instance> {
@@ -154,7 +171,15 @@ class Controller implements ClientVM {
     };
     if (Object.keys(limits).length > 0) init.limits = limits;
     if (opts.fs?.persist) init.persist = true;
-    if (opts.image) {
+    if (opts.preset !== undefined) {
+      if (!isPresetName(opts.preset)) {
+        throw new ClientVMError(`unknown preset "${String(opts.preset)}"`, 'ERR_INVALID_PRESET');
+      }
+      if (opts.image || opts.fs?.from !== undefined) {
+        throw new ClientVMError('a preset cannot be combined with fs.from', 'ERR_INVALID_PRESET');
+      }
+      init.image = await this.presetImage(opts.preset);
+    } else if (opts.image) {
       init.image = opts.image;
     } else if (typeof opts.fs?.from === 'string') {
       init.image = await this.exportSnapshot(opts.fs.from);
@@ -263,6 +288,55 @@ class Controller implements ClientVM {
     this.instances.delete(id);
     if (instance?.name !== undefined) this.names.delete(instance.name);
     this.caps.drop(id);
+  }
+
+  /** A copy of a preset's image: boot transfers the buffers to the instance's kernel. */
+  private async presetImage(name: PresetName): Promise<Uint8Array[]> {
+    const key = presetKey(name);
+    let image = this.presetImages.get(key);
+    if (!image) {
+      image = this.loadPreset(name, key);
+      this.presetImages.set(key, image);
+      image.catch(() => this.presetImages.delete(key));
+    }
+    return (await image).map((chunk) => chunk.slice());
+  }
+
+  private async loadPreset(name: PresetName, key: string): Promise<Uint8Array[]> {
+    const stored = await this.presetStore.get(key).catch(() => undefined);
+    if (stored) return stored;
+    const image = await this.buildPreset(name);
+    // A full or unavailable store only means building again on the next page load.
+    await this.presetStore.put(key, image).catch(() => undefined);
+    return image;
+  }
+
+  /**
+   * Runs a preset's setup in a hidden instance and exports its filesystem.
+   * The builder runs only the pinned template, never agent code, so the
+   * shared image cannot carry one instance's writes into another.
+   */
+  private async buildPreset(name: PresetName): Promise<Uint8Array[]> {
+    const { template, setup } = PRESETS[name];
+    const builder = (await this.createInstance({
+      fs: { from: { home: { user: { app: template.files } } } },
+    })) as InstanceImpl;
+    try {
+      const result = await builder.exec(setup, {
+        cwd: PRESET_DIR,
+        tag: { source: 'preset', preset: name },
+        timeoutMs: PRESET_BUILD_TIMEOUT_MS,
+      });
+      if (result.code !== 0) {
+        throw new ClientVMError(
+          `building preset ${name} failed (exit ${result.code}): ${result.stderr.slice(-2000)}`,
+          'ERR_PRESET_BUILD',
+        );
+      }
+      return v.chunks(await builder.rpc.call('exportImage', null));
+    } finally {
+      await builder.destroy();
+    }
   }
 
   private async exportSnapshot(snapshotId: SnapshotId): Promise<Uint8Array[]> {
