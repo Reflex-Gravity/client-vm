@@ -4,8 +4,8 @@
 - **Context:** Shell scripts run many short commands: `ls`, `grep`, `sed`, `mkdir -p`, pipelines,
   `$(...)`, and loops that run a command per file. A ClientVM process is a Web Worker with
   syscall channels, and a process spawn costs about 9 ms (docs/phase3-plan.md). A worker per
-  command would make `for f in *.js; do grep -q x "$f"; done` take seconds. StackBlitz's `jsh`
-  and busybox avoid this by running applets inside the shell process.
+  command would make `for f in *.js; do grep -q x "$f"; done` take seconds. Multi-call
+  shells such as busybox avoid this by running applets inside the shell process.
 - **Decision:**
   - The commands in `@clientvm/shell` (`ls cat grep sed find ...`) and the shell builtins run
     **inside the shell's worker** as async functions. Pipelines between them use in-memory pipes

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// The terminal page, like StackBlitz's: real interactive shells (`bash -i` on
+// The terminal page: real interactive shells (`bash -i` on
 // pseudo-terminals, through @clientvm/terminal's attachShell) in tabs (`+`
 // opens another), and everything the agent's tool calls run
 // (attachActivityView) in another tab. All are drawn by xterm.js, with search;

@@ -26,7 +26,7 @@ for example `VITE_SANDBOX=https://{id}.myapp-sandbox.dev`.
 
 ## Terminal view
 
-http://localhost:5180/terminal.html is a StackBlitz-style terminal in
+http://localhost:5180/terminal.html is a terminal page in
 [xterm.js](https://xtermjs.org/). The **Terminal** tab is a real `bash -i` on a pseudo-terminal
 (`attachShell`): history on ↑/↓, Tab completion, Ctrl+C, and programs that see a TTY (try
 `npm install vite` for npm's progress, or `node` scripts that read keys). The **🤖 Agent** tab

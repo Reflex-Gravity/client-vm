@@ -1,7 +1,7 @@
 # Terminal plan: seeing and driving what an instance runs
 
 Goal: a builder app on ClientVM can show the commands that run in an instance (the agent's and
-the user's) with their live output and status, as Bolt and StackBlitz do, and later give the
+the user's) with their live output and status, and later give the
 user an interactive terminal. The UI layer is small. The runtime gaps are what make this work:
 
 | Gap | Before this plan |

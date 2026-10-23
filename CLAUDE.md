@@ -4,9 +4,9 @@
 
 ## 1. What we are building
 
-**ClientVM** is an open-source (Apache-2.0), browser-based runtime library, similar in spirit to StackBlitz WebContainers, WebVM and BrowserPod. It runs JavaScript/Node-style workloads, a shell and common Linux commands **entirely in the browser, with no server-side compute**.
+**ClientVM** is an open-source (Apache-2.0), browser-based runtime library. It runs JavaScript/Node-style workloads, a shell and common Linux commands **entirely in the browser, with no server-side compute**.
 
-Primary use case: an AI-agent app-building platform (Bolt/Lovable-style). Agents build React + Node.js apps; the generated apps run in an in-browser sandbox (no server-side pods). Each agent gets its own filesystem and can spin up its own sandboxed runtimes.
+Primary use case: an AI-agent app-building platform. Agents build React + Node.js apps; the generated apps run in an in-browser sandbox (no server-side pods). Each agent gets its own filesystem and can spin up its own sandboxed runtimes.
 
 The library must be **production-ready and battle-tested**. That is earned through a defined compatibility target and a serious test harness (section 9), not asserted.
 
@@ -19,8 +19,8 @@ The library must be **production-ready and battle-tested**. That is earned throu
 | Browser target (v1) | **Chromium only** (use OPFS sync access handles, SharedArrayBuffer/Atomics, JSPI where useful) |
 | Language | **TypeScript-first. No Rust/WASM in v1.** Keep perf-sensitive modules behind narrow bytes-in/bytes-out interfaces so they can be swapped to Rust/WASM later if profiling justifies it |
 | Language support (v1) | **JavaScript/Node only**, targeting **Node.js 24 LTS** (ADR 0001) |
-| "Linux" support | A **shell plus popular Linux commands implemented in TS** (like StackBlitz's `jsh`). **No CPU emulator / real Linux VM in v1.** Reserve a `vm` process-type interface for the future |
-| Package manager | **Run real npm (then pnpm) unmodified on the Node-compat layer.** No custom installer in v1 (StackBlitz abandoned its custom client, Turbo, for native npm/pnpm/yarn). A fast-path cache can come later |
+| "Linux" support | A **shell plus popular Linux commands implemented in TS**. **No CPU emulator / real Linux VM in v1.** Reserve a `vm` process-type interface for the future |
+| Package manager | **Run real npm (then pnpm) unmodified on the Node-compat layer.** No custom installer in v1: running the real package managers avoids reimplementing their resolution and lockfile behavior. A fast-path cache can come later |
 | Filesystem model | **Dedicated FS per instance** (isolated, copy-on-write forks and snapshots). Merging is an explicit later operation |
 | Multi-agent | Each agent owns one or more **instances** and can spawn child instances. Agents may talk to each other through a mailbox and a virtual network, brokered by capabilities |
 | Sandbox hosting | **Wildcard subdomains are available** (static hosting only): `<instance-id>.<sandbox-domain>`. Each instance gets its own origin |
