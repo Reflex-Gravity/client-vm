@@ -1,8 +1,8 @@
 # ClientVM
 
 An open-source (Apache-2.0) browser runtime that runs Node.js-style workloads, a shell, and
-common Linux commands **entirely in the browser**, with no server-side compute. Think StackBlitz
-WebContainers, but open source and built for AI-agent app builders: each agent gets isolated
+common Linux commands **entirely in the browser**, with no server-side compute. It is built for AI-agent
+app builders: each agent gets isolated
 instances with their own filesystem, processes, and network namespace, runs real `npm install`
 and `npm run dev`, and drives the app it built through a private, in-browser preview.
 
@@ -244,3 +244,7 @@ Docs: [architecture](docs/architecture.md) Â· [interfaces](docs/interfaces.md) Â
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Node.js, npm, pnpm, Vite, React, Chromium, Claude and other names mentioned here are trademarks
+of their respective owners. They are used only to describe compatibility; ClientVM is not
+affiliated with or endorsed by any of them.
