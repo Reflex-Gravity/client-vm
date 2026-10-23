@@ -8,6 +8,7 @@
 // `{id}` is replaced with a random instance id. `*.localhost` hosts resolve to
 // 127.0.0.1, so the dev and preview servers can be checked too.
 // Exits 1 if a requirement fails; warnings do not fail.
+import dns from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -25,7 +26,11 @@ const id = `check${Math.random().toString(36).slice(2, 10)}`;
 const origin = new URL(template.replace('{id}', id)).origin;
 const portOrigin = new URL(template.replace('{id}', `${id}-p3000`)).origin;
 
-/** GET `url`; `*.localhost` resolves to loopback as browsers do. */
+/**
+ * GET `url`; `*.localhost` resolves to loopback as browsers do: to whatever
+ * `localhost` resolves to (127.0.0.1 and/or ::1), since a server bound to
+ * `localhost` may listen on only one of them.
+ */
 function get(url, headers = {}) {
   const u = new URL(url);
   const lib = u.protocol === 'https:' ? https : http;
@@ -35,8 +40,7 @@ function get(url, headers = {}) {
       {
         headers,
         lookup: u.hostname.endsWith('.localhost')
-          ? (_host, opts, cb) =>
-              opts?.all ? cb(null, [{ address: '127.0.0.1', family: 4 }]) : cb(null, '127.0.0.1', 4)
+          ? (_host, opts, cb) => dns.lookup('localhost', opts, cb)
           : undefined,
       },
       (res) => {

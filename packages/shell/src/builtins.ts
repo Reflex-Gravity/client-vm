@@ -954,8 +954,8 @@ async function jobs(sh: Shell, _argv: string[], io: Io): Promise<number> {
   all.forEach((j, i) => {
     const mark = i === all.length - 1 ? '+' : i === all.length - 2 ? '-' : ' ';
     const state = j.status !== null ? 'Done' : j.stopped ? 'Stopped' : 'Running';
-    // bash's widths: Stopped takes 27 columns, Running and Done 24.
-    out += `[${j.id}]${mark}  ${state.padEnd(j.stopped ? 27 : 24)}${j.command}${j.stopped || j.status !== null ? '' : ' &'}\n`;
+    // bash pads every state to 24 columns (LONGEST_SIGNAL_DESC).
+    out += `[${j.id}]${mark}  ${state.padEnd(24)}${j.command}${j.stopped || j.status !== null ? '' : ' &'}\n`;
   });
   await write(io, out);
   return 0;

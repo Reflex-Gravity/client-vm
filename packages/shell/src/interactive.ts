@@ -276,7 +276,7 @@ export async function runInteractive(
     if (fgStopped) return fgStopped();
     if (!jobPrograms().has(id)) lineStopped?.();
   });
-  const stoppedNotice = (job: Job) => err(`[${job.id}]+  ${'Stopped'.padEnd(27)}${job.command}\n`);
+  const stoppedNotice = (job: Job) => err(`[${job.id}]+  ${'Stopped'.padEnd(24)}${job.command}\n`);
   if (control) {
     shell.foregroundJobs = {
       fg: async (job) => {

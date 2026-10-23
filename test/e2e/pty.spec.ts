@@ -210,13 +210,13 @@ process.stdin.on('data', (d) => console.log('read', JSON.stringify(String(d))));
     // Ctrl+Z: the program stops and the prompt comes back, with $? = 148.
     await t.mark();
     await t.type('\x1a');
-    await t.expect(/\^Z\n\[1\]\+ {2}Stopped {20}node tick\.js\n[^\n]*\$ $/);
+    await t.expect(/\^Z\n\[1\]\+ {2}Stopped {17}node tick\.js\n[^\n]*\$ $/);
     // Stopped means stopped: no ticks while at the prompt, and typed lines are the shell's.
     const quiet = await t.run('echo status=$?');
     expect(quiet).toContain('status=148');
     await page.waitForTimeout(500);
     expect(await t.since()).not.toContain('tick');
-    expect(await t.run('jobs')).toMatch(/\[1\]\+ {2}Stopped {20}node tick\.js\n/);
+    expect(await t.run('jobs')).toMatch(/\[1\]\+ {2}Stopped {17}node tick\.js\n/);
 
     // bg: it runs again in the background, without the terminal's input.
     await t.mark();
