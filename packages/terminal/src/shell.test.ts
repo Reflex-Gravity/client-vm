@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Process } from '@clientvm/clientvm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { attachShell } from './shell.ts';
 
 function fakeProcess() {
@@ -57,8 +57,13 @@ function fakeTerminal() {
   return term;
 }
 
-/** Output is drawn once a frame (setTimeout 16 ms outside a browser). */
-const frame = () => new Promise((r) => setTimeout(r, 20));
+/**
+ * Output is drawn once a frame (setTimeout 16 ms outside a browser), scheduled
+ * only after the stdout pump has read the chunk, so wait for the draw rather
+ * than a fixed delay.
+ */
+const drawn = (term: { screen: string }) =>
+  vi.waitFor(() => expect(term.screen).not.toBe(''), { timeout: 1000, interval: 5 });
 
 describe('attachShell', () => {
   it('spawns bash -i on a pty sized to the terminal and connects keys, output and resizes', async () => {
@@ -74,7 +79,7 @@ describe('attachShell', () => {
     term.type('ls\r');
     p.print('a.txt\r\n\x1b]52;c;AAAA\x07\x1b[32mok\x1b[0m');
     term.resizeTo(120, 40);
-    await frame();
+    await drawn(term);
     expect(p.typed).toEqual(['ls\r']);
     expect(term.screen).toBe('a.txt\r\n\x1b[32mok\x1b[0m');
     expect(p.calls).toEqual(['resize 120x40']);
