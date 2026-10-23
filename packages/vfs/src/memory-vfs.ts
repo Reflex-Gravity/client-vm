@@ -427,9 +427,12 @@ export class MemoryVfs {
   link(existing: string, newPath: string): void {
     const src = this.resolve(existing, false, 'link', existing, newPath);
     if (src.ino === undefined) throw new SystemError('ENOENT', 'link', existing, newPath);
-    if (this.get(src.ino).kind === 'dir') throw new SystemError('EPERM', 'link', existing, newPath);
+    // Linux order: the new path's lookup errors, EEXIST and a trailing slash on a missing
+    // name (ENOENT) all come before linking a directory (EPERM).
     const dest = this.resolve(newPath, false, 'link', existing, newPath);
     if (dest.ino !== undefined) throw new SystemError('EEXIST', 'link', existing, newPath);
+    if (dest.trailingSlash) throw new SystemError('ENOENT', 'link', existing, newPath);
+    if (this.get(src.ino).kind === 'dir') throw new SystemError('EPERM', 'link', existing, newPath);
     const node = this.mut(src.ino);
     node.nlink++;
     node.ctimeMs = Date.now();
