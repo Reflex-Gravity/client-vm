@@ -166,11 +166,7 @@ export class MemoryVfs {
   }
 
   chmod(path: string, mode: number): void {
-    const ino = this.existing(path, true, 'chmod');
-    const node = this.mut(ino);
-    node.mode = (node.mode & S_IFMT) | (mode & 0o7777);
-    node.ctimeMs = Date.now();
-    this.emitIno('modify', ino);
+    this.setPerm(this.existing(path, true, 'chmod'), mode);
   }
 
   utimes(path: string, atimeMs: number, mtimeMs: number): void {
@@ -197,9 +193,9 @@ export class MemoryVfs {
 
   /** Creates or truncates `path` (following symlinks). The parent directory must exist. */
   writeFile(path: string, data: Uint8Array, mode = 0o644): void {
+    this.rejectCreateWithSlash(path, 'open');
     const r = this.resolve(path, true, 'open');
     if (r.ino === undefined) {
-      if (r.trailingSlash) throw new SystemError('EISDIR', 'open', path);
       this.createFile(r, mode, data.slice(), 'open', path);
       this.emit('create', r);
       return;
@@ -215,19 +211,48 @@ export class MemoryVfs {
     this.truncateIno(ino, length, 'open', path);
   }
 
+  /**
+   * libuv's copyfile: open `src`, open `dest` with O_WRONLY|O_CREAT (|O_EXCL), give it the
+   * source's mode, then copy. Reading a directory source fails only after `dest` is
+   * open, and libuv then unlinks `dest`.
+   */
   copyFile(src: string, dest: string, exclusive = false): void {
-    const srcNode = this.get(this.existing(src, true, 'copyfile', dest));
-    if (srcNode.kind === 'dir') throw new SystemError('EISDIR', 'copyfile', src, dest);
-    const data = (srcNode as FileInode).data.slice(0, (srcNode as FileInode).size);
-    const r = this.resolve(dest, true, 'copyfile', src, dest);
+    const err = (code: ErrnoCode) => new SystemError(code, 'copyfile', src, dest);
+    const srcIno = this.existing(src, true, 'copyfile', dest);
+    const srcNode = this.get(srcIno);
+    this.rejectCreateWithSlash(dest, 'copyfile', src, dest);
+    // O_CREAT|O_EXCL never follows a final symlink.
+    const r = this.resolve(dest, !exclusive, 'copyfile', src, dest);
     if (r.ino === undefined) {
+      // Created, failed to read the directory, then unlinked: nothing is left.
+      if (srcNode.kind === 'dir') throw err('EISDIR');
+      const data = (srcNode as FileInode).data.slice(0, (srcNode as FileInode).size);
       this.createFile(r, srcNode.mode & 0o7777, data, 'copyfile', src, dest);
       this.emit('create', r);
       return;
     }
-    if (exclusive) throw new SystemError('EEXIST', 'copyfile', src, dest);
-    if (this.get(r.ino).kind === 'dir') throw new SystemError('EISDIR', 'copyfile', src, dest);
-    this.setFileData(r.ino, data, 'copyfile', src, dest);
+    if (exclusive) throw err('EEXIST');
+    if (this.get(r.ino).kind === 'dir') throw err('EISDIR');
+    if (r.ino === srcIno) return;
+    if (srcNode.kind === 'dir') {
+      // The existing file was truncated and chmodded through its fd before the read failed.
+      this.truncateIno(r.ino, 0, 'copyfile', src);
+      this.setPerm(r.ino, srcNode.mode);
+      try {
+        this.unlink(dest);
+      } catch {
+        // libuv ignores the unlink result.
+      }
+      throw err('EISDIR');
+    }
+    this.setFileData(
+      r.ino,
+      (srcNode as FileInode).data.slice(0, (srcNode as FileInode).size),
+      'copyfile',
+      src,
+      dest,
+    );
+    this.setPerm(r.ino, srcNode.mode);
     this.emit('modify', r);
   }
 
@@ -240,11 +265,11 @@ export class MemoryVfs {
   open(path: string, flags: number, mode = 0o666): number {
     // O_CREAT|O_EXCL never follows a final symlink: an existing link is EEXIST.
     const exclusive = (flags & O_CREAT) !== 0 && (flags & O_EXCL) !== 0;
+    if (flags & O_CREAT) this.rejectCreateWithSlash(path, 'open');
     const r = this.resolve(path, !exclusive, 'open');
     let ino = r.ino;
     if (ino === undefined) {
       if (!(flags & O_CREAT)) throw new SystemError('ENOENT', 'open', path);
-      if (r.trailingSlash) throw new SystemError('EISDIR', 'open', path);
       ino = this.createFile(r, mode, new Uint8Array(0), 'open', path);
       this.emit('create', r);
     } else {
@@ -334,7 +359,7 @@ export class MemoryVfs {
   mkdir(path: string, options: { recursive?: boolean; mode?: number } = {}): string | undefined {
     const mode = options.mode ?? 0o777;
     if (!options.recursive) {
-      const r = this.resolve(path, false, 'mkdir');
+      const r = this.resolve(path, 'name', 'mkdir');
       if (r.ino !== undefined) throw new SystemError('EEXIST', 'mkdir', path);
       this.createDir(r, mode, path);
       this.emit('create', r);
@@ -378,7 +403,7 @@ export class MemoryVfs {
   }
 
   rmdir(path: string): void {
-    const r = this.resolve(path, false, 'rmdir');
+    const r = this.resolve(path, 'name', 'rmdir');
     if (r.ino === undefined) throw new SystemError('ENOENT', 'rmdir', path);
     if (r.dotLast) {
       throw new SystemError(
@@ -396,7 +421,7 @@ export class MemoryVfs {
   }
 
   unlink(path: string): void {
-    const r = this.resolve(path, false, 'unlink');
+    const r = this.resolve(path, 'name', 'unlink');
     if (r.ino === undefined) throw new SystemError('ENOENT', 'unlink', path);
     const node = this.get(r.ino);
     if (node.kind === 'dir') throw new SystemError('EISDIR', 'unlink', path);
@@ -416,8 +441,9 @@ export class MemoryVfs {
 
   symlink(target: string, path: string): void {
     if (target.length === 0) throw new SystemError('ENOENT', 'symlink', target, path);
-    const r = this.resolve(path, false, 'symlink', target, path);
+    const r = this.resolve(path, 'name', 'symlink', target, path);
     if (r.ino !== undefined) throw new SystemError('EEXIST', 'symlink', target, path);
+    if (r.trailingSlash) throw new SystemError('ENOENT', 'symlink', target, path);
     this.charge(target.length, 1, 'symlink', target, path);
     const node = this.alloc<SymlinkInode>({ kind: 'symlink', mode: S_IFLNK | 0o777, target });
     this.addEntry(r.parentIno, r.name, node.ino);
@@ -429,7 +455,7 @@ export class MemoryVfs {
     if (src.ino === undefined) throw new SystemError('ENOENT', 'link', existing, newPath);
     // Linux order: the new path's lookup errors, EEXIST and a trailing slash on a missing
     // name (ENOENT) all come before linking a directory (EPERM).
-    const dest = this.resolve(newPath, false, 'link', existing, newPath);
+    const dest = this.resolve(newPath, 'name', 'link', existing, newPath);
     if (dest.ino !== undefined) throw new SystemError('EEXIST', 'link', existing, newPath);
     if (dest.trailingSlash) throw new SystemError('ENOENT', 'link', existing, newPath);
     if (this.get(src.ino).kind === 'dir') throw new SystemError('EPERM', 'link', existing, newPath);
@@ -441,27 +467,34 @@ export class MemoryVfs {
   }
 
   rename(oldPath: string, newPath: string): void {
-    const from = this.resolve(oldPath, false, 'rename', oldPath, newPath);
-    if (from.ino === undefined) throw new SystemError('ENOENT', 'rename', oldPath, newPath);
-    const to = this.resolve(newPath, false, 'rename', oldPath, newPath);
-    const fromNode = this.get(from.ino);
+    // Linux order (do_renameat2): both parents resolve, '/', '.' and '..' are EBUSY, the
+    // source must exist, trailing slashes need a directory, then the ancestor checks, then
+    // vfs_rename's type mismatches and a non-empty target.
+    const from = this.resolve(oldPath, 'name', 'rename', oldPath, newPath);
+    const to = this.resolve(newPath, 'name', 'rename', oldPath, newPath);
     const err = (code: ErrnoCode) => new SystemError(code, 'rename', oldPath, newPath);
     if (from.ino === ROOT_INO || to.ino === ROOT_INO || from.dotLast || to.dotLast)
       throw err('EBUSY');
+    if (from.ino === undefined) throw err('ENOENT');
+    const fromNode = this.get(from.ino);
     if (fromNode.kind !== 'dir' && (from.trailingSlash || to.trailingSlash)) throw err('ENOTDIR');
-    if (to.ino === from.ino) return;
 
-    // Linux order: type mismatches first, then moving a directory into itself, then ENOTEMPTY.
     const toNode = to.ino === undefined ? undefined : this.get(to.ino);
+    const isAncestor = (dir: number, of: number) => {
+      for (let ino = of; ; ino = (this.get(ino) as DirInode).parent) {
+        if (ino === dir) return true;
+        if (ino === ROOT_INO) return false;
+      }
+    };
+    if (from.parentIno !== to.parentIno) {
+      // Moving a directory into itself; replacing a directory that contains the source.
+      if (fromNode.kind === 'dir' && isAncestor(from.ino, to.parentIno)) throw err('EINVAL');
+      if (toNode?.kind === 'dir' && isAncestor(to.ino!, from.parentIno)) throw err('ENOTEMPTY');
+    }
+    if (to.ino === from.ino) return;
     if (toNode) {
       if (fromNode.kind === 'dir' && toNode.kind !== 'dir') throw err('ENOTDIR');
       if (fromNode.kind !== 'dir' && toNode.kind === 'dir') throw err('EISDIR');
-    }
-    if (fromNode.kind === 'dir') {
-      for (let ino = to.parentIno; ; ino = (this.get(ino) as DirInode).parent) {
-        if (ino === from.ino) throw err('EINVAL');
-        if (ino === ROOT_INO) break;
-      }
     }
     if (toNode?.kind === 'dir' && toNode.entries.size > 0) throw err('ENOTEMPTY');
 
@@ -681,6 +714,29 @@ export class MemoryVfs {
     this.unlinkEntry(parentIno, name);
   }
 
+  /** fchmod(2): replaces the permission bits, keeping the file type. */
+  private setPerm(ino: number, mode: number): void {
+    const node = this.mut(ino);
+    node.mode = (node.mode & S_IFMT) | (mode & 0o7777);
+    node.ctimeMs = Date.now();
+    this.emitIno('modify', ino);
+  }
+
+  /**
+   * open(2) with O_CREAT on 'name/' is EISDIR as soon as the parent resolves, whatever
+   * 'name' is ('.' and '..' excepted: those name a directory and fail later).
+   */
+  private rejectCreateWithSlash(
+    path: string,
+    syscall: string,
+    errPath = path,
+    dest?: string,
+  ): void {
+    if (path.length <= 1 || !path.endsWith('/')) return;
+    const r = this.resolve(path, 'name', syscall, errPath, dest);
+    if (!r.dotLast) throw new SystemError('EISDIR', syscall, errPath, dest);
+  }
+
   /** Resolves a path that must exist. */
   private existing(path: string, follow: boolean, syscall: string, dest?: string): number {
     const r = this.resolve(path, follow, syscall, path, dest);
@@ -691,11 +747,14 @@ export class MemoryVfs {
   /**
    * Physical path walk. Intermediate symlinks are always followed; the final
    * component is followed when `follow` is set or the path ends in '/'.
+   * With `follow: 'name'` the final component is only looked up in its parent, never
+   * followed or required to be a directory, even after a '/' (Linux's lookup for
+   * creating, renaming and removing a name).
    * Errors name `errPath` (defaults to `path`) so callers report what they were given.
    */
   private resolve(
     path: string,
-    follow: boolean,
+    follow: boolean | 'name',
     syscall: string,
     errPath: string = path,
     dest?: string,
@@ -708,6 +767,7 @@ export class MemoryVfs {
     };
 
     const trailingSlash = path.length > 1 && path.endsWith('/');
+    const nameOnly = follow === 'name';
     const rawLast = path
       .split('/')
       .filter((p) => p !== '')
@@ -736,7 +796,10 @@ export class MemoryVfs {
         fail('ENOENT');
       }
       const child = this.get(childIno!);
-      if (child.kind === 'symlink' && (!isLast || follow || trailingSlash)) {
+      if (
+        child.kind === 'symlink' &&
+        (!isLast || follow === true || (trailingSlash && !nameOnly))
+      ) {
         if (++hops > MAX_SYMLINK_HOPS) fail('ELOOP');
         const target = child.target;
         queue.unshift(...target.split('/').filter((p) => p !== '' && p !== '.'));
@@ -746,7 +809,7 @@ export class MemoryVfs {
         continue;
       }
       if (isLast) {
-        if (trailingSlash && child.kind !== 'dir') fail('ENOTDIR');
+        if (trailingSlash && !nameOnly && child.kind !== 'dir') fail('ENOTDIR');
         return { parentIno: dirIno, name, ino: childIno, trailingSlash, dotLast };
       }
       if (child.kind !== 'dir') fail('ENOTDIR');

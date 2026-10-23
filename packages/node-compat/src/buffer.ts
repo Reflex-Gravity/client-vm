@@ -535,7 +535,7 @@ Object.setPrototypeOf(Buffer, Uint8Array);
 Object.defineProperty(Buffer, Symbol.species, { get: () => FastBuffer, configurable: true });
 
 Object.assign(Buffer, {
-  poolSize: 8 * 1024,
+  poolSize: 64 * 1024,
   from,
   alloc,
   allocUnsafe(size: number) {

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { MemoryVfs } from '@clientvm/vfs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { nodeTarget, outcome, vfsTarget } from './fs-harness.ts';
-import type { Step } from './fs-harness.ts';
+import type { Outcome, Step } from './fs-harness.ts';
 
 const isLinux = process.platform === 'linux';
 const SEEDS = Number(process.env['FS_RANDOM_SEEDS'] ?? (isLinux ? 60 : 30));
@@ -102,6 +102,15 @@ afterAll(() => {
 
 const seeds = ONLY_SEED ? [Number(ONLY_SEED)] : Array.from({ length: SEEDS }, (_, i) => i + 1);
 
+/**
+ * macOS checks rename's source before the target's parent, and types before the ancestor
+ * checks; Linux, the reference, does the opposite. When both fail nothing changed, so
+ * only the errno differs.
+ */
+function macRenameErrno(step: Step, actual: Outcome, expected: Outcome): boolean {
+  return !isLinux && step.op === 'rename' && 'error' in actual && 'error' in expected;
+}
+
 describe('fs random-op differential: MemoryVfs vs node:fs', () => {
   it.each(seeds)('seed %i', (seed) => {
     const root = mkdtempSync(join(tmpdir(), 'clientvm-fsrand-'));
@@ -116,7 +125,10 @@ describe('fs random-op differential: MemoryVfs vs node:fs', () => {
       history.push(step);
       const expected = outcome(reference, step);
       const actual = outcome(subject, step);
-      if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      if (
+        JSON.stringify(actual) !== JSON.stringify(expected) &&
+        !macRenameErrno(step, actual, expected)
+      ) {
         expect(
           actual,
           `seed ${seed}, step ${i}: ${JSON.stringify(step)}\nhistory:\n${history.map((s) => JSON.stringify(s)).join('\n')}`,
