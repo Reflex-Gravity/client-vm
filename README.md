@@ -48,12 +48,11 @@ pnpm --filter @clientvm/sandbox-host build && pnpm --filter @clientvm/sandbox-ho
 pnpm --filter @clientvm/example-agent-playground dev                                         # app on :5180
 ```
 
-- http://localhost:5180 is the [agent playground](examples/agent-playground). It has an
-  instance, a command line, a preview, and the agent tools to call by hand.
 - http://localhost:5180/terminal.html is an interactive `bash` in xterm.js.
 - http://localhost:5180/terminal.html?preset=vite-react-ts is the same terminal, starting from a
   ready Vite + React + TypeScript project. Run `npm run dev`.
-
+- http://localhost:5180 is the [agent playground](examples/agent-playground). It has an
+  instance, a command line, a preview, and the agent tools to call by hand.
 Locally, `<id>.localhost` stands in for the wildcard sandbox domain.
 
 ## Integrate it into your app
