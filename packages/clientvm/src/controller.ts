@@ -375,8 +375,12 @@ class Controller implements ClientVM {
       }
       return v.chunks(await builder.rpc.call('exportImage', null));
     } finally {
-      forward.dispose();
-      await builder.destroy();
+      // Destroying reports processes it kills (a timed-out setup) as exits; pass those on too.
+      try {
+        await builder.destroy();
+      } finally {
+        forward.dispose();
+      }
     }
   }
 
