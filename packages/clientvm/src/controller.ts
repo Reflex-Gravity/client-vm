@@ -122,6 +122,11 @@ class Controller implements ClientVM {
   private readonly presetStore: PresetStore;
   /** Preset images by store key, once loaded or while being built. */
   private readonly presetImages = new Map<string, Promise<Uint8Array[]>>();
+  /**
+   * The builder's process events for each preset load in progress, replayed to
+   * `onPresetBuild` listeners that join it late. Empty when the image is stored.
+   */
+  private readonly presetBuildLogs = new Map<string, ProcessLog>();
   private readonly instances = new Map<InstanceId, InstanceImpl>();
   private readonly names = new Map<string, InstanceId>();
   /** @internal */
@@ -171,6 +176,9 @@ class Controller implements ClientVM {
     };
     if (Object.keys(limits).length > 0) init.limits = limits;
     if (opts.fs?.persist) init.persist = true;
+    if (opts.onPresetBuild !== undefined && typeof opts.onPresetBuild !== 'function') {
+      throw new TypeError('onPresetBuild must be a function');
+    }
     if (opts.preset !== undefined) {
       if (!isPresetName(opts.preset)) {
         throw new ClientVMError(`unknown preset "${String(opts.preset)}"`, 'ERR_INVALID_PRESET');
@@ -178,7 +186,7 @@ class Controller implements ClientVM {
       if (opts.image || opts.fs?.from !== undefined) {
         throw new ClientVMError('a preset cannot be combined with fs.from', 'ERR_INVALID_PRESET');
       }
-      init.image = await this.presetImage(opts.preset);
+      init.image = await this.presetImage(opts.preset, opts.onPresetBuild);
     } else if (opts.image) {
       init.image = opts.image;
     } else if (typeof opts.fs?.from === 'string') {
@@ -291,21 +299,46 @@ class Controller implements ClientVM {
   }
 
   /** A copy of a preset's image: boot transfers the buffers to the instance's kernel. */
-  private async presetImage(name: PresetName): Promise<Uint8Array[]> {
+  private async presetImage(
+    name: PresetName,
+    onBuild?: (e: ProcessEvent) => void,
+  ): Promise<Uint8Array[]> {
     const key = presetKey(name);
     let image = this.presetImages.get(key);
     if (!image) {
-      image = this.loadPreset(name, key);
+      const log = new ProcessLog();
+      this.presetBuildLogs.set(key, log);
+      image = this.loadPreset(name, key, log);
       this.presetImages.set(key, image);
       image.catch(() => this.presetImages.delete(key));
+      void image
+        .catch(() => undefined)
+        .then(() => {
+          if (this.presetBuildLogs.get(key) === log) this.presetBuildLogs.delete(key);
+          log.clear();
+        });
     }
-    return (await image).map((chunk) => chunk.slice());
+    const sub = onBuild
+      ? this.presetBuildLogs.get(key)?.subscribe((e) => {
+          // A throwing listener must not fail the instance it is waiting for.
+          try {
+            onBuild(e);
+          } catch {
+            /* ignored */
+          }
+        })
+      : undefined;
+    try {
+      return (await image).map((chunk) => chunk.slice());
+    } finally {
+      sub?.dispose();
+    }
   }
 
-  private async loadPreset(name: PresetName, key: string): Promise<Uint8Array[]> {
+  private async loadPreset(name: PresetName, key: string, log: ProcessLog): Promise<Uint8Array[]> {
     const stored = await this.presetStore.get(key).catch(() => undefined);
     if (stored) return stored;
-    const image = await this.buildPreset(name);
+    const image = await this.buildPreset(name, log);
     // A full or unavailable store only means building again on the next page load.
     await this.presetStore.put(key, image).catch(() => undefined);
     return image;
@@ -316,11 +349,18 @@ class Controller implements ClientVM {
    * The builder runs only the pinned template, never agent code, so the
    * shared image cannot carry one instance's writes into another.
    */
-  private async buildPreset(name: PresetName): Promise<Uint8Array[]> {
+  private async buildPreset(name: PresetName, log: ProcessLog): Promise<Uint8Array[]> {
     const { template, setup } = PRESETS[name];
     const builder = (await this.createInstance({
       fs: { from: { home: { user: { app: template.files } } } },
     })) as InstanceImpl;
+    // Shown to whoever waits on the build (`onPresetBuild`); the builder runs
+    // only the pinned template, so this is npm's and Vite's own output.
+    const forward = builder.onProcess((e) => {
+      if (e.type === 'spawn') log.spawn(e.process);
+      else if (e.type === 'output') log.output(e.pid, e.fd, e.data);
+      else log.exit(e.pid, e.code, e.signal ?? null);
+    });
     try {
       const result = await builder.exec(setup, {
         cwd: PRESET_DIR,
@@ -335,6 +375,7 @@ class Controller implements ClientVM {
       }
       return v.chunks(await builder.rpc.call('exportImage', null));
     } finally {
+      forward.dispose();
       await builder.destroy();
     }
   }

@@ -22,7 +22,9 @@
   - **Building:** the first request for a preset starts a hidden **builder** instance. It runs
     the template and setup with the stock runtime (the same npm and stand-in paths as any
     instance), and the controller exports its filesystem image (the format forks use). Then the
-    builder is destroyed. Concurrent requests share one build.
+    builder is destroyed. Concurrent requests share one build. A request can pass
+    `onPresetBuild` to watch the builder's process events (a cold build takes a minute or more);
+    a request that joins a running build gets its history replayed first.
   - **Caching:** the image goes into a `PresetStore` owned by the controller. The default store
     is the **host origin's Cache Storage** (cache `clientvm-presets`), so a preset is built once
     per browser profile and host app. Where Cache Storage is unavailable, the store is memory

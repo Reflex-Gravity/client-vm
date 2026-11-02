@@ -8,13 +8,45 @@ import { host, openHost } from './sandbox.ts';
 
 const APP = '/home/user/app';
 
+/** Creates a preset instance in the page, summarising what `onPresetBuild` reported. */
+function createWithProgress(page: import('@playwright/test').Page) {
+  return page.evaluate(async () => {
+    const events: string[] = [];
+    let bytes = 0;
+    const api = (
+      window as unknown as {
+        __clientvm: { createInstance(o: unknown): Promise<string> };
+      }
+    ).__clientvm;
+    const id = await api.createInstance({
+      preset: 'vite-react-ts',
+      onPresetBuild: (e: {
+        type: string;
+        process?: { argv: string[] };
+        data?: Uint8Array;
+        code?: number;
+      }) => {
+        if (e.type === 'spawn') events.push(`spawn ${e.process!.argv.join(' ')}`);
+        else if (e.type === 'exit') events.push(`exit ${e.code}`);
+        else bytes += e.data!.byteLength;
+      },
+    });
+    return { id, events, bytes };
+  });
+}
+
 test.describe('presets', () => {
   test.setTimeout(400_000);
 
   test('vite-react-ts: built once, cached across page loads, runs vite', async ({ page }) => {
     await openHost(page);
     const built = Date.now();
-    const first = await host(page, 'createInstance', { preset: 'vite-react-ts' });
+    const cold = await createWithProgress(page);
+    const first = cold.id;
+    // The cold build reported the builder's setup command and its output.
+    expect(cold.events[0]).toMatch(/^spawn sh -c npm ci /);
+    expect(cold.events.at(-1)).toBe('exit 0');
+    expect(cold.bytes).toBeGreaterThan(0);
     test
       .info()
       .annotations.push({ type: 'cold build ms', description: String(Date.now() - built) });
@@ -55,8 +87,11 @@ test.describe('presets', () => {
     });
     await openHost(page);
     const started = Date.now();
-    const second = await host(page, 'createInstance', { preset: 'vite-react-ts' });
+    const cached = await createWithProgress(page);
+    const second = cached.id;
     const bootMs = Date.now() - started;
+    // Nothing is built, so nothing is reported.
+    expect(cached.events).toEqual([]);
     test.info().annotations.push({ type: 'cached boot ms', description: String(bootMs) });
     const again = await host(page, 'exec', second, 'ls node_modules/vite/package.json', {
       cwd: APP,

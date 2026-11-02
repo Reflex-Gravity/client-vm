@@ -113,6 +113,13 @@ export interface InstanceOptions {
    * filesystem still wins over it.
    */
   preset?: PresetName;
+  /**
+   * Reports the output of the preset's one-time setup (`npm ci`, a warm-up
+   * build) while this call waits for it, as {@link ProcessEvent}s of the hidden
+   * builder; a caller that joins a build already running gets its history
+   * first. Not called when the preset is already stored. Host-side only.
+   */
+  onPresetBuild?: (e: ProcessEvent) => void;
 }
 
 /**
