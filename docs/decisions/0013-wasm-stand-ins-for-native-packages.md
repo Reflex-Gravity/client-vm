@@ -49,6 +49,11 @@
     `require()`, which ClientVM cannot do for ES modules, so the install rewrites the ES modules of
     `"type": "module"` packages in that tree as CommonJS (`module/esm-to-cjs.ts`, static modules
     only).
+  - A WASI binding and `@napi-rs/wasm-runtime` must share one `@emnapi/*`. rolldown 1.2.15's
+    binding pins emnapi 2.0.0-alpha.5, outside wasm-runtime's peer range, so npm nests it under
+    the binding and hoists 1.x; mixed, loading fails (`this.bridge.setLastError is not a
+    function`, on Node too). The install removes the binding's nested `@emnapi/*` copies that are
+    also hoisted, and a lookup repairs stand-ins installed before that (2026-11-02).
   - The table is deliberately short: only packages whose authors publish a drop-in WebAssembly
     build. Other native addons still fail with `ERR_DLOPEN_FAILED`.
 - **Consequences:**

@@ -118,3 +118,54 @@ describe('stand-ins installed with npm', () => {
     expect(t.sleeps).toEqual([]);
   });
 });
+
+describe('napi-rs WASI bindings share one emnapi', () => {
+  // @rolldown/binding-wasm32-wasi 1.2.15: emnapi 2.0.0-alpha.5 nested under the binding,
+  // 1.x hoisted for @napi-rs/wasm-runtime. Mixed, loading fails ("setLastError is not a function").
+  const ROLLDOWN = '/app/node_modules/rolldown';
+  const BINDING = '@rolldown/binding-wasm32-wasi';
+  const root = `${STANDIN_ROOT}/${BINDING}@1.2.15/node_modules`;
+  const nested = `${root}/${BINDING}/node_modules/@emnapi`;
+
+  function install() {
+    const fs = new MemFs();
+    fs.writeFileSync(`${ROLLDOWN}/package.json`, JSON.stringify({ version: '1.2.15' }));
+    const json = (v: string) => JSON.stringify({ version: v });
+    const host: StandInHost = {
+      pid: 7,
+      spawnSync(_file, _args, { cwd }) {
+        const nm = `${cwd}/node_modules`;
+        fs.writeFileSync(`${nm}/${BINDING}/package.json`, JSON.stringify({ name: BINDING }));
+        for (const p of ['core', 'runtime', 'wasi-threads'])
+          fs.writeFileSync(
+            `${nm}/${BINDING}/node_modules/@emnapi/${p}/package.json`,
+            json('2.0.0'),
+          );
+        for (const p of ['core', 'runtime'])
+          fs.writeFileSync(`${nm}/@emnapi/${p}/package.json`, json('1.11.3'));
+        return { status: 0, stderr: '' };
+      },
+      warn: () => undefined,
+    };
+    const resolve = () => packageStandIn(fs as never, BINDING, `${ROLLDOWN}/dist/x.mjs`, host);
+    return { fs, resolve };
+  }
+
+  it('drops the binding’s nested copies that are also hoisted', () => {
+    const t = install();
+    expect(t.resolve()).toEqual([root]);
+    expect(t.fs.files.has(`${nested}/core/package.json`)).toBe(false);
+    expect(t.fs.files.has(`${nested}/runtime/package.json`)).toBe(false);
+    // Nothing hoisted to fall back on: kept.
+    expect(t.fs.files.has(`${nested}/wasi-threads/package.json`)).toBe(true);
+    expect(t.fs.files.has(`${root}/@emnapi/core/package.json`)).toBe(true);
+  });
+
+  it('repairs a stand-in installed with nested copies', () => {
+    const t = install();
+    t.resolve();
+    t.fs.writeFileSync(`${nested}/core/package.json`, JSON.stringify({ version: '2.0.0' }));
+    expect(t.resolve()).toEqual([root]);
+    expect(t.fs.files.has(`${nested}/core/package.json`)).toBe(false);
+  });
+});

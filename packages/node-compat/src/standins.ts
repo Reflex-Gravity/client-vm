@@ -156,6 +156,29 @@ const PATCHES: Record<string, (fs: Fs, pkgDir: string) => void> = {
 };
 
 /**
+ * napi-rs WASI bindings require `@emnapi/runtime` themselves and get
+ * `@emnapi/core` through `@napi-rs/wasm-runtime`; both must come from one
+ * emnapi, or loading fails with `this.bridge.setLastError is not a function`.
+ * @rolldown/binding-wasm32-wasi 1.2.15 pins emnapi 2.0.0-alpha.5, outside
+ * @napi-rs/wasm-runtime's peer range, so npm nests that copy under the
+ * binding and hoists 1.x for wasm-runtime (it fails the same way on Node).
+ * Removing the binding's nested copies leaves it on the hoisted ones, which
+ * wasm-runtime supports and which `convertEsmPackages` has rewritten.
+ */
+function shareEmnapi(fs: Fs, nodeModules: string, pkgDir: string): void {
+  const nested = `${pkgDir}/node_modules/@emnapi`;
+  let names: string[];
+  try {
+    names = fs.readdirSync(nested) as string[];
+  } catch {
+    return;
+  }
+  for (const name of names)
+    if (installed(fs, `${nodeModules}/@emnapi/${name}`))
+      fs.rmSync(`${nested}/${name}`, { recursive: true, force: true });
+}
+
+/**
  * Installs `name@version` with its dependencies at `standinDir(name, version)`
  * (as `node_modules/<name>`), using npm, which checks each package's registry
  * integrity. Their ES module helpers are rewritten as CommonJS, since the
@@ -171,7 +194,11 @@ function installWithNpm(
 ): string | undefined {
   const dir = standinDir(name, version);
   const pkgDir = `${dir}/node_modules/${name}`;
-  if (installed(fs, pkgDir)) return pkgDir;
+  if (installed(fs, pkgDir)) {
+    // Also repairs a stand-in installed before shareEmnapi existed.
+    shareEmnapi(fs, `${dir}/node_modules`, pkgDir);
+    return pkgDir;
+  }
   const spec = `${name}@${version}`;
   host.warn(`ClientVM: installing ${spec}, the WebAssembly build of ${owner} (first use)\n`);
   const staging = `${dir}.staging-${host.pid}`;
@@ -202,6 +229,7 @@ function installWithNpm(
       host.warn(`ClientVM: npm could not reach the registry for ${spec}; retrying\n`);
       (host.sleep ?? blockFor)(delay);
     }
+    shareEmnapi(fs, `${staging}/node_modules`, `${staging}/node_modules/${name}`);
     convertEsmPackages(fs, `${staging}/node_modules`);
     PATCHES[name]?.(fs, `${staging}/node_modules/${name}`);
     fs.rmSync(dir, { recursive: true, force: true });
