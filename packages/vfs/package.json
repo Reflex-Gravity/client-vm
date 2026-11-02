@@ -1,6 +1,6 @@
 {
   "name": "@clientvm/vfs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Virtual filesystem for ClientVM (memory backend in v0).",
   "license": "Apache-2.0",
   "repository": {

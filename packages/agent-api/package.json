@@ -1,6 +1,6 @@
 {
   "name": "@clientvm/agent-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Tool definitions that let an LLM agent work inside a ClientVM instance.",
   "license": "Apache-2.0",
   "repository": {

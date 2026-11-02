@@ -1,6 +1,6 @@
 {
   "name": "@clientvm/protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed message schemas, syscall channel and RPC for ClientVM.",
   "license": "Apache-2.0",
   "repository": {
