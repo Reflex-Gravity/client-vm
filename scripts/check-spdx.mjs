@@ -31,7 +31,9 @@ async function* walk(dir) {
 
 const missing = [];
 for await (const file of walk(ROOT)) {
-  const firstLine = (await readFile(file, 'utf8')).split('\n', 1)[0];
+  // An executable's shebang must come first, so the header may follow it.
+  const [line1, line2] = (await readFile(file, 'utf8')).split('\n', 2);
+  const firstLine = line1?.startsWith('#!') ? line2 : line1;
   // Vendored third-party code keeps its own license identifier.
   const vendored =
     (file.includes('/vendor/') && firstLine?.startsWith('// SPDX-License-Identifier: ')) ||
@@ -41,7 +43,7 @@ for await (const file of walk(ROOT)) {
 }
 
 if (missing.length > 0) {
-  console.error(`Missing "${HEADER}" on line 1 of:\n  ${missing.join('\n  ')}`);
+  console.error(`Missing "${HEADER}" on line 1 (after any shebang) of:\n  ${missing.join('\n  ')}`);
   process.exit(1);
 }
 console.log('SPDX headers OK');
