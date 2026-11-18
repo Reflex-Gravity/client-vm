@@ -11,10 +11,10 @@ import { features } from '../content/landing.ts';
       ClientVM runs the real npm, pnpm, Vite and git rather than look-alikes, and measures itself
       against Node, bash and git in CI.
     </p>
-    <div class="grid features">
+    <div class="grid features" data-spotlight-group>
       {
         features.map((f) => (
-          <a class="card feature" href={f.href}>
+          <a class="card feature" href={f.href} data-spotlight>
             <h3>{f.title}</h3>
             <p>{f.body}</p>
             <span class="more" aria-hidden="true">
@@ -27,18 +27,43 @@ import { features } from '../content/landing.ts';
   </div>
 </section>
 
+<script>
+  import '../scripts/spotlight.ts';
+</script>
+
 <style>
   .features {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .feature {
+    position: relative;
     display: flex;
     flex-direction: column;
     text-decoration: none;
-    transition: background 0.15s;
+    transition: background 0.2s;
+  }
+  /* The pointer's light (scripts/spotlight.ts sets --x/--y), after Magic UI's Magic Card. */
+  .feature::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    background: radial-gradient(
+      260px circle at var(--x, 50%) var(--y, 50%),
+      #7be3b41a,
+      transparent 70%
+    );
   }
   .feature:hover {
     background: var(--surface);
+  }
+  .feature:hover::before {
+    opacity: 1;
+  }
+  .feature > * {
+    position: relative;
   }
   .more {
     margin-top: auto;

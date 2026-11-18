@@ -12,3 +12,5 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-copy]')
     setTimeout(() => (button.textContent = label), 1600);
   });
 }
+
+export {};

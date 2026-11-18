@@ -1,8 +1,10 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-// The live demo. Nothing of ClientVM loads until a visitor presses start
-// (src/demo/entry.ts imports src/demo/run.ts on click). Setup output streams
-// into the setup card in the preview pane (src/demo/setup-card.ts).
+// The live demo: an editor, a terminal and a preview of one ClientVM
+// instance. Nothing of ClientVM loads until a visitor presses start
+// (src/demo/entry.ts imports src/demo/run.ts on click). The setup is typed
+// into the terminal's bash, so its output shows there. The editor is
+// src/demo/editor.ts.
 import TerminalWindow from './TerminalWindow.astro';
 ---
 
@@ -12,81 +14,65 @@ import TerminalWindow from './TerminalWindow.astro';
     <h2>Try it. It runs in this tab.</h2>
     <p class="section-lede">
       A real <code>bash</code> on a pseudo-terminal, Node.js 24 and the unmodified npm, in a sandbox
-      on its own origin. Watch npm install the packages and the server start, then use the shell
-      while the preview runs. Nothing you run leaves your browser, except the requests it makes to
-      the npm registry.
+      on its own origin. Watch npm install the packages and the server start in the terminal, then
+      edit the code and see the preview change as you type. Nothing you run leaves your browser,
+      except the requests it makes to the npm registry.
     </p>
 
     <div class="stage" data-demo>
-      <TerminalWindow title="terminal" class="term-window">
-        <button slot="actions" type="button" class="mini" data-demo-reset hidden>reset</button>
-        <div class="term" data-demo-term></div>
-        <div class="overlay" data-demo-overlay>
-          <div class="choices" data-demo-choices>
-            <button type="button" class="btn primary" data-demo-start="express">
-              Start an Express app
-            </button>
-            <button type="button" class="btn" data-demo-start="vite">
-              Start a Vite + React project
-            </button>
+      <TerminalWindow title="editor" class="editor-window">
+        <span slot="actions" class="hint" data-editor-state aria-live="polite"></span>
+        <div class="editor" data-editor>
+          <div class="file-tabs" role="tablist" aria-label="Files" data-editor-tabs></div>
+          <div class="code" data-editor-code hidden>
+            <pre class="gutter" aria-hidden="true" data-editor-gutter></pre>
+            <div class="area">
+              <pre class="hl" aria-hidden="true" data-editor-hl></pre>
+              <textarea
+                data-editor-input
+                spellcheck="false"
+                autocomplete="off"
+                autocapitalize="off"
+                wrap="off"
+                aria-describedby="demo-editor-help"></textarea>
+            </div>
           </div>
-          <p class="note" data-demo-note>
-            Each one installs its packages with npm and starts a server, with the full log beside
-            it. The Vite project builds once, about 10 seconds, and is cached in this browser after
-            that.
+          <p class="placeholder" data-editor-empty>The project's files open here.</p>
+          <p class="visually-hidden" id="demo-editor-help">
+            Changes save as you type. Press Escape, then Tab, to leave the editor.
           </p>
         </div>
       </TerminalWindow>
 
+      <TerminalWindow title="terminal" class="term-window">
+        <button slot="actions" type="button" class="mini" data-demo-reset hidden>reset</button>
+        <div class="term" data-demo-term></div>
+      </TerminalWindow>
+
       <TerminalWindow title="preview" class="preview-window">
-        <span slot="actions" class="actions">
-          <span class="status" data-demo-port></span>
-          <button type="button" class="mini" data-demo-log hidden aria-pressed="false">log</button>
-        </span>
+        <span slot="actions" class="status" data-demo-port></span>
         <iframe data-demo-preview title="Preview of the server running in the demo"></iframe>
         <p class="empty" data-demo-empty>
-          Start the demo. The setup log shows here, then the page the server serves.
+          <span class="wait" aria-hidden="true"></span>
+          The page the server serves shows here once it is listening.
         </p>
-
-        <div class="setup" data-demo-setup hidden>
-          <div class="setup-card" role="group" aria-label="Demo setup">
-            <div class="head">
-              <span class="icon" aria-hidden="true"></span>
-              <p class="title" data-setup-title>Setting up</p>
-              <span class="elapsed" data-setup-elapsed aria-hidden="true">0:00</span>
-            </div>
-            <ol class="steps" aria-label="Setup steps">
-              <li data-step="sandbox"><span class="mark" aria-hidden="true"></span>Sandbox</li>
-              <li data-step="packages">
-                <span class="line" aria-hidden="true"></span><span class="mark" aria-hidden="true"
-                ></span>Packages
-              </li>
-              <li data-step="server">
-                <span class="line" aria-hidden="true"></span><span class="mark" aria-hidden="true"
-                ></span>Server
-              </li>
-            </ol>
-            <p class="last" data-setup-last aria-hidden="true"></p>
-            <ol class="log" id="demo-setup-log" data-setup-log aria-label="Setup log"></ol>
-            <div class="foot">
-              <button
-                type="button"
-                class="mini"
-                data-setup-toggle
-                aria-controls="demo-setup-log"
-                aria-expanded="true">Hide details</button
-              >
-              <span class="foot-actions">
-                <button type="button" class="mini retry" data-setup-retry hidden>Retry</button>
-                <button type="button" class="mini" data-setup-copy aria-label="Copy the setup log"
-                  >copy</button
-                >
-              </span>
-            </div>
-            <p class="visually-hidden" aria-live="polite" data-setup-live></p>
-          </div>
-        </div>
       </TerminalWindow>
+
+      <div class="overlay" data-demo-overlay>
+        <div class="choices" data-demo-choices>
+          <button type="button" class="btn primary" data-demo-start="express">
+            Start an Express app
+          </button>
+          <button type="button" class="btn" data-demo-start="vite">
+            Start a Vite + React project
+          </button>
+        </div>
+        <p class="note" data-demo-note>
+          Each one runs npm install and starts the server in the terminal, where you see its
+          output. The Vite project builds once, about 10 seconds, and is cached in this browser
+          after that.
+        </p>
+      </div>
     </div>
     <p class="statusline" aria-live="polite"><span data-demo-status>idle</span></p>
   </div>
@@ -98,23 +84,38 @@ import TerminalWindow from './TerminalWindow.astro';
 
 <style>
   .stage {
+    position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'editor preview'
+      'term preview';
     gap: 16px;
-    height: 540px;
+    height: 680px;
   }
   .stage :global(.window) {
+    position: relative;
     height: 100%;
   }
-  .term {
-    position: absolute;
-    inset: 0;
-    padding: 10px 0 10px 12px;
-    background: #07090b;
+  .stage :global(.editor-window) {
+    grid-area: editor;
   }
+  .stage :global(.term-window) {
+    grid-area: term;
+  }
+  .stage :global(.preview-window) {
+    grid-area: preview;
+  }
+  [hidden] {
+    display: none !important;
+  }
+
+  /* ---- start overlay, over all three windows ---- */
   .overlay {
     position: absolute;
     inset: 0;
+    z-index: 4;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -122,15 +123,11 @@ import TerminalWindow from './TerminalWindow.astro';
     gap: 20px;
     padding: 32px;
     text-align: center;
+    border-radius: var(--radius);
     background:
       repeating-linear-gradient(0deg, #ffffff05 0 1px, transparent 1px 4px),
-      #07090bf2;
-  }
-  .overlay[hidden],
-  .choices[hidden],
-  .setup[hidden],
-  .empty[hidden] {
-    display: none;
+      #07090bcc;
+    backdrop-filter: blur(3px);
   }
   .choices {
     display: flex;
@@ -147,6 +144,158 @@ import TerminalWindow from './TerminalWindow.astro';
   .note.error {
     color: var(--err);
   }
+
+  /* ---- editor ---- */
+  .editor {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: #07090b;
+  }
+  .file-tabs {
+    display: flex;
+    flex: none;
+    overflow-x: auto;
+    background: var(--surface);
+    scrollbar-width: none;
+  }
+  .file-tabs:empty {
+    display: none;
+  }
+  .file-tabs :global(.file-tab) {
+    padding: 6px 14px;
+    border: 0;
+    border-right: 1px solid var(--line);
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font: 12px var(--mono);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .file-tabs :global(.file-tab:hover) {
+    color: var(--text);
+  }
+  .file-tabs :global(.file-tab[aria-selected='true']) {
+    background: #07090b;
+    border-bottom-color: var(--accent);
+    color: var(--text);
+  }
+  .code {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    font: 13px/1.55 var(--mono);
+  }
+  .gutter {
+    flex: none;
+    min-width: 4ch;
+    margin: 0;
+    padding: 10px 10px 10px 12px;
+    border-right: 1px solid var(--line);
+    color: #4a515b;
+    font: inherit;
+    text-align: right;
+    user-select: none;
+  }
+  .area {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .hl,
+  textarea {
+    margin: 0;
+    padding: 10px 14px;
+    font: inherit;
+    white-space: pre;
+    tab-size: 2;
+  }
+  .hl {
+    position: absolute;
+    top: 0;
+    left: 0;
+    min-width: 100%;
+    color: #c9d1d9;
+    pointer-events: none;
+  }
+  textarea {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    outline: none;
+    resize: none;
+    overflow: auto;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--accent);
+    scrollbar-width: thin;
+  }
+  textarea::selection {
+    background: #7be3b433;
+  }
+  .hl :global(.tk-kw) {
+    color: #c792ea;
+  }
+  .hl :global(.tk-str) {
+    color: #a8e6a1;
+  }
+  .hl :global(.tk-num),
+  .hl :global(.tk-lit) {
+    color: #f2c47a;
+  }
+  .hl :global(.tk-com) {
+    color: #5c6470;
+    font-style: italic;
+  }
+  .hl :global(.tk-tag) {
+    color: #82aaff;
+  }
+  .hl :global(.tk-key) {
+    color: #89ddff;
+  }
+  .placeholder {
+    display: grid;
+    flex: 1;
+    place-content: center;
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .hint {
+    overflow: hidden;
+    color: var(--muted);
+    font: 12px var(--mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* ---- terminal ---- */
+  .term {
+    position: absolute;
+    inset: 0;
+    padding: 10px 0 10px 12px;
+    background: #07090b;
+  }
+  .mini {
+    padding: 2px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--muted);
+    font: 12px var(--mono);
+    cursor: pointer;
+  }
+  .mini:hover {
+    color: var(--text);
+  }
+
+  /* ---- preview ---- */
   iframe {
     position: absolute;
     inset: 0;
@@ -163,29 +312,30 @@ import TerminalWindow from './TerminalWindow.astro';
     inset: 0;
     display: grid;
     place-content: center;
+    justify-items: center;
+    gap: 14px;
     margin: 0;
     padding: 32px;
     color: var(--muted);
     font-size: 14px;
     text-align: center;
   }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .wait {
+    display: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #ffffff1f;
+    border-top-color: var(--muted);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
   }
-  .mini {
-    padding: 2px 10px;
-    border: 1px solid var(--line-strong);
-    border-radius: 5px;
-    background: transparent;
-    color: var(--muted);
-    font: 12px var(--mono);
-    cursor: pointer;
+  .stage[data-busy] .wait {
+    display: block;
   }
-  .mini:hover,
-  .mini[aria-pressed='true'] {
-    color: var(--text);
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   .status {
     font: 12px var(--mono);
@@ -201,225 +351,55 @@ import TerminalWindow from './TerminalWindow.astro';
     color: var(--text);
   }
 
-  /* ---- setup card ---- */
-  .setup {
+  /* A light that runs around the windows while the demo sets up, after Magic UI's Border Beam. */
+  @property --beam-angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+  }
+  .stage[data-busy] :global(.window)::after {
+    content: '';
     position: absolute;
     inset: 0;
-    z-index: 1;
-    display: flex;
-    padding: 14px;
-    background: #07090bf0;
+    z-index: 3;
+    padding: 1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: conic-gradient(
+      from var(--beam-angle),
+      transparent 0 72%,
+      #7be3b400 74%,
+      #7be3b4 86%,
+      #a6f0ff 88%,
+      transparent 90%
+    );
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+    animation: beam 3.2s linear infinite;
   }
-  .setup-card {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    min-height: 0;
-    background: var(--surface);
-    border: 1px solid var(--line-strong);
-    border-radius: 10px;
-    overflow: hidden;
+  .stage[data-busy] :global(.term-window)::after {
+    animation-delay: -1.1s;
   }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 16px 0;
+  .stage[data-busy] :global(.preview-window)::after {
+    animation-delay: -2.2s;
   }
-  .title {
-    flex: 1;
-    margin: 0;
-    font-size: 14px;
-    font-weight: 500;
-  }
-  .elapsed {
-    font: 12px var(--mono);
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .icon {
-    width: 14px;
-    height: 14px;
-    flex: none;
-    border: 2px solid #7be3b440;
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  .setup[data-state='done'] .icon {
-    border: 0;
-    animation: none;
-    background: var(--accent);
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-      center / contain no-repeat;
-  }
-  .setup[data-state] .elapsed {
-    display: none;
-  }
-  .setup[data-state='failed'] .icon {
-    border-color: var(--err);
-    animation: none;
-  }
-  .setup[data-state='failed'] .title {
-    color: var(--err);
-  }
-  @keyframes spin {
+  @keyframes beam {
     to {
-      transform: rotate(360deg);
+      --beam-angle: 360deg;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .icon {
-      animation-duration: 3s;
+    .stage[data-busy] :global(.window)::after {
+      display: none;
     }
-  }
-  .steps {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 12px 0 0;
-    padding: 0 16px;
-    list-style: none;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .steps li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    white-space: nowrap;
-  }
-  .steps li + li {
-    flex: 1;
-  }
-  .steps .line {
-    flex: 1;
-    min-width: 12px;
-    height: 1px;
-    background: var(--line-strong);
-  }
-  .steps li[data-state='done'] .line,
-  .steps li[data-state='active'] .line,
-  .steps li[data-state='failed'] .line {
-    background: #7be3b466;
-  }
-  .mark {
-    width: 14px;
-    height: 14px;
-    flex: none;
-    border: 1.5px solid #ffffff40;
-    border-radius: 50%;
-  }
-  .steps li[data-state='active'] {
-    color: var(--text);
-    font-weight: 500;
-  }
-  .steps li[data-state='active'] .mark {
-    border-color: #7be3b440;
-    border-top-color: var(--accent);
-    animation: spin 0.8s linear infinite;
-  }
-  .steps li[data-state='done'] .mark {
-    border-color: transparent;
-    background: #7be3b426;
-    box-shadow: inset 0 0 0 4px #7be3b426;
-    position: relative;
-  }
-  .steps li[data-state='done'] .mark::after {
-    content: '';
-    position: absolute;
-    inset: 4px;
-    border-radius: 50%;
-    background: var(--accent);
-  }
-  .steps li[data-state='failed'] {
-    color: var(--err);
-  }
-  .steps li[data-state='failed'] .mark {
-    border-color: var(--err);
-    background: #f28b8226;
-  }
-  .last {
-    margin: 12px 16px;
-    font: 11.5px var(--mono);
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .log {
-    flex: 1;
-    min-height: 0;
-    margin: 12px 0 0;
-    padding: 10px 16px;
-    overflow: auto;
-    list-style: none;
-    border-top: 1px solid var(--line);
-    background: #0b0e12;
-    font: 11.5px/1.6 var(--mono);
-    scrollbar-width: thin;
-  }
-  .log[hidden] {
-    display: none;
-  }
-  .setup-card:has(.log[hidden]) {
-    flex: none;
-    align-self: flex-start;
-  }
-  .setup:has(.log[hidden]) {
-    align-items: center;
-  }
-  .log :global(li) {
-    white-space: pre-wrap;
-    word-break: break-all;
-    color: #aab1bb;
-  }
-  .log :global(li.cmd) {
-    margin-top: 6px;
-    color: var(--text);
-    font-weight: 500;
-  }
-  .log :global(li.cmd:first-child) {
-    margin-top: 0;
-  }
-  .log :global(.ps) {
-    color: var(--accent);
-    user-select: none;
-  }
-  .log :global(li.info) {
-    color: var(--muted);
-    font-style: italic;
-  }
-  .log :global(li.http) {
-    color: #737b86;
-  }
-  .log :global(li.warn) {
-    color: var(--warn);
-  }
-  .log :global(li.error) {
-    color: var(--err);
-  }
-  .foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
-    border-top: 1px solid var(--line);
-  }
-  .foot-actions {
-    display: flex;
-    gap: 6px;
-  }
-  .retry {
-    color: var(--text);
-    border-color: var(--err);
   }
 
   @media (max-width: 920px) {
     .stage {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: 420px 420px;
+      grid-template-rows: 340px 300px 420px;
+      grid-template-areas: 'editor' 'term' 'preview';
       height: auto;
     }
   }

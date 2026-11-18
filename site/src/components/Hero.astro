@@ -1,5 +1,6 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
+import GridPattern from './GridPattern.astro';
 import TerminalWindow from './TerminalWindow.astro';
 import { agentPrompt, hero } from '../content/landing.ts';
 
@@ -20,6 +21,10 @@ const transcript: { kind: 'cmd' | 'out' | 'dim' | 'ok'; text: string }[] = [
 // Built as one string: whitespace in a <pre> is significant, so the template's
 // own indentation must not reach it.
 const escape = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// The headline blurs in word by word (after Motion Primitives' TextEffect);
+// pure CSS, so it needs no JavaScript.
+const words = hero.title.split(' ');
+
 const transcriptHtml =
   transcript
     .map(
@@ -31,10 +36,19 @@ const transcriptHtml =
 ---
 
 <section class="hero">
+  <GridPattern />
   <div class="wrap inner">
     <div class="copy">
       <p class="eyebrow">{hero.eyebrow}</p>
-      <h1>{hero.title}</h1>
+      <h1 class="blur-in" aria-label={hero.title}>
+        {
+          words.map((w, i) => (
+            <span aria-hidden="true" style={`--i: ${i}`}>
+              {w}{' '}
+            </span>
+          ))
+        }
+      </h1>
       <p class="lede">{hero.lede}</p>
       <div class="install" role="group" aria-label="Install command">
         <code><span aria-hidden="true">$ </span>{hero.install}</code>
@@ -62,6 +76,8 @@ const transcriptHtml =
 
 <style>
   .hero {
+    position: relative;
+    isolation: isolate;
     border-top: 0;
     padding-block: 88px 96px;
     background:
@@ -77,6 +93,24 @@ const transcriptHtml =
   h1 {
     font-size: clamp(40px, 6vw, 64px);
     max-width: 14ch;
+  }
+  .blur-in span {
+    display: inline-block;
+    white-space: pre;
+    animation: blur-in 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(var(--i) * 70ms + 80ms);
+  }
+  @keyframes blur-in {
+    from {
+      opacity: 0;
+      filter: blur(10px);
+      transform: translateY(8px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blur-in span {
+      animation: none;
+    }
   }
   .lede {
     max-width: 52ch;

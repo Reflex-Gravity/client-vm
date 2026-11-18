@@ -37,3 +37,5 @@ if (pre && !reduced) {
   });
   observer.observe(pre);
 }
+
+export {};

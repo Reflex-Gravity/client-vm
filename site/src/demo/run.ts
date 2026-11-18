@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // The live demo's runtime half, loaded only when a visitor starts it: one
-// ClientVM instance, a real `bash -i` in xterm.js, and a setup that installs
-// the project's packages and starts its server, streamed live into a SetupLog.
+// ClientVM instance and a real `bash -i` in xterm.js. The setup is typed into
+// that shell, as a visitor would type it, so the terminal shows npm install
+// and then the server's own output, and Ctrl+C stops it.
 // Patterned on examples/agent-playground/src/terminal.ts.
 import { createClientVM } from '@clientvm/clientvm';
-import type { Instance } from '@clientvm/clientvm';
-import { attachShell } from '@clientvm/terminal';
+import type { Disposable, Instance } from '@clientvm/clientvm';
+import { attachShell, stripAnsi } from '@clientvm/terminal';
 import type { InteractiveTerminalLike } from '@clientvm/terminal';
-import { SetupLog } from './setup-log.ts';
-
-export { SetupLog };
 
 // The terminal emulator is the host app's choice (ADR 0016). These pinned
 // builds come from a CDN; the import map in the page pins their hashes, so
@@ -21,22 +19,35 @@ const XTERM_CSS_SRI = 'sha384-n2n7twoohnW+d3myBKaUgl7DSiwidw6MkQy9oesGzkPpMjejKR
 
 /** Where the sandbox host is served; `{id}` is the instance or port label. */
 const SANDBOX = import.meta.env.PUBLIC_SANDBOX ?? 'http://{id}.localhost:4173';
-const APP = '/home/user/app';
-const INSTALL_TIMEOUT_MS = 5 * 60_000;
-const PORT_TIMEOUT_MS = 90_000;
-/** Tags the setup's processes, so the log follows them and nothing the visitor runs. */
-const TAG = { source: 'demo-setup' };
+export const APP = '/home/user/app';
+/** npm install plus the server's start. */
+const SETUP_TIMEOUT_MS = 6 * 60_000;
+const PROMPT_TIMEOUT_MS = 15_000;
+const RESTART_DELAY_MS = 300;
+/**
+ * The tail of the shell's output when bash waits for a command:
+ * `user@clientvm:~/app$ `, then a `\r` as the line editor puts the cursor back.
+ */
+const PROMPT = /\$ \r?$/;
 
 export type DemoMode = 'express' | 'vite';
-export type Stage = 'sandbox' | 'packages' | 'server';
+
+/** The files the editor opens, relative to APP; the first is shown. */
+export const EDITABLE: Record<DemoMode, string[]> = {
+  express: ['server.js', 'package.json', 'README.md'],
+  vite: ['src/App.tsx', 'src/index.css', 'src/main.tsx', 'index.html', 'package.json'],
+};
+
+const START: Record<DemoMode, string> = { express: 'npm start', vite: 'npm run dev' };
 
 export interface DemoCallbacks {
   status(text: string): void;
-  stage(stage: Stage): void;
   preview(url: string, port: number): void;
 }
 
 interface XTerm extends InteractiveTerminalLike {
+  /** xterm.js also takes raw bytes, which it decodes as UTF-8 across writes. */
+  write(data: string | Uint8Array): void;
   open(element: HTMLElement): void;
   loadAddon(addon: object): void;
   focus(): void;
@@ -59,12 +70,13 @@ const os = require('os');
 
 const app = express();
 app.get('/', (req, res) => {
+  console.log(\`GET \${req.url}\`);
   res.send(\`<!doctype html>
 <body style="font-family: system-ui; max-width: 36rem; margin: 4rem auto; line-height: 1.5">
   <h1>Hello from ClientVM</h1>
   <p>Express \${require('express/package.json').version} on Node \${process.version}
   (\${os.platform()}), running in your browser tab.</p>
-  <p>Edit <code>server.js</code> in the terminal, then restart it with <code>npm start</code>.</p>
+  <p>Edit <code>server.js</code> in the editor. The server restarts as you type.</p>
 </body>\`);
 });
 app.listen(3000, () => console.log('listening on http://localhost:3000'));
@@ -92,7 +104,7 @@ const vm = createClientVM({ sandboxOrigin: (id) => SANDBOX.replace('{id}', id) }
 
 export interface RunningDemo {
   instance: Instance;
-  /** Installs packages and starts the server; rejects with what failed. */
+  /** Resolves once the server listens; rejects with what failed. */
   setup: Promise<void>;
   focus(): void;
   destroy(): Promise<void>;
@@ -104,20 +116,91 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string) =>
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what} timed out`)), ms)),
   ]);
 
+/** A dim line, for what the demo itself says. */
+const note = (text: string) => `\x1b[2m${text}\x1b[0m\r\n`;
+
 /**
- * Boots the instance (the "sandbox" stage) and attaches a shell, then runs
- * the rest of the setup in `setup`. Rejects only if the sandbox cannot boot.
+ * Stands between xterm.js and the shell: passes keys and output through,
+ * and lets the demo type commands and see when bash prompts again.
+ */
+class ShellDriver {
+  private tail = '';
+  private keys = new Set<(data: string) => void>();
+  private waiters: (() => void)[] = [];
+  /** bash is waiting for a command. */
+  atPrompt = false;
+  /** The visitor typed since the demo last ran a command. */
+  visitorTyped = false;
+  readonly view: InteractiveTerminalLike;
+
+  constructor(term: XTerm) {
+    const keys = this.keys;
+    this.view = {
+      get cols() {
+        return term.cols;
+      },
+      get rows() {
+        return term.rows;
+      },
+      write: (data) => {
+        term.write(data);
+        this.tail = (this.tail + stripAnsi(data)).slice(-120);
+        if (PROMPT.test(this.tail)) this.prompted();
+      },
+      onData: (listener) => {
+        const sub = term.onData((data) => {
+          this.visitorTyped = true;
+          listener(data);
+        });
+        keys.add(listener);
+        return {
+          dispose: () => {
+            sub.dispose();
+            keys.delete(listener);
+          },
+        };
+      },
+      ...(term.onResize ? { onResize: term.onResize.bind(term) } : {}),
+    };
+  }
+
+  private prompted(): void {
+    this.atPrompt = true;
+    const waiters = this.waiters;
+    this.waiters = [];
+    for (const w of waiters) w();
+  }
+
+  /** Resolves when bash next shows its prompt (now, if it already is). */
+  prompt(): Promise<void> {
+    if (this.atPrompt) return Promise.resolve();
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+
+  /** Sends keys to the shell as if typed. */
+  send(data: string): void {
+    this.atPrompt = false;
+    this.tail = '';
+    for (const k of this.keys) k(data);
+  }
+
+  run(command: string): void {
+    this.visitorTyped = false;
+    this.send(`${command}\r`);
+  }
+}
+
+/**
+ * Boots the instance and attaches a shell, then types the setup into it in
+ * `setup`. Rejects only if the sandbox cannot boot.
  */
 export async function startDemo(
   mode: DemoMode,
   container: HTMLElement,
-  log: SetupLog,
   cb: DemoCallbacks,
 ): Promise<RunningDemo> {
   loadCss();
-  cb.stage('sandbox');
   cb.status('loading the terminal…');
-  log.info('Loading the terminal');
   const [{ Terminal }, { FitAddon }] = (await Promise.all([
     import(/* @vite-ignore */ XTERM),
     import(/* @vite-ignore */ FIT),
@@ -145,110 +228,112 @@ export async function startDemo(
 
   let instance: Instance;
   cb.status('booting the sandbox…');
-  log.info(mode === 'vite' ? 'Booting a Vite + React project' : 'Booting the sandbox');
+  term.write(note(mode === 'vite' ? 'Booting a Vite + React project…' : 'Booting the sandbox…'));
   try {
     let building = false;
     instance = await vm.createInstance({
       ...(mode === 'vite'
         ? {
             preset: 'vite-react-ts' as const,
-            // Only the first visit builds the project; later visits boot from
-            // this origin's Cache Storage. Builder pids are negated so they
-            // never share partial-line state with the instance's processes.
+            // Only the first visit builds the project, in a hidden builder;
+            // later visits boot from this origin's Cache Storage. Its output
+            // has no terminal of its own, so bare \n needs a \r here.
             onPresetBuild: (e) => {
               if (e.type === 'spawn') {
-                if (!building) log.info('First start in this browser: building the project once');
+                if (!building)
+                  term.write(note('First start in this browser: building the project once'));
                 building = true;
-                log.spawn(e.process.argv);
-              } else if (e.type === 'output') log.output(-e.pid, e.fd, e.data);
-              else log.exit(-e.pid, e.code);
+                const cmd = e.process.argv.at(-1) ?? '';
+                term.write(`\x1b[2m$ ${stripAnsi(cmd).replace(/[\r\n]/g, ' ')}\x1b[0m\r\n`);
+              } else if (e.type === 'output') {
+                term.write(new TextDecoder().decode(e.data).replace(/\r?\n/g, '\r\n'));
+              }
             },
           }
         : { fs: { from: { home: { user: { app: EXPRESS_APP } } } } }),
       limits: { maxProcesses: 64, maxCpuMs: 60_000 },
     });
   } catch (err) {
+    term.write(
+      note(`The sandbox could not start: ${err instanceof Error ? err.message : String(err)}`),
+    );
     resize.disconnect();
-    term.dispose();
-    log.info(`The sandbox could not start: ${err instanceof Error ? err.message : String(err)}`);
     throw err;
   }
-  log.info(`Sandbox ${instance.id} is up`);
   cb.status(`instance ${instance.id}`);
 
-  // Follow only the processes the setup starts.
-  const ours = new Set<number>();
-  const processSub = instance.onProcess((e) => {
-    if (e.type === 'spawn') {
-      if (e.process.tag?.['source'] !== TAG.source) return;
-      ours.add(e.process.pid);
-      log.spawn(e.process.argv);
-    } else if (!ours.has(e.pid)) {
-      return;
-    } else if (e.type === 'output') {
-      log.output(e.pid, e.fd, e.data);
-    } else {
-      ours.delete(e.pid);
-      log.exit(e.pid, e.code);
-    }
-  });
-  instance.onPortOpen((port, url) => cb.preview(url, port));
+  let port: number | undefined;
+  const subs: Disposable[] = [
+    instance.onPortOpen((p, url) => {
+      port = p;
+      cb.preview(url, p);
+    }),
+    instance.onPortClose((p) => {
+      if (p === port) port = undefined;
+    }),
+  ];
 
-  // The visitor's shell, usable while the setup runs.
-  term.write(
-    '\x1b[2mSetting up: npm install, then the server. Progress is on the right.\x1b[0m\r\n',
-  );
+  // The visitor's shell, which the setup is typed into.
+  const shell = new ShellDriver(term);
   let alive = true;
   const startShell = async (): Promise<void> => {
-    const session = await attachShell(term, instance, { cwd: APP });
+    const session = await attachShell(shell.view, instance, { cwd: APP });
     void session.exit.then(() => {
       if (!alive) return;
-      term.write('\x1b[2mStarting a new shell…\x1b[0m\r\n');
+      term.write(note('Starting a new shell…'));
       void startShell();
     });
   };
   await startShell();
-  term.focus();
 
   const setup = (async () => {
-    cb.stage('packages');
+    await withTimeout(shell.prompt(), PROMPT_TIMEOUT_MS, 'The shell');
     cb.status('installing packages…');
-    log.info(mode === 'vite' ? 'Checking the installed packages' : 'Installing express');
-    // --loglevel http prints a line per registry fetch, so progress shows without a TTY.
-    const res = await instance.exec('npm install --no-audit --no-fund --loglevel http', {
-      cwd: APP,
-      timeoutMs: INSTALL_TIMEOUT_MS,
-      tag: { ...TAG, step: 'install' },
-    });
-    if (res.code !== 0) throw new Error(`npm install failed with exit code ${res.code}`);
-
-    cb.stage('server');
-    cb.status('starting the server…');
-    log.info(mode === 'vite' ? 'Starting the Vite dev server' : 'Starting the Express server');
     const opened = new Promise<number>((resolve) => {
-      const sub = instance.onPortOpen((port) => {
+      const sub = instance.onPortOpen((p) => {
         sub.dispose();
-        resolve(port);
+        resolve(p);
       });
+      subs.push(sub);
     });
-    const proc = await instance.spawn('npm', mode === 'vite' ? ['run', 'dev'] : ['start'], {
-      cwd: APP,
-      tag: { ...TAG, step: 'server' },
+    shell.run(`npm install --no-audit --no-fund && ${START[mode]}`);
+    // The prompt comes back only if npm install or the server stops.
+    const stopped = shell.prompt().then(() => {
+      throw new Error('the command stopped before the server opened a port');
     });
-    // Always drain output: ClientVM buffers unread output. The log reads it
-    // through onProcess.
-    void proc.stdout.pipeTo(new WritableStream()).catch(() => {});
-    void proc.stderr.pipeTo(new WritableStream()).catch(() => {});
-    const exited = proc.exit.then(({ code }) => {
-      throw new Error(`the server exited with code ${code} before opening a port`);
-    });
-    const port = await withTimeout(Promise.race([opened, exited]), PORT_TIMEOUT_MS, 'Server start');
-    log.info(`Listening on port ${port}`);
-    cb.status(`instance ${instance.id} · port ${port}`);
+    const p = await withTimeout(Promise.race([opened, stopped]), SETUP_TIMEOUT_MS, 'Setup');
+    cb.status(`instance ${instance.id} · port ${p}`);
   })();
-  setup.catch((err: unknown) => {
-    log.info(`Setup failed: ${err instanceof Error ? err.message : String(err)}`);
-  });
+
+  // Vite reloads edits itself (HMR). Node has no --watch here, so on a change
+  // to server.js the demo presses Ctrl+C in the terminal and runs the server again.
+  let restartTimer: ReturnType<typeof setTimeout> | undefined;
+  let restarting = false;
+  const restart = async () => {
+    if (restarting || !alive) return;
+    restarting = true;
+    try {
+      if (!shell.atPrompt && port !== undefined) {
+        shell.send('\x03');
+        await withTimeout(shell.prompt(), PROMPT_TIMEOUT_MS, 'Stopping the server');
+      } else if (!shell.atPrompt || shell.visitorTyped) {
+        return; // the visitor is running or typing something else
+      }
+      if (alive) shell.run(START.express);
+    } catch {
+      // the server did not stop; leave the terminal to the visitor
+    } finally {
+      restarting = false;
+    }
+  };
+  if (mode === 'express') {
+    subs.push(
+      instance.fs.watch(`${APP}/server.js`, () => {
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => void setup.then(restart, () => {}), RESTART_DELAY_MS);
+      }),
+    );
+  }
 
   return {
     instance,
@@ -256,7 +341,8 @@ export async function startDemo(
     focus: () => term.focus(),
     destroy: async () => {
       alive = false;
-      processSub.dispose();
+      clearTimeout(restartTimer);
+      for (const s of subs) s.dispose();
       resize.disconnect();
       await instance.destroy().catch(() => {});
       term.dispose();

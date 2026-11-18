@@ -24,3 +24,5 @@ for (const list of document.querySelectorAll<HTMLElement>('[data-tabs]')) {
     });
   }
 }
+
+export {};
