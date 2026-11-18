@@ -1,6 +1,6 @@
 name: Site
 
-# Builds site/ (the landing page and live demo) and publishes it to GitHub
+# Builds site/ (the landing page, live demo and docs) and publishes it to GitHub
 # Pages at https://clientvm.joeldsouza.me. The demo's sandbox is deployed
 # separately (sandbox.yml).
 on:
@@ -9,6 +9,8 @@ on:
     paths:
       - 'site/**'
       - 'packages/**'
+      # The site publishes the user-facing docs as pages under /docs/.
+      - 'docs/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/site.yml'
   workflow_dispatch:

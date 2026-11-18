@@ -1,0 +1,87 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// /docs/: every published guide and design decision.
+import Docs from '../../layouts/Docs.astro';
+import { REPO } from '../../content/landing.ts';
+import { docSections } from '../../lib/doc-index.ts';
+
+const sections = await docSections();
+---
+
+<Docs
+  title="Documentation"
+  description="ClientVM documentation: hosting the sandbox, the public API, agent tools, compatibility, security and design decisions."
+>
+  <h1>Documentation</h1>
+  <p>
+    How to host the sandbox, the public API, the tools for agents, what Node APIs work, and the
+    reasoning behind each design decision. Internal plans and measurements stay in the{' '}
+    <a href={`${REPO}/tree/main/docs`}>repository</a>.
+  </p>
+  {
+    sections.map((s) => (
+      <section class="index-group">
+        <h2 id={s.id}>{s.label}</h2>
+        <ul class:list={['cards', { compact: s.id === 'decisions' }]}>
+          {s.docs.map((d) => (
+            <li>
+              <a href={`/docs/${d.slug}/`}>
+                <span class="t">{d.title}</span>
+                {s.id !== 'decisions' && d.summary && <span class="s">{d.summary}</span>}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))
+  }
+</Docs>
+
+<style>
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .cards.compact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .cards a {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    height: 100%;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+  }
+  .cards a:hover {
+    border-color: var(--line-strong);
+  }
+  .cards.compact a {
+    padding: 9px 12px;
+    border-width: 0 0 1px;
+    background: transparent;
+  }
+  .t {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .compact .t {
+    font-weight: 400;
+  }
+  .s {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .cards li + li {
+    margin-top: 0;
+  }
+</style>

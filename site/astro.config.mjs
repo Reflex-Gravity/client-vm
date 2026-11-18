@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 import { defineConfig } from 'astro/config';
 import { defaultClientConditions } from 'vite';
+import { satteri } from '@astrojs/markdown-satteri';
+import { docLinks } from './src/lib/doc-links-plugin.ts';
 
 // A static site on GitHub Pages. It is a ClientVM host app: it needs no
 // isolation headers, because instances get cross-origin isolation from their
-// own pages on the sandbox domain (docs/hosting.md).
+// own pages on the sandbox domain (docs/hosting.md). It also publishes the
+// user-facing docs/ as pages under /docs/.
 export default defineConfig({
   site: 'https://clientvm.joeldsouza.me',
   output: 'static',
   server: { port: 5190 },
+  // The docs pages (src/content.config.ts): links between docs stay on the site.
+  markdown: {
+    processor: satteri({ mdastPlugins: [docLinks] }),
+    shikiConfig: { theme: 'vitesse-dark' },
+  },
   vite: {
     // Resolve workspace packages to their TypeScript sources, as the examples do.
     resolve: { conditions: ['@clientvm/source', ...defaultClientConditions] },

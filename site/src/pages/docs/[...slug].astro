@@ -1,0 +1,28 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// One page per published doc (src/content.config.ts).
+import { getCollection, render } from 'astro:content';
+import Docs from '../../layouts/Docs.astro';
+import { REPO } from '../../content/landing.ts';
+import { titleOf } from '../../lib/docs.ts';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const title = titleOf(entry.body ?? '', entry.id);
+---
+
+<Docs
+  title={title}
+  description={`ClientVM documentation: ${title}.`}
+  slug={entry.id}
+  headings={headings}
+  source={`${REPO}/edit/main/docs/${entry.id}.md`}
+  markdown={`/docs/${entry.id}.md`}
+>
+  <Content />
+</Docs>
