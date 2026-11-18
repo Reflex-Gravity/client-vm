@@ -1,28 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
-// /llms.txt: what ClientVM is and where to read more, for agents.
-import { REPO, SITE, docMd, hero } from '../content/landing.ts';
+// /llms.txt (https://llmstxt.org): what ClientVM is, the rules an agent should
+// know before integrating it, and every doc as markdown, grouped as the sidebar is.
+import { REPO, SITE, hero } from '../content/landing.ts';
+import { docSections } from '../lib/doc-index.ts';
 
-export function GET(): Response {
+export async function GET(): Promise<Response> {
+  const sections = await docSections();
+  const item = (d: { slug: string; title: string; summary: string }) =>
+    `- [${d.title}](${SITE}/docs/${d.slug}.md)${d.summary ? `: ${d.summary}` : ''}`;
   const body = [
     '# ClientVM',
     '',
     `> ${hero.title} ${hero.lede}`,
     '',
-    '## Docs',
+    `Every page below is Markdown. All of them in one file: ${SITE}/llms-full.txt. The landing page as Markdown: ${SITE}/index.md. Source: ${REPO}.`,
     '',
-    `- [This page as markdown](${SITE}/index.md): features, quickstart, limits, and an integration prompt`,
-    `- [README](${REPO}#readme): how it works and how to integrate it`,
-    `- [Docs index](${SITE}/docs/): every guide and design decision`,
-    `- [Hosting the sandbox](${docMd('hosting')}): domain, headers and deployment checks`,
-    `- [Compatibility matrix](${docMd('compatibility')}): every supported Node API and its gaps`,
-    `- [Agent tool API](${docMd('agent-api')}): LLM tool definitions for an instance`,
-    `- [Interfaces](${docMd('interfaces')}): the public API`,
-    `- [Security model](${docMd('security')})`,
+    'Before you integrate it:',
     '',
+    '- ClientVM runs in Chromium-based browsers only.',
+    '- It needs a static sandbox deployment (`@clientvm/sandbox-host`) on a wildcard subdomain of a separate registrable domain, with the headers in the hosting guide. The host app itself needs no COOP/COEP headers.',
+    '- Native Node addons do not run (esbuild, rollup, rolldown, lightningcss and Tailwind oxide are swapped for their WebAssembly builds). Outbound `fetch` is subject to CORS; there is no raw TCP.',
+    '- Check the compatibility matrix before relying on a Node API.',
+    '- Keep model API keys on a server; relay tool calls to the page that owns the ClientVM.',
+    '',
+    ...sections.flatMap((s) => [`## ${s.label}`, '', ...s.docs.map(item), '']),
     '## Optional',
     '',
-    `- [Architecture](${docMd('architecture')})`,
-    `- [Packages](${docMd('packages')})`,
+    ...(sections.find((s) => s.records)?.records ?? []).map(item),
     '',
   ].join('\n');
   return new Response(body, { headers: { 'content-type': 'text/plain; charset=utf-8' } });

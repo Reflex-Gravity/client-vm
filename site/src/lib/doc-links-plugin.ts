@@ -33,4 +33,6 @@ export const docLinks = {
   name: 'clientvm-doc-links',
   link: rewrite,
   definition: rewrite,
+  // Diagrams (docs/diagrams/*.svg) are served by the site at /docs/diagrams/.
+  image: rewrite,
 };

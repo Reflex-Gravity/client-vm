@@ -193,7 +193,16 @@ test('site: the page as markdown and llms.txt', async ({ request }) => {
   expect(md.ok()).toBe(true);
   expect(await md.text()).toContain('## Quickstart');
   const llms = await request.get(`${SITE}llms.txt`);
-  expect(await llms.text()).toMatch(/^# ClientVM\n/);
+  const index = await llms.text();
+  expect(index).toMatch(/^# ClientVM\n/);
+  expect(index).toContain('/docs/quickstart.md');
+  // Every doc in one file, and a sitemap of every page.
+  const full = await (await request.get(`${SITE}llms-full.txt`)).text();
+  expect(full).toContain('# Hosting the sandbox');
+  expect(full).toContain('# ADR 0018');
+  const sitemap = await (await request.get(`${SITE}sitemap.xml`)).text();
+  expect(sitemap).toContain('/docs/decisions/0003-kernel-per-instance-origin/</loc>');
+  expect(await (await request.get(`${SITE}robots.txt`)).text()).toContain('Sitemap:');
 });
 
 test('site: the quickstart shows its steps in order and the docs stay on the site', async ({
@@ -233,7 +242,7 @@ test('site: the quickstart shows its steps in order and the docs stay on the sit
   await expect(page).toHaveURL(/\/docs\/hosting\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Hosting the sandbox');
   await expect(page.locator('#why-subdomains')).toBeVisible();
-  await page.locator('article').getByRole('link', { name: 'security.md' }).first().click();
+  await page.locator('article').getByRole('link', { name: 'security model' }).first().click();
   await expect(page).toHaveURL(/\/docs\/security\/$/);
   await expect(
     page.getByRole('navigation', { name: 'Docs' }).locator('[aria-current="page"]'),

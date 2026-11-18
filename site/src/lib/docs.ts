@@ -7,22 +7,53 @@ const REPO_BLOB = 'https://github.com/Reflex-Gravity/client-vm/blob/main';
 
 export interface DocGroup {
   label: string;
+  /** One line for the /docs/ index. */
+  blurb: string;
   /** Slugs: paths under docs/ without `.md`. */
   slugs: string[];
 }
 
-/** The guides, in reading order. Design decisions (decisions/*) are added after them. */
+/**
+ * The guides, in reading order, grouped the way most library docs are: start,
+ * concepts, guides, reference. The individual decision records (decisions/*)
+ * are listed under the last group, after the summary page.
+ */
 export const GUIDES: DocGroup[] = [
-  { label: 'Get started', slugs: ['hosting', 'interfaces', 'agent-api'] },
-  { label: 'Reference', slugs: ['compatibility', 'packages', 'architecture'] },
-  { label: 'Security', slugs: ['security', 'security-review'] },
+  {
+    label: 'Get started',
+    blurb: 'What ClientVM is, a first instance, and the sandbox it needs.',
+    slugs: ['overview', 'quickstart', 'hosting'],
+  },
+  {
+    label: 'Concepts',
+    blurb: 'How the pieces fit together, and what keeps agent code contained.',
+    slugs: ['architecture', 'security'],
+  },
+  {
+    label: 'Guides',
+    blurb: 'Hand an instance to an LLM agent.',
+    slugs: ['agent-api'],
+  },
+  {
+    label: 'Reference',
+    blurb: 'The public API, what works in Node, and every package.',
+    slugs: ['interfaces', 'compatibility', 'packages', 'security-review'],
+  },
+  {
+    label: 'Design decisions',
+    blurb: 'Why ClientVM is built the way it is, summarised on one page.',
+    slugs: ['decisions'],
+  },
 ];
 
+/** Every published guide, in reading order (for prev/next links and llms.txt). */
+export const READING_ORDER = GUIDES.flatMap((g) => g.slugs);
+
 /** The glob the docs collection loads, relative to docs/. */
-export const DOC_PATTERNS = [
-  ...GUIDES.flatMap((g) => g.slugs.map((s) => `${s}.md`)),
-  'decisions/*.md',
-];
+export const DOC_PATTERNS = [...READING_ORDER.map((s) => `${s}.md`), 'decisions/*.md'];
+
+/** Diagrams in docs/diagrams/, served by the site at /docs/diagrams/<name>.svg. */
+export const DIAGRAM = /^docs\/diagrams\/([a-z0-9-]+\.svg)$/;
 
 export const isPublished = (slug: string): boolean =>
   GUIDES.some((g) => g.slugs.includes(slug)) || /^decisions\/[^/]+$/.test(slug);
@@ -62,13 +93,24 @@ export function resolveDocLink(from: string, href: string, mode: 'html' | 'md' =
   // Resolved against the repository root; docs live under docs/.
   const target = normalize(`docs/${dir}/${path}`);
 
-  if (target === 'docs' || target === 'docs/decisions') {
-    return `/docs/${target === 'docs' ? '' : '#decisions'}${target === 'docs' ? hash : ''}`;
-  }
+  if (target === 'docs') return `/docs/${hash}`;
+  if (target === 'docs/decisions') return mode === 'md' ? '/docs/decisions.md' : '/docs/decisions/';
+  if (DIAGRAM.test(target)) return `/${target}`;
   if (target.startsWith('docs/') && target.endsWith('.md')) {
     const slug = target.slice('docs/'.length, -'.md'.length);
     if (isPublished(slug))
       return mode === 'md' ? `/docs/${slug}.md${hash}` : `/docs/${slug}/${hash}`;
   }
   return `${REPO_BLOB}/${target}${hash}`;
+}
+
+/**
+ * A doc's markdown as served to agents: links (and images) point at the other
+ * markdown copies on `site`, or at GitHub for files the site doesn't publish.
+ */
+export function agentMarkdown(slug: string, body: string, site: string): string {
+  return body.replace(/\]\(([^)\s]+)\)/g, (_, href: string) => {
+    const to = resolveDocLink(`${slug}.md`, href, 'md');
+    return `](${to.startsWith('/') ? site + to : to})`;
+  });
 }

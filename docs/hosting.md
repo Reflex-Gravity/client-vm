@@ -2,7 +2,17 @@
 
 ClientVM needs one static deployment of the sandbox: the files in `@clientvm/sandbox-host`'s
 `dist/`. It must be reachable at every instance origin `https://<id>.<sandbox-domain>/`. No
-server-side code runs.
+server-side code runs, and your own app needs no changes to its headers.
+
+![Your app stays on its own domain and needs no special headers. The sandbox is one static deployment of @clientvm/sandbox-host on a wildcard subdomain of a separate registrable domain, with one subdomain per instance and one per preview port. Every sandbox response carries Document-Isolation-Policy, COEP, CORP and a frame-ancestors CSP. The two domains are cross-site.](diagrams/hosting.svg)
+
+**At a glance:**
+
+1. Pick a **separate registrable domain** for the sandbox, such as `myapp-sandbox.dev`.
+2. Point **wildcard DNS and TLS** for `*.myapp-sandbox.dev` at one static deployment.
+3. Upload `@clientvm/sandbox-host`'s `dist/` and set the [response headers](#requirements).
+4. Run `clientvm-check-sandbox` against it.
+5. Pass `sandboxOrigin` to `createClientVM` in your app.
 
 ```sh
 npm install -D @clientvm/sandbox-host
@@ -34,6 +44,10 @@ browser itself keeps agent code apart:
   app needs no COOP/COEP headers ([ADR 0005](decisions/0005-document-isolation-policy.md)).
 
 ## Requirements
+
+> [!WARNING]
+> Never serve the sandbox from a subdomain of your app's domain. Instance code would be
+> same-site with your app.
 
 1. **A dedicated registrable domain** for the sandbox, separate from your app's (for example
    `myapp-sandbox.dev`, not `sandbox.myapp.com`). Instances run hostile code, so they must not be
@@ -89,7 +103,7 @@ project's own demo uses this scheme on Cloudflare (`deploy/sandbox-worker`).
 
 A flat scheme only works under a domain that is itself dedicated to the sandbox, or one with no
 cookies and no authenticated endpoints anywhere on it. Every origin it creates is same-site with
-the rest of that domain (see [security.md](security.md)).
+the rest of that domain (see the [security model](security.md)).
 
 ## In your app
 
@@ -100,8 +114,9 @@ const vm = createClientVM({ sandboxOrigin: (id) => `https://${id}.myapp-sandbox.
 const instance = await vm.createInstance({ fs: { from: { 'index.js': "console.log('hi')" } } });
 ```
 
-Your app needs **no** special headers. If your app already uses COOP/COEP, instances still work
-(fallback mode).
+> [!TIP]
+> Your app needs **no** special headers. If your app already uses COOP/COEP, instances still work
+> (fallback mode).
 
 ## Previews
 

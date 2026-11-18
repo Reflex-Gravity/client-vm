@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title">
+  <!-- SPDX-License-Identifier: Apache-2.0 -->
+  <!-- The social preview image. og.png is this file rendered at 1200×630 with the site's fonts. -->
+  <title id="title">ClientVM: Node.js, bash and npm in a browser tab, for AI agents</title>
+  <defs>
+    <style>
+      .px { font: 500 92px 'Pixelify Sans', 'JetBrains Mono', ui-monospace, monospace; fill: #ecebe8 }
+      .h { font: 600 40px Inter, system-ui, sans-serif; letter-spacing: -.02em; fill: #ecebe8 }
+      .s { font: 400 26px Inter, system-ui, sans-serif; fill: #8d8c93 }
+      .m { font: 400 22px 'JetBrains Mono', ui-monospace, Menlo, monospace; fill: #8d8c93 }
+      .g { fill: #7be3b4 }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#fff" stroke-opacity=".05" />
+    </pattern>
+    <radialGradient id="glow" cx=".85" cy=".1" r=".8">
+      <stop offset="0" stop-color="#7be3b4" stop-opacity=".22" /><stop offset="1" stop-color="#7be3b4" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#060608" />
+  <rect width="1200" height="630" fill="url(#grid)" />
+  <rect width="1200" height="630" fill="url(#glow)" />
+
+  <!-- The logo (logo.svg): a CPU inside the client's "C", 84px square. -->
+  <g transform="translate(58 64) scale(2.3333)">
+    <path fill="#ecebe8" d="M6 6h36v12h-6v-6H12v24h24v-6h6v12H6z" />
+    <path fill="#7be3b4" fill-rule="evenodd" d="M18 18h12v12h-12zM20 20v8h8v-8zM22 22h4v4h-4zM20 15h2v3h-2zM20 30h2v3h-2zM15 20h3v2h-3zM30 20h3v2h-3zM26 15h2v3h-2zM26 30h2v3h-2zM15 26h3v2h-3zM30 26h3v2h-3z" />
+  </g>
+  <text x="182" y="150" class="px">ClientVM</text>
+
+  <text x="72" y="282" class="h">A dev machine for every AI agent,</text>
+  <text x="72" y="334" class="h">inside a browser tab.</text>
+  <text x="72" y="398" class="s">Node.js 24, a real bash and the unmodified npm. No servers.</text>
+
+  <rect x="72" y="458" width="410" height="56" rx="4" fill="#070709" stroke="#ffffff24" />
+  <text x="96" y="494" class="m"><tspan class="g">$</tspan> npm i @clientvm/clientvm</text>
+
+  <text x="72" y="578" class="m">Apache-2.0 · open source · clientvm.joeldsouza.me</text>
+</svg>

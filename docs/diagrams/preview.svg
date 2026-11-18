@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 800" role="img" aria-labelledby="title desc">
+  <!-- SPDX-License-Identifier: Apache-2.0 -->
+  <title id="title">How a preview request reaches a server inside an instance</title>
+  <desc id="desc">A server inside the instance listens on a virtual port, and onPortOpen reports a URL on the port's own origin. Your page loads it in an iframe. The port origin's service worker catches each request and forwards it over a MessagePort to the instance kernel's HTTP router, which relays it to the process listening on that port. The response streams back. A small bridge page links the port's service worker to the kernel.</desc>
+  <defs>
+    <style>
+      .cap { font: 500 15px 'JetBrains Mono', ui-monospace, Menlo, monospace; letter-spacing: .06em; fill: #8b8b95 }
+      .t { font: 600 25px Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; letter-spacing: -.01em; fill: #fafafa }
+      .s { font: 400 19px Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; fill: #a1a1aa }
+      .m { font: 400 16px 'JetBrains Mono', ui-monospace, Menlo, monospace; fill: #8b8b95 }
+      .chip { font: 400 15px 'JetBrains Mono', ui-monospace, Menlo, monospace; fill: #c9d6ff }
+      .n { font: 600 15px 'JetBrains Mono', ui-monospace, Menlo, monospace; fill: #08080a }
+      .on .t { fill: #fff } .on .s { fill: #ffffffd9 } .on .m { fill: #ffffffa6 }
+      .blue { fill: #b7cdff } .amber { fill: #f2c47a }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#fff" stroke-opacity=".05" />
+    </pattern>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+      <path d="M2 1.5 10 6 2 10.5" fill="none" stroke="#b7cdff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+    </marker>
+    <linearGradient id="g-blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fa8ff" stop-opacity=".16" /><stop offset="1" stop-color="#8fa8ff" stop-opacity="0" />
+    </linearGradient>
+    <linearGradient id="g-amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2c47a" stop-opacity=".09" /><stop offset="1" stop-color="#f2c47a" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1000" height="800" fill="#08080a" />
+  <rect width="1000" height="800" fill="url(#grid)" />
+
+  <!-- your page -->
+  <rect x="20" y="20" width="960" height="170" rx="16" fill="#121215" stroke="#ffffff14" />
+  <text x="44" y="52" class="cap">YOUR PAGE</text>
+  <rect x="44" y="66" width="440" height="104" rx="12" fill="#18181c" stroke="#8fa8ff" stroke-opacity=".6" />
+  <text x="68" y="108" class="t">&lt;iframe src={url}&gt;</text>
+  <text x="68" y="146" class="m">GET /src/App.tsx</text>
+  <rect x="516" y="66" width="440" height="104" rx="12" fill="#18181c" stroke="#ffffff24" />
+  <text x="540" y="108" class="t">onPortOpen(port, url)</text>
+  <text x="540" y="146" class="m blue">https://k3x9-p5173.…/</text>
+
+  <!-- 1: the iframe's request -->
+  <path d="M300 172v94" stroke="#b7cdff" stroke-width="2.5" marker-end="url(#arrow)" />
+  <circle cx="330" cy="206" r="14" fill="#b7cdff" /><text x="330" y="211" class="n" text-anchor="middle">1</text>
+
+  <!-- port origin -->
+  <rect x="20" y="220" width="960" height="190" rx="16" fill="url(#g-blue)" stroke="#8fa8ff" stroke-opacity=".55" />
+  <text x="44" y="252" class="cap blue">PORT ORIGIN · &lt;id&gt;-p5173</text>
+  <rect x="44" y="270" width="440" height="120" rx="12" fill="#18181c" stroke="#ffffff24" />
+  <text x="68" y="310" class="t">Service worker</text>
+  <text x="68" y="342" class="s">catches every request</text>
+  <text x="68" y="372" class="m">adds a WebSocket shim to pages</text>
+  <rect x="516" y="270" width="440" height="120" rx="12" fill="#18181c" stroke="#ffffff24" />
+  <text x="540" y="310" class="t">Port bridge</text>
+  <text x="540" y="342" class="s">/__clientvm/port.html</text>
+  <text x="540" y="372" class="m">links the SW to the kernel</text>
+  <path d="M514 330h-26" stroke="#b7cdff" stroke-width="2.5" stroke-dasharray="4 4" marker-end="url(#arrow)" />
+
+  <!-- 2: over the MessagePort -->
+  <path d="M400 392v94" stroke="#b7cdff" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+  <circle cx="430" cy="426" r="14" fill="#b7cdff" /><text x="430" y="431" class="n" text-anchor="middle">2</text>
+  <rect x="454" y="410" width="146" height="32" rx="8" fill="#0e0e11" stroke="#ffffff24" />
+  <text x="527" y="431" class="chip" text-anchor="middle">MessagePort</text>
+
+  <!-- instance -->
+  <rect x="20" y="450" width="960" height="330" rx="16" fill="url(#g-amber)" stroke="#f2c47a" stroke-opacity=".5" stroke-dasharray="6 6" />
+  <text x="44" y="482" class="cap amber">INSTANCE · &lt;id&gt;.sandbox.dev</text>
+  <g class="on">
+    <rect x="44" y="490" width="440" height="140" rx="12" fill="#1c7556" />
+    <text x="68" y="532" class="t">Kernel · HTTP router</text>
+    <text x="68" y="566" class="s">dispatches by virtual port</text>
+    <text x="68" y="604" class="m">response streams back</text>
+
+    <rect x="516" y="490" width="440" height="140" rx="12" fill="#3a4fb5" />
+    <path d="M540 512l8 6-8 6M552 526h9" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="540" y="566" class="t">vite dev server</text>
+    <text x="540" y="598" class="s">listening on port 5173</text>
+  </g>
+
+  <!-- 3: to the server -->
+  <path d="M486 560h28" stroke="#b7cdff" stroke-width="2.5" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+  <circle cx="500" cy="602" r="14" fill="#b7cdff" /><text x="500" y="607" class="n" text-anchor="middle">3</text>
+
+  <text x="44" y="684" class="s">Processes in the instance reach the same server at <tspan class="m" fill="#d4d4d8">localhost:5173</tspan></text>
+  <text x="44" y="724" class="s">Other instances use <tspan class="m" fill="#d4d4d8">&lt;name&gt;.internal:5173</tspan>, with a net capability</text>
+</svg>

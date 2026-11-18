@@ -28,8 +28,19 @@ describe('resolveDocLink', () => {
     );
   });
 
-  it('maps the decisions directory to the index', () => {
-    expect(resolveDocLink('architecture.md', 'decisions/')).toBe('/docs/#decisions');
+  it('maps the decisions directory to the summary page', () => {
+    expect(resolveDocLink('architecture.md', 'decisions/')).toBe('/docs/decisions/');
+    expect(resolveDocLink('architecture.md', 'decisions/', 'md')).toBe('/docs/decisions.md');
+    expect(resolveDocLink('architecture.md', 'decisions.md')).toBe('/docs/decisions/');
+  });
+
+  it('serves diagrams from the site', () => {
+    expect(resolveDocLink('overview.md', 'diagrams/overview.svg')).toBe(
+      '/docs/diagrams/overview.svg',
+    );
+    expect(resolveDocLink('decisions/0003-a.md', '../diagrams/hosting.svg', 'md')).toBe(
+      '/docs/diagrams/hosting.svg',
+    );
   });
 
   it('leaves external, in-page and root-relative links alone', () => {
@@ -46,6 +57,8 @@ describe('resolveDocLink', () => {
 describe('isPublished and titleOf', () => {
   it('publishes the guides and every decision, not the internal plans', () => {
     expect(isPublished('hosting')).toBe(true);
+    expect(isPublished('overview')).toBe(true);
+    expect(isPublished('decisions')).toBe(true);
     expect(isPublished('decisions/0001-node-24-target')).toBe(true);
     expect(isPublished('phase5-plan')).toBe(false);
     expect(isPublished('spike-results')).toBe(false);

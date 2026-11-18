@@ -1,6 +1,9 @@
-# Packages and how ClientVM works
+# Packages
 
-A guide to the ten packages under `packages/` and how they work together. For the decisions behind them see the [design decisions](decisions/); for API status see [interfaces.md](interfaces.md); for what works see [compatibility.md](compatibility.md).
+A guide to the ten packages under `packages/` and how they work together. For the big picture
+with diagrams see [how ClientVM works](architecture.md); for the decisions behind them see the
+[design decisions](decisions.md); for the public API see the [API reference](interfaces.md); for
+what works see the [compatibility matrix](compatibility.md).
 
 ## Overview
 

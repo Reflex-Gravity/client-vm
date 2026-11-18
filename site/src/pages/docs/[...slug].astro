@@ -4,7 +4,8 @@
 import { getCollection, render } from 'astro:content';
 import Docs from '../../layouts/Docs.astro';
 import { REPO } from '../../content/landing.ts';
-import { titleOf } from '../../lib/docs.ts';
+import { docPages, neighbours } from '../../lib/doc-index.ts';
+import { docGraph } from '../../lib/seo.ts';
 
 export async function getStaticPaths() {
   const docs = await getCollection('docs');
@@ -13,16 +14,27 @@ export async function getStaticPaths() {
 
 const { entry } = Astro.props;
 const { Content, headings } = await render(entry);
-const title = titleOf(entry.body ?? '', entry.id);
+const page = (await docPages()).find((p) => p.slug === entry.id)!;
+// The full title for records ("ADR 0003: …"), the sidebar's short one otherwise.
+const title = page.slug.startsWith('decisions/')
+  ? `ADR ${page.title.replace(' · ', ': ')}`
+  : page.title;
+const description = page.summary || `ClientVM documentation: ${title}.`;
+const { prev, next } = await neighbours(entry.id);
 ---
 
 <Docs
   title={title}
-  description={`ClientVM documentation: ${title}.`}
+  description={description}
   slug={entry.id}
+  section={page.section}
   headings={headings}
   source={`${REPO}/edit/main/docs/${entry.id}.md`}
   markdown={`/docs/${entry.id}.md`}
+  modified={page.modified}
+  prev={prev}
+  next={next}
+  jsonLd={docGraph({ ...page, title, description })}
 >
   <Content />
 </Docs>

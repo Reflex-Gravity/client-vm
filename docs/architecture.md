@@ -1,83 +1,88 @@
-# Architecture
+# How ClientVM works
 
-How ClientVM is put together today: which threads and origins run what, how a syscall travels, and
-how the packages depend on each other. For a gentler tour of the packages see
-[packages.md](packages.md); for the reasoning behind each choice see the
-[design decisions](decisions/).
+ClientVM behaves like a small operating system that lives in a browser tab. This page follows
+that system from the outside in: who runs where, how a blocking call works without a server, how
+a dev server becomes a preview, and how instances stay apart. For a package-by-package tour see
+[packages](packages.md); for the reasoning behind each choice see the
+[design decisions](decisions.md).
 
-## Thread layout
+![Your page holds the controller, your UI and the terminal and agent tools. Each instance is a hidden iframe on its own sandbox origin, where a kernel worker owns an in-memory filesystem and runs node, bash and other tools as Web Workers. A service worker routes module loads and preview requests to the kernel. Each open port is previewed on its own origin.](diagrams/overview.svg)
 
-```
-Host app page (any origin, not cross-origin isolated)
-  └─ controller (@clientvm/clientvm): trusted broker, validates everything it receives
-       │ hidden iframe + handshake (exact window and origin checks), then a MessagePort
-       ▼
-Instance page  https://<id>.<sandbox-domain>/__clientvm/instance.html
-  (Document-Isolation-Policy → cross-origin isolated)       (@clientvm/sandbox-host)
-  └─ kernel worker: one instance                              (@clientvm/kernel)
-       ├─ MemoryVfs (CoW snapshots, quotas, watchers)         (@clientvm/vfs)
-       ├─ process table: pid → { channel SAB, SyscallServer, FdTable, Worker }
-       │  serves InstanceRpc to the controller over the port  (@clientvm/protocol)
-       ▼
-     process workers (nested dedicated workers, one per process)
-       ├─ runtime chosen by argv[0]: node → @clientvm/node-compat, clientvm-bench → builtin
-       ├─ sync syscalls: SyscallClient over the channel SAB (Atomics.wait)
-       └─ async: postMessage to the kernel for stdout / stderr / ready / exit
-```
+## The pieces
 
-Each instance origin also has a **service worker** (`/__clientvm/sw.js`, scope `/`). It forwards
-every request outside `/__clientvm/` (preview iframes, `fetch` from processes) over a MessagePort
-to the kernel's `HttpRouter`, which dispatches by virtual port. If the SW restarts and loses its
-port, it asks the instance page to reconnect.
+| Piece | Where it runs | What it does |
+|---|---|---|
+| **Controller** (`@clientvm/clientvm`) | Your page, on your origin | Boots instances, checks every message they send, and brokers everything between them: capabilities, mailbox, forks, presets. It never runs agent code |
+| **Instance page** (`@clientvm/sandbox-host`) | A hidden iframe on `https://<id>.<sandbox-domain>` | Cross-origin isolated by Document-Isolation-Policy. Registers the service worker, then starts the kernel |
+| **Kernel worker** (`@clientvm/kernel`, `@clientvm/vfs`) | A dedicated worker under the instance page | Owns the instance: filesystem, process table, file descriptors, terminals, signals, virtual network, limits |
+| **Process workers** (`@clientvm/process` + a runtime) | One nested worker per process | Run `node`, `sh`, `npm`, `vite` and your scripts, talking to the kernel through syscalls |
+| **Service worker** (`@clientvm/sandbox-host`) | The instance origin and each port origin | Serves ES modules to processes and routes preview requests to virtual ports |
 
-Processes load ES modules with the browser's native `import()` from `/__clientvm/fs/<path>`; the SW
-sends those to the kernel's `ModuleServer`, which resolves specifiers with Node's ESM algorithm,
-rewrites them to such URLs, and serves CommonJS files as ES facades. The instance page creates the
-kernel worker only once the SW controls the page, so every process worker is controlled too.
+> [!NOTE]
+> The **trust boundary** sits between the controller and the instance page. Everything on the
+> sandbox side treats its input as hostile, and so does the controller towards the sandbox. See
+> the [security model](security.md).
 
-Commands are files. Built-in runtimes are marker files in `/usr/local/bin`
-(`#!/clientvm/builtin node`), and the kernel resolves `argv[0]` like `execve`: `PATH` lookup, exec
-bits, shebang interpreters. So `node_modules/.bin` symlinks and `#!/usr/bin/env node` scripts
-just work. Child processes started by a process are routed through the kernel. `spawnSync` is a
-syscall that blocks the caller until the child exits. Killing a process also kills its children,
-like a signal to a process group.
+## Instances
 
-The shell (`@clientvm/shell`) is the `sh`/`bash` runtime. Its builtins and Linux commands run
-inside the shell's worker when `PATH` resolves to their marker file. Everything else (`node`,
-scripts, `.bin` shims) is spawned through the kernel, and output the shell does not redirect is
-inherited ([ADR 0011](decisions/0011-in-process-shell-commands.md)). Each command is also its own
-runtime, so programs can spawn `ls` or `grep` directly.
+An instance is the unit of isolation: one filesystem, one process table, one network namespace
+and one budget. The controller creates it as a hidden iframe on its own subdomain, and the
+browser's origin model does the isolating. Instances cannot see each other's storage, channels or
+service workers, because they are different origins
+([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
 
-Servers listen on virtual ports in the kernel's net stack (`packages/kernel/src/net.ts`). An
-HTTP request is relayed to the owning process as messages, and the response streams back to the
-service worker as a transferred `ReadableStream`. Upgrades and `net` connections are byte
-sockets linked end to end (process ↔ process, or process ↔ MessagePort for a preview's
-WebSocket). Each port is previewed on its own origin (ADR 0008).
+The handshake checks the exact window and origin on both sides. Then the controller and the kernel
+talk over a single `MessagePort`: the kernel serves `InstanceRpc` (spawn, filesystem, snapshot,
+grants), and calls back with `ControllerRpc` for things only the controller may do
+(`mailboxSend`, `netFetch`). Crashed instances are detected by a heartbeat and torn down.
 
-Each instance has its own origin, so the browser isolates instances' storage, channels and
-service workers from each other ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
-Forking into a new instance exports a filesystem image (`exportImage`), transfers it, and imports
-it on the other side.
+## Processes
 
-## Sync syscall path
+Every process is a Web Worker, started by the kernel. The runtime it runs is chosen the way
+Linux chooses a program: **commands are files**.
 
-1. node-compat (`fs.readFileSync('x')`) resolves the path against the process cwd and encodes the
-   arguments with the binary codec.
-2. `SyscallClient.call(op, bytes)` writes the header (`OP`, `LEN`, `TOTAL`) and payload into the
-   SAB, stores `STATE = REQUEST`, then calls `Atomics.notify`, or posts a doorbell in
-   `postMessage` mode. It then blocks in `Atomics.wait` while `STATE == REQUEST`.
-3. The kernel's `SyscallServer` wakes from `Atomics.waitAsync` (or the doorbell), decodes the
-   request, calls the VFS, and writes the response. It sets `ERRNO` on failure, stores
-   `STATE = RESPONSE`, and calls `Atomics.notify`.
-4. The client copies the response out of the SAB (the result never aliases shared memory) and maps
-   a non-zero errno to a Node-shaped `SystemError`.
+- Built-in runtimes are marker files in `/usr/local/bin` (`#!/clientvm/builtin node`).
+- The kernel resolves `argv[0]` like `execve`: `PATH` lookup, exec bits, shebang interpreters.
+  So `node_modules/.bin` symlinks and `#!/usr/bin/env node` scripts just work.
+- Child processes go through the kernel. `spawnSync` is a syscall that blocks the caller until
+  the child exits. Killing a process also kills its descendants, like a signal to a process
+  group.
 
-Payloads larger than the 256 KiB region are streamed with the channel-level opcodes
-`REQUEST_MORE` and `RESPONSE_MORE`, so the buffer never grows. Handlers may return a Promise, which
-leaves room for async backends like OPFS. The blocked process doesn't care how long the kernel
-takes.
+The shell is a runtime too. Its builtins and its ~60 Linux commands (`ls`, `grep`, `sed`, …) run
+**inside the shell's worker**, so a loop over a thousand files costs microseconds per iteration,
+not a worker spawn each time. Anything else (`node`, scripts, `.bin` shims) is spawned through the
+kernel ([ADR 0011](decisions/0011-in-process-shell-commands.md)).
 
-### Channel layout
+Processes can run on a **pseudo-terminal**: `isatty()` is true, Ctrl+C sends SIGINT to the
+foreground job, raw mode works for full-screen programs, and resizes send SIGWINCH. Signals are
+delivered to handlers, with a 1 s grace period before a stuck process is terminated
+([ADR 0017](decisions/0017-pty-and-signals.md)).
+
+## Synchronous syscalls
+
+Node's synchronous APIs (`fs.readFileSync`, `execSync`, `require`) must block until the answer
+arrives. Browsers do allow a worker to block, on a `SharedArrayBuffer` with `Atomics.wait`, but
+only in a cross-origin isolated context. That is why the instance page needs its headers.
+
+![A process calls fs.readFileSync, writes the request into its shared channel and blocks in Atomics.wait. The kernel, parked with Atomics.waitAsync, wakes, reads the file from the in-memory filesystem, writes the reply and notifies. The process wakes and copies the bytes out. About 10 microseconds per round trip.](diagrams/syscall.svg)
+
+1. node-compat resolves the path against the process's working directory and encodes the
+   arguments with a compact binary codec.
+2. `SyscallClient.call(op, bytes)` writes a header and the payload into the process's channel,
+   sets `STATE = REQUEST`, calls `Atomics.notify`, then blocks in `Atomics.wait`.
+3. The kernel's `SyscallServer` wakes from `Atomics.waitAsync`
+   ([ADR 0002](decisions/0002-syscall-wake-mechanism.md)), decodes the request and calls the
+   filesystem.
+4. It writes the response (or an `ERRNO`), sets `STATE = RESPONSE` and notifies.
+5. The process copies the response out of shared memory and maps a non-zero errno to a
+   Node-shaped `SystemError`.
+
+Payloads larger than the 256 KiB channel are streamed in chunks, so the buffer never grows.
+Handlers may return a Promise, which leaves room for slower backends; the blocked process doesn't
+care how long the kernel takes.
+
+<details>
+<summary>The channel layout</summary>
 
 | Int32 slot | Meaning |
 |---|---|
@@ -88,13 +93,72 @@ takes.
 | 4 `TOTAL` | total bytes of the request or response being streamed |
 | 5–7 | reserved |
 
-Then come `capacity` payload bytes.
+Then come `capacity` payload bytes. Large transfers use the channel opcodes `REQUEST_MORE` and
+`RESPONSE_MORE`.
 
-## Package dependency graph
+</details>
+
+## The filesystem
+
+Each instance has an in-memory filesystem with Linux semantics: inodes, symlinks, hard links,
+file descriptors, quotas, watchers and copy-on-write snapshots. Syscalls never touch slower
+storage. Instances created with `fs: { persist: true }` are written behind to the instance
+origin's OPFS, debounced, crash-safe and content-addressed
+([ADR 0004](decisions/0004-memory-first-vfs-opfs-persistence.md)).
+
+## Loading modules
+
+Processes load ES modules with the browser's native `import()` from `/__clientvm/fs/<path>`. The
+service worker sends each request to the kernel's module server, which resolves specifiers with
+Node's ESM algorithm (`exports`, `imports`, conditions), rewrites them to such URLs, and serves
+CommonJS files as ES facades with the same named exports Node would detect. Live bindings, cycles
+and top-level await therefore behave natively
+([ADR 0006](decisions/0006-native-esm-via-service-worker.md)).
+
+The instance page starts the kernel only once the service worker controls it, so every process
+worker is controlled too.
+
+## Servers and previews
+
+Servers listen on **virtual ports** in the kernel's network stack. Inside the instance,
+`http://localhost:5173/` reaches them. From your page, each port gets its own origin.
+
+![Your page loads the preview URL in an iframe. The port origin's service worker forwards each request over a MessagePort to the kernel's HTTP router, which relays it to the process listening on that port. The response streams back.](diagrams/preview.svg)
+
+1. A process calls `listen(5173)`. The controller embeds a small bridge page on
+   `https://<id>-p5173.<sandbox-domain>/`, which links that origin's service worker to the
+   kernel, then reports the URL through `onPortOpen`.
+2. Your page loads the URL in an iframe. The service worker forwards every request (except
+   `/__clientvm/*`) to the kernel.
+3. The kernel's HTTP router relays the request to the owning process as messages, and the
+   response streams back as a transferred `ReadableStream`.
+
+A port gets its own origin because dev servers emit absolute URLs (`/@vite/client`,
+`/assets/x.js`) that would break under a path prefix, and because preview code should not share
+an origin with the kernel ([ADR 0008](decisions/0008-sub-origin-per-port.md)). Service workers
+cannot see WebSockets, so the service worker injects a small shim into HTML pages that carries
+them to the server's `upgrade` handler.
+
+## Many instances
+
+Everything that crosses instances goes through the controller, and needs a **capability**
+granted by the instance it concerns:
+
+| Capability | Lets an instance… |
+|---|---|
+| `channel` | send mailbox messages to a peer |
+| `net` | reach a peer's ports at `http://<name>.internal:<port>/` |
+| `mount` | mount a peer's directory read-only |
+| `spawn-instance` | create child instances and forks, within limits |
+
+`fork()` exports the filesystem as an image, transfers it, and imports it on the new origin.
+Snapshots inside one instance stay copy-on-write.
+
+## How the packages depend on each other
 
 ```
 protocol ◄── vfs ◄── kernel
-   ▲                   
+   ▲
    ├──── process ◄── node-compat
    └──── (all)  ◄── sandbox-host (composes kernel + process + node-compat into worker entries)
 clientvm (controller) ── protocol  (types + RpcEndpoint only; never bundles kernel code)
@@ -104,7 +168,7 @@ The process package does not depend on node-compat. Runtimes are injected as a `
 the worker entry in sandbox-host, which keeps process tiers (`js`, `builtin`, later `wasi`/`vm`)
 pluggable.
 
-## Workspace conventions
+## For contributors
 
 - Sources import siblings with `.ts` extensions. `tsc` rewrites them to `.js`
   (`rewriteRelativeImportExtensions`), and Node 24 can run the sources directly through type

@@ -1,28 +1,58 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-// A docs page: the site's nav, a sidebar of every published doc, the page and
-// its headings. Used by src/pages/docs/.
+// A docs page: the site's nav, a sidebar of every published doc (decision
+// records folded under the summary), breadcrumbs and page actions, the page,
+// prev/next links and its headings. Used by src/pages/docs/.
 import Base from './Base.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
-import { docSections } from '../lib/doc-index.ts';
+import { docSections, type DocLink } from '../lib/doc-index.ts';
 
 interface Props {
   title: string;
   description: string;
   /** The current doc's slug, or undefined on the index. */
   slug?: string;
+  /** The sidebar group it sits in, for the breadcrumb. */
+  section?: string;
   headings?: { depth: number; slug: string; text: string }[];
   source?: string;
   markdown?: string;
+  modified?: string | undefined;
+  prev?: DocLink | undefined;
+  next?: DocLink | undefined;
+  jsonLd?: Record<string, unknown>[];
 }
-const { title, description, slug, headings = [], source, markdown } = Astro.props;
+const {
+  title,
+  description,
+  slug,
+  section,
+  headings = [],
+  source,
+  markdown,
+  modified,
+  prev,
+  next,
+  jsonLd,
+} = Astro.props;
 const sections = await docSections();
 const toc = headings.filter((h) => h.depth === 2);
+const inRecords = slug?.startsWith('decisions/') ?? false;
+const absMarkdown = markdown && new URL(markdown, Astro.site).href;
+const ask = (base: string) =>
+  absMarkdown &&
+  `${base}${encodeURIComponent(`Read ${absMarkdown} so I can ask you questions about ClientVM.`)}`;
 ---
 
-<Base title={`${title} · ClientVM docs`} description={description}>
-  {markdown && <link slot="head" rel="alternate" type="text/markdown" href={markdown} />}
+<Base
+  title={slug ? `${title} · ClientVM docs` : `${title} · ClientVM`}
+  description={description}
+  type={slug ? 'article' : 'website'}
+  markdown={markdown ?? '/llms.txt'}
+  modified={modified}
+  jsonLd={jsonLd}
+>
   <Nav />
   <main class="docs">
     <div class="wrap layout">
@@ -40,23 +70,94 @@ const toc = headings.filter((h) => h.depth === 2);
                       class:list={{ current: d.slug === slug }}
                       aria-current={d.slug === slug ? 'page' : undefined}
                     >
-                      {d.title}
+                      {d.slug === 'decisions' ? 'At a glance' : d.title}
                     </a>
                   </li>
                 ))}
               </ul>
+              {s.records && (
+                <details class="records" open={inRecords}>
+                  <summary>All {s.records.length} records</summary>
+                  <ul>
+                    {s.records.map((d) => (
+                      <li>
+                        <a
+                          href={`/docs/${d.slug}/`}
+                          class:list={{ current: d.slug === slug }}
+                          aria-current={d.slug === slug ? 'page' : undefined}
+                        >
+                          {d.title}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
           ))
         }
       </nav>
 
       <article class="prose">
+        {
+          slug && (
+            <div class="crumbs">
+              <nav aria-label="Breadcrumb">
+                <a href="/docs/">Docs</a>
+                {section && <span aria-hidden="true">/</span>}
+                {section &&
+                  (inRecords ? <a href="/docs/decisions/">{section}</a> : <span>{section}</span>)}
+              </nav>
+              {markdown && (
+                <div class="actions">
+                  <button type="button" data-copy-page={markdown}>
+                    Copy page
+                  </button>
+                  <a href={markdown} type="text/markdown">
+                    Markdown
+                  </a>
+                  <a href={ask('https://claude.ai/new?q=')} rel="noopener" target="_blank">
+                    Open in Claude ↗
+                  </a>
+                  <a href={ask('https://chatgpt.com/?q=')} rel="noopener" target="_blank">
+                    Open in ChatGPT ↗
+                  </a>
+                </div>
+              )}
+            </div>
+          )
+        }
         <slot />
+        {
+          (prev || next) && (
+            <nav class="pager" aria-label="Previous and next">
+              {prev ? (
+                <a class="prev" href={`/docs/${prev.slug}/`} rel="prev">
+                  <span class="dir">← Previous</span>
+                  <span class="name">{prev.title}</span>
+                </a>
+              ) : (
+                <span />
+              )}
+              {next && (
+                <a class="next" href={`/docs/${next.slug}/`} rel="next">
+                  <span class="dir">Next →</span>
+                  <span class="name">{next.title}</span>
+                </a>
+              )}
+            </nav>
+          )
+        }
         {
           source && (
             <p class="source">
               <a href={source}>Edit this page on GitHub ↗</a>
-              {markdown && <a href={markdown}>Markdown</a>}
+              {markdown && <a href={markdown}>View as Markdown</a>}
+              {modified && (
+                <span>
+                  Updated <time datetime={modified}>{modified.slice(0, 10)}</time>
+                </span>
+              )}
             </p>
           )
         }
@@ -80,6 +181,10 @@ const toc = headings.filter((h) => h.depth === 2);
   </main>
   <Footer />
 </Base>
+
+<script>
+  import '../scripts/docs.ts';
+</script>
 
 <style>
   .docs {
@@ -137,6 +242,62 @@ const toc = headings.filter((h) => h.depth === 2);
   .toc a {
     font-size: 13px;
   }
+  .records summary {
+    padding: 4px 10px;
+    border-left: 1px solid var(--line);
+    color: var(--dim);
+    font: 12px var(--mono);
+    cursor: pointer;
+  }
+  .records summary:hover {
+    color: var(--text);
+  }
+  .records a {
+    font-size: 13px;
+  }
+
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 20px;
+    margin-bottom: 18px;
+    font: 12px var(--mono);
+  }
+  .crumbs nav {
+    display: flex;
+    gap: 8px;
+    color: var(--dim);
+  }
+  .crumbs nav a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .crumbs nav a:hover {
+    color: var(--text);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .actions a,
+  .actions button {
+    padding: 4px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted);
+    font: 12px var(--mono);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .actions a:hover,
+  .actions button:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
 
   .prose {
     min-width: 0;
@@ -150,6 +311,8 @@ const toc = headings.filter((h) => h.depth === 2);
     font: 500 clamp(28px, 4vw, 40px) / 1.15 var(--display);
   }
   .prose :global(h2) {
+    /* The landing page's display h2 caps its width; docs headings span the column. */
+    max-width: none;
     margin: 44px 0 12px;
     padding-top: 20px;
     border-top: 1px solid var(--line);
@@ -160,6 +323,18 @@ const toc = headings.filter((h) => h.depth === 2);
     margin: 30px 0 8px;
     font: 600 17px/1.4 var(--sans);
     scroll-margin-top: 80px;
+  }
+  .prose :global(.anchor) {
+    margin-left: 8px;
+    color: var(--dim);
+    font: 0.85em var(--mono);
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .prose :global(:is(h2, h3):hover .anchor),
+  .prose :global(.anchor:focus) {
+    opacity: 1;
   }
   .prose :global(a) {
     color: var(--accent);
@@ -199,6 +374,9 @@ const toc = headings.filter((h) => h.depth === 2);
     background: var(--surface);
     color: var(--text);
   }
+  .prose :global(thead:has(th:empty)) {
+    display: none;
+  }
   .prose :global(blockquote) {
     margin: 18px 0;
     padding: 4px 16px;
@@ -212,12 +390,98 @@ const toc = headings.filter((h) => h.depth === 2);
     border: 0;
     border-top: 1px solid var(--line);
   }
+  .prose :global(img.diagram) {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 28px 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .prose :global(details) {
+    margin: 18px 0;
+    padding: 10px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .prose :global(summary) {
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  /* GitHub-style alerts (src/lib/doc-html-plugin.ts) */
+  .prose :global(.callout) {
+    --c: var(--accent);
+    margin: 22px 0;
+    padding: 12px 16px;
+    border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+    border-left: 3px solid var(--c);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--c) 7%, transparent);
+  }
+  .prose :global(.callout > p) {
+    margin: 6px 0 0;
+  }
+  .prose :global(.callout > .callout-title) {
+    margin: 0;
+    color: var(--c);
+    font: 600 12px var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .prose :global(.callout-note) {
+    --c: #8fa8ff;
+  }
+  .prose :global(.callout-important) {
+    --c: #c4a7ff;
+  }
+  .prose :global(.callout-warning) {
+    --c: var(--warn);
+  }
+  .prose :global(.callout-caution) {
+    --c: var(--err);
+  }
+
+  .pager {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 56px;
+  }
+  .pager a {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+  }
+  .pager a:hover {
+    border-color: var(--line-strong);
+  }
+  .pager .next {
+    grid-column: 2;
+    text-align: right;
+  }
+  .pager .dir {
+    color: var(--dim);
+    font: 12px var(--mono);
+  }
+  .pager .name {
+    color: var(--text);
+    font-weight: 600;
+  }
   .source {
     display: flex;
+    flex-wrap: wrap;
     gap: 20px;
-    margin-top: 56px;
+    margin-top: 40px;
     padding-top: 18px;
     border-top: 1px solid var(--line);
+    color: var(--dim);
     font: 13px var(--mono);
   }
   .source a {
@@ -226,6 +490,9 @@ const toc = headings.filter((h) => h.depth === 2);
   }
   .source a:hover {
     color: var(--text);
+  }
+  .source span {
+    margin-left: auto;
   }
 
   @media (max-width: 1180px) {
@@ -247,6 +514,12 @@ const toc = headings.filter((h) => h.depth === 2);
       max-height: none;
       padding-bottom: 16px;
       border-bottom: 1px solid var(--line);
+    }
+    .pager {
+      grid-template-columns: 1fr;
+    }
+    .pager .next {
+      grid-column: 1;
     }
   }
 </style>

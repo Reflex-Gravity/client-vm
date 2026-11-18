@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 import { defaultClientConditions } from 'vite';
 import { satteri } from '@astrojs/markdown-satteri';
 import { docLinks } from './src/lib/doc-links-plugin.ts';
+import { docHtml } from './src/lib/doc-html-plugin.ts';
 
 // A static site on Cloudflare Pages (.github/workflows/site.yml). It is a ClientVM host app: it needs no
 // isolation headers, because instances get cross-origin isolation from their
@@ -12,9 +13,10 @@ export default defineConfig({
   site: 'https://clientvm.joeldsouza.me',
   output: 'static',
   server: { port: 5190 },
-  // The docs pages (src/content.config.ts): links between docs stay on the site.
+  // The docs pages (src/content.config.ts): links between docs stay on the site,
+  // and GitHub-style alerts become callouts.
   markdown: {
-    processor: satteri({ mdastPlugins: [docLinks] }),
+    processor: satteri({ mdastPlugins: [docLinks], hastPlugins: [docHtml] }),
     shikiConfig: { theme: 'vitesse-dark' },
   },
   vite: {

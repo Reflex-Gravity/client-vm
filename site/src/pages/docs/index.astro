@@ -1,43 +1,182 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-// /docs/: every published guide and design decision.
+// /docs/: where to start, the big picture, then every guide by section.
 import Docs from '../../layouts/Docs.astro';
-import { REPO } from '../../content/landing.ts';
+import { REPO, SITE, hero } from '../../content/landing.ts';
 import { docSections } from '../../lib/doc-index.ts';
+import { homeGraph } from '../../lib/seo.ts';
 
 const sections = await docSections();
+const links = [
+  { href: '/docs/quickstart/', label: 'Quickstart' },
+  { href: '/docs/hosting/', label: 'Hosting' },
+  { href: '/docs/interfaces/', label: 'API reference' },
+  { href: '/', label: 'Live demo' },
+  { href: REPO, label: 'GitHub ↗' },
+];
+const start = [
+  { href: '/docs/overview/', title: 'Overview', body: 'What ClientVM is and what it supports.' },
+  {
+    href: '/docs/quickstart/',
+    title: 'Quickstart',
+    body: 'Deploy the sandbox, boot an instance, show a preview.',
+  },
+  {
+    href: '/docs/architecture/',
+    title: 'How it works',
+    body: 'Instances, processes, syscalls and previews, with diagrams.',
+  },
+  { href: '/docs/interfaces/', title: 'API reference', body: 'Every public API, by task.' },
+];
 ---
 
 <Docs
   title="Documentation"
-  description="ClientVM documentation: hosting the sandbox, the public API, agent tools, compatibility, security and design decisions."
+  description="ClientVM documentation: run Node.js 24, bash and npm in the browser for AI agents. Quickstart, hosting the sandbox, the API, agent tools, compatibility, security and design decisions."
+  jsonLd={[
+    ...homeGraph(),
+    {
+      '@type': 'CollectionPage',
+      '@id': `${SITE}/docs/#page`,
+      url: `${SITE}/docs/`,
+      name: 'ClientVM documentation',
+      isPartOf: { '@id': `${SITE}/#website` },
+      about: { '@id': `${SITE}/#software` },
+    },
+  ]}
 >
+  <p class="eyebrow">ClientVM docs</p>
   <h1>Documentation</h1>
-  <p>
-    How to host the sandbox, the public API, the tools for agents, what Node APIs work, and the
-    reasoning behind each design decision. Internal plans and measurements stay in the{' '}
-    <a href={`${REPO}/tree/main/docs`}>repository</a>.
+  <p class="lede">{hero.lede}</p>
+  <p class="links">
+    {
+      links.map((l, i) => (
+        <>
+          {i > 0 && <span aria-hidden="true"> · </span>}
+          <a href={l.href}>{l.label}</a>
+        </>
+      ))
+    }
   </p>
+  <div class="install">
+    <code>$ {hero.install}</code>
+    <button type="button" data-copy={hero.install} aria-label="Copy install command">Copy</button>
+  </div>
+
+  <img
+    class="diagram"
+    src="/docs/diagrams/overview.svg"
+    width="1800"
+    height="1000"
+    alt="Your page holds the ClientVM controller, your UI and the terminal and agent tools. Each instance is a hidden iframe on its own sandbox origin, where a kernel worker owns an in-memory filesystem and runs node, bash and other tools as Web Workers. A service worker routes module loads and preview requests to the kernel, and each open port is previewed on its own origin."
+  />
+
+  <h2 id="start-here">Start here</h2>
+  <ul class="cards start">
+    {
+      start.map((c) => (
+        <li>
+          <a href={c.href}>
+            <span class="t">{c.title} →</span>
+            <span class="s">{c.body}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+
   {
     sections.map((s) => (
       <section class="index-group">
         <h2 id={s.id}>{s.label}</h2>
-        <ul class:list={['cards', { compact: s.id === 'decisions' }]}>
+        <p class="blurb">{s.blurb}</p>
+        <ul class="cards">
           {s.docs.map((d) => (
             <li>
               <a href={`/docs/${d.slug}/`}>
                 <span class="t">{d.title}</span>
-                {s.id !== 'decisions' && d.summary && <span class="s">{d.summary}</span>}
+                {d.summary && <span class="s">{d.summary}</span>}
               </a>
             </li>
           ))}
         </ul>
+        {s.records && (
+          <details>
+            <summary>Every decision record ({s.records.length})</summary>
+            <ul class="cards compact">
+              {s.records.map((d) => (
+                <li>
+                  <a href={`/docs/${d.slug}/`}>
+                    <span class="t">{d.title}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </section>
     ))
   }
+
+  <h2 id="for-agents">For coding agents</h2>
+  <p>
+    Every page here is also Markdown: add <code>.md</code> to its URL. Start from <a
+      href="/llms.txt">/llms.txt</a
+    >, or load all of the docs at once from <a href="/llms-full.txt">/llms-full.txt</a>.
+  </p>
 </Docs>
 
+<script>
+  import '../../scripts/copy.ts';
+</script>
+
 <style>
+  .eyebrow {
+    margin: 0 0 10px;
+    color: var(--accent);
+    font: 12px var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .lede {
+    color: var(--muted);
+    font-size: 17px;
+  }
+  .links {
+    font: 13px var(--mono);
+  }
+  .install {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    margin: 8px 0 4px;
+    padding: 8px 8px 8px 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--term-bg);
+    font: 13px var(--mono);
+  }
+  .install code {
+    border: 0 !important;
+    background: none !important;
+  }
+  .install button {
+    padding: 4px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted);
+    font: 12px var(--mono);
+    cursor: pointer;
+  }
+  .install button:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .blurb {
+    margin-top: 0;
+    color: var(--muted);
+  }
   .cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -49,6 +188,7 @@ const sections = await docSections();
   .cards.compact {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
+    margin-top: 10px;
   }
   .cards a {
     display: flex;
@@ -63,6 +203,10 @@ const sections = await docSections();
   }
   .cards a:hover {
     border-color: var(--line-strong);
+  }
+  .start a {
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    background: linear-gradient(var(--accent-soft), transparent);
   }
   .cards.compact a {
     padding: 9px 12px;
