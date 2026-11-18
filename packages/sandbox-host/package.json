@@ -1,16 +1,31 @@
 {
   "name": "@clientvm/sandbox-host",
-  "version": "0.0.0",
-  "description": "Static sandbox page, kernel and process worker entries for ClientVM.",
+  "version": "0.2.0",
+  "description": "The static sandbox ClientVM instances run on: deploy dist/ to a wildcard subdomain of its own domain.",
   "license": "Apache-2.0",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reflex-Gravity/client-vm.git",
+    "directory": "packages/sandbox-host"
+  },
+  "homepage": "https://clientvm.joeldsouza.me/docs/hosting/",
+  "bugs": "https://github.com/Reflex-Gravity/client-vm/issues",
   "type": "module",
+  "bin": {
+    "clientvm-check-sandbox": "./bin/check-headers.mjs"
+  },
+  "files": [
+    "dist/__clientvm",
+    "!dist/__clientvm/assets/host-*",
+    "bin",
+    "NOTICE"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
-  "dependencies": {
+  "devDependencies": {
     "@clientvm/agent-api": "workspace:*",
     "@clientvm/clientvm": "workspace:*",
     "@clientvm/kernel": "workspace:*",
@@ -18,5 +33,9 @@
     "@clientvm/process": "workspace:*",
     "@clientvm/protocol": "workspace:*",
     "@clientvm/shell": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

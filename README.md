@@ -60,16 +60,20 @@ Locally, `<id>.localhost` stands in for the wildcard sandbox domain.
 
 ## Integrate it into your app
 
-The `@clientvm/*` packages are not on npm yet. Until they are, use them from a checkout (as a pnpm
-workspace or git submodule, `"@clientvm/clientvm": "workspace:*"`), built with `pnpm build`.
+```sh
+npm install @clientvm/clientvm @clientvm/terminal @clientvm/agent-api
+```
 
 ### 1. Deploy the sandbox
 
-Build the static sandbox and serve it on a wildcard subdomain of a **separate registrable domain**
-(e.g. `*.myapp-sandbox.dev`, never `*.myapp.com`), with no cookies:
+Instances run on a static sandbox, served on a wildcard subdomain of a **separate registrable
+domain** (e.g. `*.myapp-sandbox.dev`, never `*.myapp.com`), with no cookies. Each instance and each
+preview port gets its own subdomain, so the browser isolates agent code from your app and from
+other instances ([why](docs/hosting.md#why-subdomains)).
 
 ```sh
-pnpm --filter @clientvm/sandbox-host build   # → packages/sandbox-host/dist
+npm install -D @clientvm/sandbox-host
+# deploy node_modules/@clientvm/sandbox-host/dist to *.myapp-sandbox.dev
 ```
 
 Every response needs these headers (`Service-Worker-Allowed: /` on `/__clientvm/sw.js` too):
@@ -81,10 +85,10 @@ Cross-Origin-Resource-Policy: cross-origin
 Content-Security-Policy: frame-ancestors https://your-app.example
 ```
 
-Check a deployment with the same script CI uses:
+Check a deployment with the same check CI uses:
 
 ```sh
-node scripts/check-sandbox-headers.mjs 'https://{id}.myapp-sandbox.dev' --app https://your-app.example
+npx clientvm-check-sandbox 'https://{id}.myapp-sandbox.dev' --app https://your-app.example
 ```
 
 The full checklist is in the [hosting guide](docs/hosting.md).

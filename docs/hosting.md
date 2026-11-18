@@ -1,8 +1,37 @@
 # Hosting the sandbox
 
-ClientVM needs one static deployment of `@clientvm/sandbox-host` (`pnpm --filter
-@clientvm/sandbox-host build` → `packages/sandbox-host/dist`). It must be reachable at every
-instance origin `https://<id>.<sandbox-domain>/`. No server-side code runs.
+ClientVM needs one static deployment of the sandbox: the files in `@clientvm/sandbox-host`'s
+`dist/`. It must be reachable at every instance origin `https://<id>.<sandbox-domain>/`. No
+server-side code runs.
+
+```sh
+npm install -D @clientvm/sandbox-host
+# deploy node_modules/@clientvm/sandbox-host/dist, then check it:
+npx clientvm-check-sandbox 'https://{id}.myapp-sandbox.dev' --app https://myapp.example
+```
+
+From a checkout of this repository, `pnpm --filter @clientvm/sandbox-host build` writes the same
+files to `packages/sandbox-host/dist`.
+
+## Why subdomains
+
+The browser's unit of isolation is the origin. ClientVM gives each instance its own, so the
+browser itself keeps agent code apart:
+
+- **One origin per instance** (`k3x9.myapp-sandbox.dev`). Each instance's storage, service worker
+  and windows are its own, out of reach of your app and of every other instance ([ADR 0003](decisions/0003-kernel-per-instance-origin.md)).
+- **One origin per preview port** (`k3x9-p5173.myapp-sandbox.dev`). A dev server inside an instance
+  is served on its own origin by that origin's service worker, so its pages are isolated too
+  ([ADR 0008](decisions/0008-sub-origin-per-port.md)).
+- **A wildcard, because ids are made at runtime.** Instances and ports come and go; the deployment
+  must answer for any subdomain without a list.
+- **A separate registrable domain.** Under your app's domain (`sandbox.myapp.com`) instance code
+  would be same-site with your app: it could set cookies on `.myapp.com` and send same-site
+  requests that carry your users' credentials. A domain of its own (`myapp-sandbox.dev`) is
+  cross-site.
+- **The headers** make each instance page cross-origin isolated through Document-Isolation-Policy.
+  That is what lets `fs.readFileSync` block on `SharedArrayBuffer` and `Atomics.wait`, and why your
+  app needs no COOP/COEP headers ([ADR 0005](decisions/0005-document-isolation-policy.md)).
 
 ## Requirements
 
@@ -38,10 +67,10 @@ to `*.localhost`. Set `CLIENTVM_FRAME_ANCESTORS` to add the CSP header.
 ## Check your deployment
 
 ```sh
-node scripts/check-sandbox-headers.mjs 'https://{id}.myapp-sandbox.dev' --app https://myapp.example
+npx clientvm-check-sandbox 'https://{id}.myapp-sandbox.dev' --app https://myapp.example
 ```
 
-It requests an instance page, the service worker and a port origin on random subdomains and
+From a checkout, `node scripts/check-sandbox-headers.mjs` runs the same check. It requests an instance page, the service worker and a port origin on random subdomains and
 fails if a requirement above is not met (it warns when `frame-ancestors` is missing).
 
 ## Flat sandbox names

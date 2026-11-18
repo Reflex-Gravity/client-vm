@@ -220,7 +220,7 @@ A private Vite app (`pnpm --filter @clientvm/sandbox-host build` → `dist/`) th
 | `agent.ts` | Injected into previews | The driveable-preview agent: console capture, DOM outline with `[ref=eN]` targets, click/type/press, `waitFor`, `evaluate`, screenshots via SVG `foreignObject` |
 | `host.ts` | Dev only | Example host app and e2e harness on a plain, non-isolated origin, with instances on `http://<id>.localhost:<port>` |
 
-The deployment must send `Document-Isolation-Policy: isolate-and-require-corp`, COEP `require-corp`, CORP `cross-origin`, and a CSP `frame-ancestors` for the app origin on every response, plus `Service-Worker-Allowed: /` on the SW script. It must use a separate registrable domain with no cookies. `vite.config.ts` applies these headers to `*.localhost` in dev, and `scripts/check-sandbox-headers.mjs` checks a real deployment.
+The deployment must send `Document-Isolation-Policy: isolate-and-require-corp`, COEP `require-corp`, CORP `cross-origin`, and a CSP `frame-ancestors` for the app origin on every response, plus `Service-Worker-Allowed: /` on the SW script. It must use a separate registrable domain with no cookies. `vite.config.ts` applies these headers to `*.localhost` in dev, and `clientvm-check-sandbox` (this package's bin; `scripts/check-sandbox-headers.mjs` in a checkout) checks a real deployment. The package publishes `dist/__clientvm` and that bin only.
 
 ### @clientvm/clientvm: the controller and public API
 

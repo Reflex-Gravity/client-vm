@@ -35,6 +35,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      # tsc -b emits only types for the sandbox; its static files come from Vite.
+      - run: pnpm --filter @clientvm/sandbox-host build
       - name: Ship LICENSE and NOTICE in every package
         run: for d in packages/*/; do cp LICENSE NOTICE "$d"; done
       # pnpm rewrites workspace:* to the real version and skips any package
