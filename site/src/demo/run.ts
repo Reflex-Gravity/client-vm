@@ -305,7 +305,12 @@ function todosApi(): Plugin {
 export default defineConfig({
   plugins: [react(), todosApi()],
   // todos.json is data, not source: writing it should not reload the page.
-  server: { watch: { ignored: ['**/todos.json'] } },
+  server: {
+    // Previews come from the sandbox's own host, which Vite rejects with a 403 by
+    // default. The server is a virtual port only that origin can reach.
+    allowedHosts: true,
+    watch: { ignored: ['**/todos.json'] },
+  },
 });
 `,
   // vite.config.ts uses Node's types, which the preset does not install, so
