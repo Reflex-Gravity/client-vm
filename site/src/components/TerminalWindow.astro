@@ -1,0 +1,70 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// The window chrome shared by the hero transcript, the live demo and the quickstart.
+interface Props {
+  title?: string;
+  class?: string;
+}
+const { title = '', class: className = '' } = Astro.props;
+---
+
+<div class:list={['window', className]}>
+  <div class="bar">
+    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="title">{title}</span>
+    <span class="actions"><slot name="actions" /></span>
+  </div>
+  <div class="body"><slot /></div>
+</div>
+
+<style>
+  .window {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: #07090b;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    box-shadow:
+      0 0 0 1px #00000080,
+      0 30px 80px -20px #000000c0;
+    overflow: hidden;
+  }
+  .bar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    height: 38px;
+    padding: 0 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .dots {
+    display: flex;
+    gap: 6px;
+  }
+  .dots i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ffffff1f;
+  }
+  .title {
+    font: 12px var(--mono);
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .body {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+</style>

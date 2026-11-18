@@ -10,3 +10,5 @@ dist-types/
 # Copied in by the release workflow
 packages/*/LICENSE
 packages/*/NOTICE
+.astro/
+.wrangler/

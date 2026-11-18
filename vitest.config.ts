@@ -7,7 +7,12 @@ export default defineConfig({
   resolve: { conditions: ['@clientvm/source'] },
   ssr: { resolve: { conditions: ['@clientvm/source', ...defaultServerConditions] } },
   test: {
-    include: ['packages/*/src/**/*.test.ts', 'test/conformance/**/*.test.ts'],
+    include: [
+      'packages/*/src/**/*.test.ts',
+      'deploy/*/src/**/*.test.ts',
+      'site/src/**/*.test.ts',
+      'test/conformance/**/*.test.ts',
+    ],
     environment: 'node',
   },
 });

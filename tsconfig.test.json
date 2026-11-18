@@ -13,6 +13,7 @@
     "packages/*/src/**/*.fixture.ts",
     "packages/*/src/**/*.d.ts",
     "test/**/*.ts",
+    "deploy/*/src/**/*.ts",
     "*.config.ts",
     "packages/sandbox-host/vite.config.ts"
   ]

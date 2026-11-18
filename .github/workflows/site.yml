@@ -1,0 +1,53 @@
+name: Site
+
+# Builds site/ (the landing page and live demo) and publishes it to GitHub
+# Pages at https://clientvm.joeldsouza.me. The demo's sandbox is deployed
+# separately (sandbox.yml).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @clientvm/site build
+        env:
+          PUBLIC_SANDBOX: 'https://{id}-cvm.joeldsouza.me'
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

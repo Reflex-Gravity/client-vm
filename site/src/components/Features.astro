@@ -1,0 +1,62 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+import { features } from '../content/landing.ts';
+---
+
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">what runs</p>
+    <h2>The tools a coding agent reaches for, unmodified.</h2>
+    <p class="section-lede">
+      ClientVM runs the real npm, pnpm, Vite and git rather than look-alikes, and measures itself
+      against Node, bash and git in CI.
+    </p>
+    <div class="grid features">
+      {
+        features.map((f) => (
+          <a class="card feature" href={f.href}>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+            <span class="more" aria-hidden="true">
+              docs →
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .features {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .feature {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .feature:hover {
+    background: var(--surface);
+  }
+  .more {
+    margin-top: auto;
+    padding-top: 20px;
+    font: 12px var(--mono);
+    color: var(--muted);
+  }
+  .feature:hover .more {
+    color: var(--accent);
+  }
+  @media (max-width: 1000px) {
+    .features {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 560px) {
+    .features {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

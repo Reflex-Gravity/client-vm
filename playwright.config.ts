@@ -4,8 +4,10 @@ import { defineConfig, devices } from '@playwright/test';
 // Overridable so a second checkout (a worktree) can run e2e beside another's servers.
 const PORT = Number(process.env['CLIENTVM_E2E_PORT'] ?? 4173);
 const EXAMPLE_PORT = Number(process.env['CLIENTVM_E2E_EXAMPLE_PORT'] ?? 5180);
+const SITE_PORT = Number(process.env['CLIENTVM_E2E_SITE_PORT'] ?? 5190);
 process.env['CLIENTVM_E2E_PORT'] = String(PORT);
 process.env['CLIENTVM_E2E_EXAMPLE_PORT'] = String(EXAMPLE_PORT);
+process.env['CLIENTVM_E2E_SITE_PORT'] = String(SITE_PORT);
 
 export default defineConfig({
   testDir: 'test/e2e',
@@ -35,6 +37,14 @@ export default defineConfig({
       command: `vite build examples/agent-playground && vite preview examples/agent-playground --port ${EXAMPLE_PORT} --strictPort`,
       env: { VITE_SANDBOX: `http://{id}.localhost:${PORT}` },
       url: `http://localhost:${EXAMPLE_PORT}`,
+      reuseExistingServer: !process.env['CI'],
+      timeout: 120_000,
+    },
+    // site/, the landing page and its live demo (site.spec.ts).
+    {
+      command: `pnpm --filter @clientvm/site build && pnpm --filter @clientvm/site preview --port ${SITE_PORT}`,
+      env: { PUBLIC_SANDBOX: `http://{id}.localhost:${PORT}` },
+      url: `http://localhost:${SITE_PORT}`,
       reuseExistingServer: !process.env['CI'],
       timeout: 120_000,
     },

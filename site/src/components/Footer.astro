@@ -1,0 +1,56 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+import { DOCS, REPO } from '../content/landing.ts';
+---
+
+<footer>
+  <div class="wrap inner">
+    <p class="fine">
+      <span class="brand">clientvm</span> · Apache-2.0 · © 2026 The ClientVM Authors
+    </p>
+    <nav aria-label="Footer">
+      <a href={REPO}>GitHub</a>
+      <a href={`${DOCS}/architecture.md`}>Architecture</a>
+      <a href={`${DOCS}/hosting.md`}>Hosting</a>
+      <a href={`${DOCS}/agent-api.md`}>Agent API</a>
+      <a href="/index.md">Markdown</a>
+      <a href="/llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  footer {
+    padding-block: 40px;
+    border-top: 1px solid var(--line);
+  }
+  .inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .fine {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .brand {
+    font-family: var(--mono);
+    color: var(--text);
+  }
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    font-size: 14px;
+  }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  nav a:hover {
+    color: var(--text);
+  }
+</style>

@@ -1,0 +1,40 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+import Base from '../layouts/Base.astro';
+import Nav from '../components/Nav.astro';
+import Hero from '../components/Hero.astro';
+import Demo from '../components/Demo.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+import Features from '../components/Features.astro';
+import Quickstart from '../components/Quickstart.astro';
+import Limits from '../components/Limits.astro';
+import Footer from '../components/Footer.astro';
+import { hero } from '../content/landing.ts';
+---
+
+<Base title="ClientVM: Node.js, bash and npm in a browser tab" description={hero.lede}>
+  <!--
+    xterm.js for the live demo loads from a CDN only when the demo starts
+    (src/demo/run.ts). This import map pins the files' hashes, so altered
+    copies do not load.
+  -->
+  <script type="importmap" is:inline slot="head">
+    {
+      "imports": {},
+      "integrity": {
+        "https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.mjs": "sha384-8Xik+BkzF4UFDtZa8HkUiQ0FE/Xl+03xMuv69uQB3ichDzm8dWs4kPRihQxSZDiY",
+        "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.mjs": "sha384-0/1EW6dUPoaun7dgdlOtb5Wk8x5UQRW6hYM3ihuCCnaA2Xd4HwMFcn378RpxmoAc"
+      }
+    }
+  </script>
+  <Nav />
+  <main>
+    <Hero />
+    <Demo />
+    <HowItWorks />
+    <Features />
+    <Quickstart />
+    <Limits />
+  </main>
+  <Footer />
+</Base>

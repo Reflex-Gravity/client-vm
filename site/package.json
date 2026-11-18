@@ -1,0 +1,23 @@
+{
+  "name": "@clientvm/site",
+  "version": "0.0.0",
+  "description": "The ClientVM landing page and live demo (clientvm.joeldsouza.me).",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@clientvm/clientvm": "workspace:*",
+    "@clientvm/terminal": "workspace:*"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "astro": "7.4.12",
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,0 +1,121 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+import { Code } from 'astro:components';
+import TerminalWindow from './TerminalWindow.astro';
+import { quickstart } from '../content/landing.ts';
+---
+
+<section id="quickstart">
+  <div class="wrap qs">
+    <div>
+      <p class="eyebrow">quickstart</p>
+      <h2>Five steps, one static deployment.</h2>
+      <p class="section-lede">
+        Install the packages, put the sandbox on a wildcard subdomain of its own domain, and create
+        instances from your page. The hosting guide has the full checklist.
+      </p>
+    </div>
+    <TerminalWindow title="quickstart" class="qs-window">
+      <div class="tabs" role="tablist" aria-label="Quickstart steps" data-tabs>
+        {
+          quickstart.map((q, i) => (
+            <button
+              type="button"
+              role="tab"
+              id={`qs-tab-${q.id}`}
+              aria-controls={`qs-panel-${q.id}`}
+              aria-selected={i === 0 ? 'true' : 'false'}
+              tabindex={i === 0 ? 0 : -1}
+            >
+              {q.label}
+            </button>
+          ))
+        }
+      </div>
+      {
+        quickstart.map((q, i) => (
+          <div
+            class="panel"
+            role="tabpanel"
+            id={`qs-panel-${q.id}`}
+            aria-labelledby={`qs-tab-${q.id}`}
+            hidden={i !== 0}
+          >
+            <button type="button" class="copy" data-copy={q.code} aria-label={`Copy ${q.label} snippet`}>
+              copy
+            </button>
+            <Code code={q.code} lang={q.lang} theme="vitesse-dark" />
+          </div>
+        ))
+      }
+    </TerminalWindow>
+  </div>
+</section>
+
+<script>
+  import '../scripts/tabs.ts';
+</script>
+
+<style>
+  .qs {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 56px;
+    align-items: start;
+  }
+  .tabs {
+    display: flex;
+    gap: 2px;
+    padding: 8px 8px 0;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+  }
+  [role='tab'] {
+    flex: none;
+    padding: 8px 14px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font: 13px var(--mono);
+    cursor: pointer;
+  }
+  [role='tab'][aria-selected='true'] {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+  .panel {
+    position: relative;
+  }
+  .panel :global(pre) {
+    margin: 0;
+    padding: 20px;
+    min-height: 260px;
+    background: transparent !important;
+    font-size: 13.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .copy {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1;
+    padding: 4px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--muted);
+    font: 12px var(--mono);
+    cursor: pointer;
+  }
+  .copy:hover {
+    color: var(--text);
+  }
+  @media (max-width: 920px) {
+    .qs {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+  }
+</style>

@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/node_modules/**',
       'test-results/**',
       'playwright-report/**',
+      '**/.astro/**',
       // Golden fixtures are ordinary user apps (CommonJS, Node globals).
       'test/fixtures/**',
       // Preset templates are user apps too (packages/clientvm/presets, ADR 0018).

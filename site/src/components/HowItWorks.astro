@@ -1,0 +1,160 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+import { howItWorks } from '../content/landing.ts';
+---
+
+<section id="how" class="how">
+  <div class="wrap">
+    <p class="eyebrow">how it works</p>
+    <h2>A small operating system per instance, on its own origin.</h2>
+    <p class="section-lede">
+      The browser's origin isolation is the sandbox. Your page only brokers messages; agent code
+      runs in workers on a separate domain.
+    </p>
+
+    <figure class="diagram">
+      <svg
+        viewBox="0 0 1000 380"
+        role="img"
+        aria-labelledby="diagram-title diagram-desc"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <title id="diagram-title">ClientVM architecture</title>
+        <desc id="diagram-desc">
+          The host app page runs the controller. Each instance is a hidden iframe on its own
+          sandbox origin with a kernel worker that owns the filesystem and processes. A service
+          worker routes preview requests to servers inside the instance.
+        </desc>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" fill="#8b929d"></path>
+          </marker>
+        </defs>
+
+        <!-- host -->
+        <rect x="10" y="40" width="250" height="300" rx="10" class="box host"></rect>
+        <text x="30" y="72" class="label">your-app.com</text>
+        <text x="30" y="92" class="sub">trusted host page</text>
+        <rect x="30" y="118" width="210" height="64" rx="8" class="inner"></rect>
+        <text x="46" y="146" class="item">controller</text>
+        <text x="46" y="166" class="sub">validates every message</text>
+        <rect x="30" y="196" width="210" height="64" rx="8" class="inner"></rect>
+        <text x="46" y="224" class="item">terminal · agent tools</text>
+        <text x="46" y="244" class="sub">@clientvm/terminal, agent-api</text>
+        <text x="30" y="316" class="sub">no COOP/COEP needed</text>
+
+        <!-- arrow host → instance -->
+        <line x1="262" y1="150" x2="338" y2="150" class="edge" marker-end="url(#arrow)"></line>
+        <text x="300" y="138" text-anchor="middle" class="tiny">MessagePort</text>
+
+        <!-- instance -->
+        <rect x="340" y="40" width="400" height="300" rx="10" class="box sandbox"></rect>
+        <text x="360" y="72" class="label">&lt;id&gt;.sandbox-domain</text>
+        <text x="360" y="92" class="sub">hidden iframe · Document-Isolation-Policy</text>
+        <rect x="360" y="118" width="360" height="92" rx="8" class="inner accent"></rect>
+        <text x="376" y="146" class="item">kernel worker</text>
+        <text x="376" y="168" class="sub">in-memory VFS · process table · PTYs · signals</text>
+        <text x="376" y="188" class="sub">virtual ports · mailbox · limits</text>
+        <g class="procs">
+          <rect x="360" y="246" width="110" height="48" rx="7" class="inner"></rect>
+          <text x="415" y="275" text-anchor="middle" class="item small">node</text>
+          <rect x="485" y="246" width="110" height="48" rx="7" class="inner"></rect>
+          <text x="540" y="275" text-anchor="middle" class="item small">bash · ls · grep</text>
+          <rect x="610" y="246" width="110" height="48" rx="7" class="inner"></rect>
+          <text x="665" y="275" text-anchor="middle" class="item small">npm · vite</text>
+        </g>
+        <line x1="540" y1="212" x2="540" y2="244" class="edge" marker-start="url(#arrow)" marker-end="url(#arrow)"></line>
+        <text x="552" y="232" class="tiny">sync syscalls · Atomics.wait</text>
+        <text x="360" y="322" class="sub">one Web Worker per process</text>
+
+        <!-- arrow instance → preview -->
+        <line x1="742" y1="190" x2="818" y2="190" class="edge" marker-end="url(#arrow)"></line>
+        <text x="780" y="164" text-anchor="middle" class="tiny">service</text>
+        <text x="780" y="178" text-anchor="middle" class="tiny">worker</text>
+
+        <!-- preview -->
+        <rect x="820" y="110" width="170" height="160" rx="10" class="box"></rect>
+        <text x="836" y="142" class="label">preview</text>
+        <text x="836" y="164" class="sub">&lt;id&gt;-p5173.sandbox</text>
+        <rect x="836" y="182" width="138" height="70" rx="6" class="inner"></rect>
+        <text x="905" y="222" text-anchor="middle" class="item small">your app, with HMR</text>
+      </svg>
+    </figure>
+
+    <div class="grid three">
+      {
+        howItWorks.map((h) => (
+          <div class="card">
+            <h3>{h.title}</h3>
+            <p>{h.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .diagram {
+    margin: 0 0 40px;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow-x: auto;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    min-width: 720px;
+    height: auto;
+    font-family: var(--sans);
+  }
+  .box {
+    fill: #0a0c0f;
+    stroke: #ffffff26;
+  }
+  .box.sandbox {
+    stroke: #7be3b466;
+    stroke-dasharray: 5 4;
+  }
+  .inner {
+    fill: #171b21;
+    stroke: #ffffff14;
+  }
+  .inner.accent {
+    stroke: #7be3b480;
+  }
+  .label {
+    fill: #e7e9ec;
+    font: 600 15px var(--mono);
+  }
+  .item {
+    fill: #e7e9ec;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .item.small {
+    font-size: 13px;
+  }
+  .sub {
+    fill: #8b929d;
+    font-size: 12.5px;
+  }
+  .tiny {
+    fill: #8b929d;
+    font: 11px var(--mono);
+  }
+  .edge {
+    stroke: #8b929d;
+    stroke-width: 1.4;
+  }
+  .three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  @media (max-width: 820px) {
+    .three {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

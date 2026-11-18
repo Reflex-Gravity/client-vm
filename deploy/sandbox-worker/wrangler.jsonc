@@ -1,0 +1,28 @@
+// The sandbox for the site's live demo: packages/sandbox-host/dist, served on
+// every <label>-cvm.joeldsouza.me with the headers docs/hosting.md requires.
+// Build the sandbox first: pnpm --filter @clientvm/sandbox-host build
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "clientvm-sandbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "../../packages/sandbox-host/dist",
+    "binding": "ASSETS",
+    // The Worker sees every request first, so every response gets the headers.
+    "run_worker_first": true,
+    "not_found_handling": "none",
+    // Serve /__clientvm/instance.html as is; the default redirects it to /__clientvm/instance.
+    "html_handling": "none",
+  },
+  // Flat names (one label below the zone) so the free Universal SSL
+  // certificate for *.joeldsouza.me covers them. Needs a proxied wildcard DNS
+  // record (* AAAA 100::) on the zone; explicit records still win over it.
+  "routes": [{ "pattern": "*-cvm.joeldsouza.me/*", "zone_name": "joeldsouza.me" }],
+  "vars": {
+    "HOST_SUFFIX": "-cvm.joeldsouza.me",
+    "FRAME_ANCESTORS": "https://clientvm.joeldsouza.me",
+  },
+}

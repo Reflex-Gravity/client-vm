@@ -28,6 +28,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm --filter @clientvm/site build
 
   e2e:
     name: Chromium e2e + benchmarks

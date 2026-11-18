@@ -1,0 +1,41 @@
+name: Demo sandbox
+
+# Deploys packages/sandbox-host to the Cloudflare Worker behind
+# *-cvm.joeldsouza.me (deploy/sandbox-worker), then checks its headers.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'deploy/sandbox-worker/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/sandbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @clientvm/sandbox-host build
+      - run: pnpm --filter @clientvm/sandbox-worker run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Check the deployment's headers
+        run: >-
+          node scripts/check-sandbox-headers.mjs 'https://{id}-cvm.joeldsouza.me'
+          --app https://clientvm.joeldsouza.me

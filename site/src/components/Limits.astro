@@ -1,0 +1,67 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+import { limitLinks, limits } from '../content/landing.ts';
+---
+
+<section id="limits">
+  <div class="wrap">
+    <p class="eyebrow">what it doesn't do</p>
+    <h2>Where it stops.</h2>
+    <p class="section-lede">
+      Better to know before you build on it. We never claim generic Node compatibility; every
+      supported API is listed with its gaps.
+    </p>
+    <ul class="limits">
+      {
+        limits.map((l) => (
+          <li>
+            <h3>{l.title}</h3>
+            <p>{l.body}</p>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="links">
+      {limitLinks.map((l) => <a href={l.href}>{l.label} →</a>)}
+    </p>
+  </div>
+</section>
+
+<style>
+  .limits {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 32px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    padding-left: 16px;
+    border-left: 2px solid #f2c47a66;
+  }
+  h3 {
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  li p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 48px;
+    font: 14px var(--mono);
+  }
+  .links a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .links a:hover {
+    text-decoration: underline;
+  }
+</style>

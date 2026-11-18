@@ -11,6 +11,9 @@ through a private, in-browser preview.
 > for the roadmap and [docs/compatibility.md](docs/compatibility.md) for exactly what works.
 > **Chromium only** for v1.
 
+**Try it:** [clientvm.joeldsouza.me](https://clientvm.joeldsouza.me) runs a live instance in
+your tab (Chromium).
+
 ## How it works
 
 ```

@@ -1,0 +1,426 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// The live demo. Nothing of ClientVM loads until a visitor presses start
+// (src/demo/entry.ts imports src/demo/run.ts on click). Setup output streams
+// into the setup card in the preview pane (src/demo/setup-card.ts).
+import TerminalWindow from './TerminalWindow.astro';
+---
+
+<section id="demo" class="demo">
+  <div class="wrap">
+    <p class="eyebrow">live demo</p>
+    <h2>Try it. It runs in this tab.</h2>
+    <p class="section-lede">
+      A real <code>bash</code> on a pseudo-terminal, Node.js 24 and the unmodified npm, in a sandbox
+      on its own origin. Watch npm install the packages and the server start, then use the shell
+      while the preview runs. Nothing you run leaves your browser, except the requests it makes to
+      the npm registry.
+    </p>
+
+    <div class="stage" data-demo>
+      <TerminalWindow title="terminal" class="term-window">
+        <button slot="actions" type="button" class="mini" data-demo-reset hidden>reset</button>
+        <div class="term" data-demo-term></div>
+        <div class="overlay" data-demo-overlay>
+          <div class="choices" data-demo-choices>
+            <button type="button" class="btn primary" data-demo-start="express">
+              Start an Express app
+            </button>
+            <button type="button" class="btn" data-demo-start="vite">
+              Start a Vite + React project
+            </button>
+          </div>
+          <p class="note" data-demo-note>
+            Each one installs its packages with npm and starts a server, with the full log beside
+            it. The Vite project builds once, about 10 seconds, and is cached in this browser after
+            that.
+          </p>
+        </div>
+      </TerminalWindow>
+
+      <TerminalWindow title="preview" class="preview-window">
+        <span slot="actions" class="actions">
+          <span class="status" data-demo-port></span>
+          <button type="button" class="mini" data-demo-log hidden aria-pressed="false">log</button>
+        </span>
+        <iframe data-demo-preview title="Preview of the server running in the demo"></iframe>
+        <p class="empty" data-demo-empty>
+          Start the demo. The setup log shows here, then the page the server serves.
+        </p>
+
+        <div class="setup" data-demo-setup hidden>
+          <div class="setup-card" role="group" aria-label="Demo setup">
+            <div class="head">
+              <span class="icon" aria-hidden="true"></span>
+              <p class="title" data-setup-title>Setting up</p>
+              <span class="elapsed" data-setup-elapsed aria-hidden="true">0:00</span>
+            </div>
+            <ol class="steps" aria-label="Setup steps">
+              <li data-step="sandbox"><span class="mark" aria-hidden="true"></span>Sandbox</li>
+              <li data-step="packages">
+                <span class="line" aria-hidden="true"></span><span class="mark" aria-hidden="true"
+                ></span>Packages
+              </li>
+              <li data-step="server">
+                <span class="line" aria-hidden="true"></span><span class="mark" aria-hidden="true"
+                ></span>Server
+              </li>
+            </ol>
+            <p class="last" data-setup-last aria-hidden="true"></p>
+            <ol class="log" id="demo-setup-log" data-setup-log aria-label="Setup log"></ol>
+            <div class="foot">
+              <button
+                type="button"
+                class="mini"
+                data-setup-toggle
+                aria-controls="demo-setup-log"
+                aria-expanded="true">Hide details</button
+              >
+              <span class="foot-actions">
+                <button type="button" class="mini retry" data-setup-retry hidden>Retry</button>
+                <button type="button" class="mini" data-setup-copy aria-label="Copy the setup log"
+                  >copy</button
+                >
+              </span>
+            </div>
+            <p class="visually-hidden" aria-live="polite" data-setup-live></p>
+          </div>
+        </div>
+      </TerminalWindow>
+    </div>
+    <p class="statusline" aria-live="polite"><span data-demo-status>idle</span></p>
+  </div>
+</section>
+
+<script>
+  import '../demo/entry.ts';
+</script>
+
+<style>
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 16px;
+    height: 540px;
+  }
+  .stage :global(.window) {
+    height: 100%;
+  }
+  .term {
+    position: absolute;
+    inset: 0;
+    padding: 10px 0 10px 12px;
+    background: #07090b;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 32px;
+    text-align: center;
+    background:
+      repeating-linear-gradient(0deg, #ffffff05 0 1px, transparent 1px 4px),
+      #07090bf2;
+  }
+  .overlay[hidden],
+  .choices[hidden],
+  .setup[hidden],
+  .empty[hidden] {
+    display: none;
+  }
+  .choices {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+  }
+  .note {
+    max-width: 46ch;
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .note.error {
+    color: var(--err);
+  }
+  iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #fff;
+  }
+  iframe:not([src]) {
+    display: none;
+  }
+  .empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    margin: 0;
+    padding: 32px;
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mini {
+    padding: 2px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--muted);
+    font: 12px var(--mono);
+    cursor: pointer;
+  }
+  .mini:hover,
+  .mini[aria-pressed='true'] {
+    color: var(--text);
+  }
+  .status {
+    font: 12px var(--mono);
+    color: var(--accent);
+  }
+  .statusline {
+    margin: 12px 0 0;
+    font: 12px var(--mono);
+    color: var(--muted);
+  }
+  code {
+    font-size: 0.92em;
+    color: var(--text);
+  }
+
+  /* ---- setup card ---- */
+  .setup {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    padding: 14px;
+    background: #07090bf0;
+  }
+  .setup-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px 0;
+  }
+  .title {
+    flex: 1;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .elapsed {
+    font: 12px var(--mono);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .icon {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border: 2px solid #7be3b440;
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .setup[data-state='done'] .icon {
+    border: 0;
+    animation: none;
+    background: var(--accent);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+  .setup[data-state] .elapsed {
+    display: none;
+  }
+  .setup[data-state='failed'] .icon {
+    border-color: var(--err);
+    animation: none;
+  }
+  .setup[data-state='failed'] .title {
+    color: var(--err);
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .icon {
+      animation-duration: 3s;
+    }
+  }
+  .steps {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0 0;
+    padding: 0 16px;
+    list-style: none;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .steps li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .steps li + li {
+    flex: 1;
+  }
+  .steps .line {
+    flex: 1;
+    min-width: 12px;
+    height: 1px;
+    background: var(--line-strong);
+  }
+  .steps li[data-state='done'] .line,
+  .steps li[data-state='active'] .line,
+  .steps li[data-state='failed'] .line {
+    background: #7be3b466;
+  }
+  .mark {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border: 1.5px solid #ffffff40;
+    border-radius: 50%;
+  }
+  .steps li[data-state='active'] {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .steps li[data-state='active'] .mark {
+    border-color: #7be3b440;
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  .steps li[data-state='done'] .mark {
+    border-color: transparent;
+    background: #7be3b426;
+    box-shadow: inset 0 0 0 4px #7be3b426;
+    position: relative;
+  }
+  .steps li[data-state='done'] .mark::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .steps li[data-state='failed'] {
+    color: var(--err);
+  }
+  .steps li[data-state='failed'] .mark {
+    border-color: var(--err);
+    background: #f28b8226;
+  }
+  .last {
+    margin: 12px 16px;
+    font: 11.5px var(--mono);
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .log {
+    flex: 1;
+    min-height: 0;
+    margin: 12px 0 0;
+    padding: 10px 16px;
+    overflow: auto;
+    list-style: none;
+    border-top: 1px solid var(--line);
+    background: #0b0e12;
+    font: 11.5px/1.6 var(--mono);
+    scrollbar-width: thin;
+  }
+  .log[hidden] {
+    display: none;
+  }
+  .setup-card:has(.log[hidden]) {
+    flex: none;
+    align-self: flex-start;
+  }
+  .setup:has(.log[hidden]) {
+    align-items: center;
+  }
+  .log :global(li) {
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #aab1bb;
+  }
+  .log :global(li.cmd) {
+    margin-top: 6px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .log :global(li.cmd:first-child) {
+    margin-top: 0;
+  }
+  .log :global(.ps) {
+    color: var(--accent);
+    user-select: none;
+  }
+  .log :global(li.info) {
+    color: var(--muted);
+    font-style: italic;
+  }
+  .log :global(li.http) {
+    color: #737b86;
+  }
+  .log :global(li.warn) {
+    color: var(--warn);
+  }
+  .log :global(li.error) {
+    color: var(--err);
+  }
+  .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+  }
+  .foot-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .retry {
+    color: var(--text);
+    border-color: var(--err);
+  }
+
+  @media (max-width: 920px) {
+    .stage {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: 420px 420px;
+      height: auto;
+    }
+  }
+</style>

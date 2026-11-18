@@ -44,6 +44,24 @@ node scripts/check-sandbox-headers.mjs 'https://{id}.myapp-sandbox.dev' --app ht
 It requests an instance page, the service worker and a port origin on random subdomains and
 fails if a requirement above is not met (it warns when `frame-ancestors` is missing).
 
+## Flat sandbox names
+
+`sandboxOrigin` maps a label to an origin. The label is either an instance id or a port label,
+`<id>-p<port>`. It doesn't have to be the first DNS label of a dedicated domain. A suffix works too:
+
+```ts
+createClientVM({ sandboxOrigin: (label) => `https://${label}-cvm.example.dev` });
+```
+
+Instances then live at `https://<id>-cvm.example.dev` and previews at
+`https://<id>-p5173-cvm.example.dev`. Everything stays one level below the zone, so a single
+wildcard certificate (`*.example.dev`) and one wildcard DNS record cover every origin. The
+project's own demo uses this scheme on Cloudflare (`deploy/sandbox-worker`).
+
+A flat scheme only works under a domain that is itself dedicated to the sandbox, or one with no
+cookies and no authenticated endpoints anywhere on it. Every origin it creates is same-site with
+the rest of that domain (see [security.md](security.md)).
+
 ## In your app
 
 ```ts

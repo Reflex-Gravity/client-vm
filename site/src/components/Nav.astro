@@ -1,0 +1,65 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+import { nav, REPO } from '../content/landing.ts';
+---
+
+<header class="nav">
+  <div class="wrap inner">
+    <a class="brand" href="/" aria-label="ClientVM home">
+      <img src="/favicon.svg" alt="" width="24" height="24" />
+      <span>clientvm</span>
+    </a>
+    <nav aria-label="Main">
+      {nav.map((item) => <a href={item.href}>{item.label}</a>)}
+      <a class="gh" href={REPO}>GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #0a0c0fd9;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font: 600 16px var(--mono);
+    text-decoration: none;
+  }
+  nav {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    font-size: 14px;
+  }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  nav a:hover {
+    color: var(--text);
+  }
+  .gh {
+    padding: 6px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    color: var(--text);
+  }
+  @media (max-width: 720px) {
+    nav a:not(.gh) {
+      display: none;
+    }
+  }
+</style>

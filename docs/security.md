@@ -124,6 +124,14 @@ rebuilt.
   integrity, as npm normally does, but their code and lifecycle scripts are untrusted and run with
   the instance's full authority. Running `npm install --ignore-scripts` reduces what runs during
   install, not what runs at `require` time.
+- **The project's own demo sandbox shares a registrable domain.** The live demo on
+  https://clientvm.joeldsouza.me runs instances on `<label>-cvm.joeldsouza.me`
+  (`deploy/sandbox-worker`). That is the same site as the landing page and everything else on
+  `joeldsouza.me`, against requirement 1 of [hosting.md](hosting.md). Instance code there can set
+  cookies for `.joeldsouza.me` (cookie tossing) and sends same-site requests with any
+  `SameSite=Lax` cookies the domain holds. This is acceptable only because nothing on
+  `joeldsouza.me` uses cookies, sessions or logins. If that changes, the demo sandbox must move to a
+  dedicated domain first. Integrators must still use a separate registrable domain.
 
 ## Review status
 
