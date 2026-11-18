@@ -4,7 +4,7 @@ import { defaultClientConditions } from 'vite';
 import { satteri } from '@astrojs/markdown-satteri';
 import { docLinks } from './src/lib/doc-links-plugin.ts';
 
-// A static site on GitHub Pages. It is a ClientVM host app: it needs no
+// A static site on Cloudflare Pages (.github/workflows/site.yml). It is a ClientVM host app: it needs no
 // isolation headers, because instances get cross-origin isolation from their
 // own pages on the sandbox domain (docs/hosting.md). It also publishes the
 // user-facing docs/ as pages under /docs/.

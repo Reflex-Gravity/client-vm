@@ -1,0 +1,9 @@
+# Cloudflare Pages response headers (https://developers.cloudflare.com/pages/configuration/headers/).
+# The site is a ClientVM host app and needs no isolation headers; these only
+# give the agent-facing text files their types.
+/index.md
+  Content-Type: text/markdown; charset=utf-8
+/docs/*.md
+  Content-Type: text/markdown; charset=utf-8
+/llms.txt
+  Content-Type: text/plain; charset=utf-8

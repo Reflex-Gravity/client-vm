@@ -1,8 +1,9 @@
 name: Site
 
-# Builds site/ (the landing page, live demo and docs) and publishes it to GitHub
-# Pages at https://clientvm.joeldsouza.me. The demo's sandbox is deployed
-# separately (sandbox.yml).
+# Builds site/ (the landing page, live demo and docs) and publishes it to
+# Cloudflare Pages (project clientvm-site) at https://clientvm.joeldsouza.me.
+# The demo's sandbox is deployed separately (sandbox.yml). Needs the
+# CLOUDFLARE_API_TOKEN (Pages: Edit) and CLOUDFLARE_ACCOUNT_ID secrets.
 on:
   push:
     branches: [main]
@@ -19,12 +20,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
+  group: site-deploy
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build the site
+  deploy:
+    name: Build and deploy to Cloudflare Pages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,20 +37,12 @@ jobs:
       - run: pnpm --filter @clientvm/site build
         env:
           PUBLIC_SANDBOX: 'https://{id}-cvm.joeldsouza.me'
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site/dist
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      # wrangler is pinned in deploy/sandbox-worker; reuse it rather than add another copy.
+      - name: Deploy
+        run: >-
+          pnpm --filter @clientvm/sandbox-worker exec wrangler pages deploy
+          "$GITHUB_WORKSPACE/site/dist" --project-name=clientvm-site --branch=main
+          --commit-dirty=true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -12,7 +12,7 @@ on `joeldsouza.me` uses cookies or logins (see [docs/security.md](../../docs/sec
 ## One-time setup
 
 1. In the `joeldsouza.me` zone, add a **proxied** DNS record `*` → `AAAA 100::`. Explicit records
-   such as `clientvm` (GitHub Pages) still take precedence over the wildcard.
+   such as `clientvm` (the site, on Cloudflare Pages) still take precedence over the wildcard.
 2. Create an API token with **Workers Scripts: Edit** and **Workers Routes: Edit** on the zone, and
    add it to the repository's Actions secrets as `CLOUDFLARE_API_TOKEN`, with
    `CLOUDFLARE_ACCOUNT_ID`.
