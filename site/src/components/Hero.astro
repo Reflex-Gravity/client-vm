@@ -1,38 +1,13 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
 import GridPattern from './GridPattern.astro';
-import TerminalWindow from './TerminalWindow.astro';
+import Demo from './Demo.astro';
 import { agentPrompt, hero } from '../content/landing.ts';
 
-// An illustrative session. Without JavaScript, or with reduced motion, it is
-// shown as is; otherwise src/scripts/transcript.ts types it out.
-const transcript: { kind: 'cmd' | 'out' | 'dim' | 'ok'; text: string }[] = [
-  { kind: 'cmd', text: 'node -p process.version' },
-  { kind: 'out', text: 'v24.11.0' },
-  { kind: 'cmd', text: 'npm create vite@latest app -- --template react-ts' },
-  { kind: 'dim', text: 'Scaffolding project in /home/user/app...' },
-  { kind: 'cmd', text: 'cd app && npm install' },
-  { kind: 'out', text: 'added 187 packages, and audited 188 packages' },
-  { kind: 'cmd', text: 'npm run dev' },
-  { kind: 'ok', text: '  VITE v8  ready' },
-  { kind: 'out', text: '  ➜  Local:   https://k3x9…-p5173.sandbox/' },
-];
-
-// Built as one string: whitespace in a <pre> is significant, so the template's
-// own indentation must not reach it.
-const escape = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // The headline blurs in word by word (after Motion Primitives' TextEffect);
 // pure CSS, so it needs no JavaScript.
 const words = hero.title.split(' ');
 
-const transcriptHtml =
-  transcript
-    .map(
-      (l) =>
-        `<span class="line ${l.kind}">${l.kind === 'cmd' ? '<span class="ps">$ </span>' : ''}` +
-        `<span class="t">${escape(l.text)}</span>\n</span>`,
-    )
-    .join('') + '<span class="cursor" aria-hidden="true"></span>';
 ---
 
 <section class="hero">
@@ -63,15 +38,12 @@ const transcriptHtml =
         </button>
       </div>
     </div>
-    <TerminalWindow title="user@clientvm: ~" class="hero-term">
-      <pre class="transcript" data-transcript set:html={transcriptHtml} />
-    </TerminalWindow>
+    <Demo />
   </div>
 </section>
 
 <script>
   import '../scripts/copy.ts';
-  import '../scripts/transcript.ts';
 </script>
 
 <style>
@@ -84,14 +56,16 @@ const transcriptHtml =
       radial-gradient(60% 50% at 80% 0%, #7be3b414, transparent 70%),
       radial-gradient(40% 40% at 0% 100%, #6aa7ff0d, transparent 70%);
   }
+  /* Wider than the page's other sections, so the live demo has room. */
   .inner {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-    gap: 56px;
+    width: min(1480px, 100% - 48px);
+    grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.6fr);
+    gap: 48px;
     align-items: center;
   }
   h1 {
-    font-size: clamp(40px, 6vw, 64px);
+    font-size: clamp(36px, 4.2vw, 56px);
     max-width: 14ch;
   }
   .blur-in span {
@@ -116,7 +90,7 @@ const transcriptHtml =
     max-width: 52ch;
     margin: 24px 0 32px;
     color: var(--muted);
-    font-size: 18px;
+    font-size: 17px;
   }
   .install {
     display: flex;
@@ -156,46 +130,7 @@ const transcriptHtml =
     gap: 12px;
     margin-top: 20px;
   }
-  .transcript {
-    margin: 0;
-    padding: 20px;
-    min-height: 300px;
-    font-size: 13.5px;
-    line-height: 1.75;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .transcript :global(.ps) {
-    color: var(--accent);
-  }
-  .transcript :global(.out) {
-    color: #c7ccd3;
-  }
-  .transcript :global(.dim) {
-    color: var(--muted);
-  }
-  .transcript :global(.ok) {
-    color: var(--accent);
-  }
-  .transcript :global(.cursor) {
-    display: inline-block;
-    width: 8px;
-    height: 1.1em;
-    vertical-align: -0.2em;
-    background: var(--accent);
-    animation: blink 1.1s steps(1) infinite;
-  }
-  @keyframes blink {
-    50% {
-      opacity: 0;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .transcript :global(.cursor) {
-      animation: none;
-    }
-  }
-  @media (max-width: 920px) {
+  @media (max-width: 1180px) {
     .inner {
       grid-template-columns: minmax(0, 1fr);
     }

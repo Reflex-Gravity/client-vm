@@ -1,24 +1,15 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-// The live demo: an editor, a terminal and a preview of one ClientVM
-// instance. Nothing of ClientVM loads until a visitor presses start
-// (src/demo/entry.ts imports src/demo/run.ts on click). The setup is typed
+// The live demo, shown in the hero (components/Hero.astro): an editor, a
+// terminal and a preview of one ClientVM instance. Nothing of ClientVM loads
+// until a visitor presses start (src/demo/entry.ts imports src/demo/run.ts on
+// click). The setup is typed
 // into the terminal's bash, so its output shows there. The editor is
 // src/demo/editor.ts.
 import TerminalWindow from './TerminalWindow.astro';
 ---
 
-<section id="demo" class="demo">
-  <div class="wrap">
-    <p class="eyebrow">live demo</p>
-    <h2>Try it. It runs in this tab.</h2>
-    <p class="section-lede">
-      A real <code>bash</code> on a pseudo-terminal, Node.js 24 and the unmodified npm, in a sandbox
-      on its own origin. Watch npm install the packages and the server start in the terminal, then
-      edit the code and see the preview change as you type. Nothing you run leaves your browser,
-      except the requests it makes to the npm registry.
-    </p>
-
+<div id="demo" class="demo">
     <div class="stage" data-demo>
       <TerminalWindow title="editor" class="editor-window">
         <span slot="actions" class="hint" data-editor-state aria-live="polite"></span>
@@ -75,24 +66,26 @@ import TerminalWindow from './TerminalWindow.astro';
       </div>
     </div>
     <p class="statusline" aria-live="polite"><span data-demo-status>idle</span></p>
-  </div>
-</section>
+</div>
 
 <script>
   import '../demo/entry.ts';
 </script>
 
 <style>
+  .demo {
+    scroll-margin-top: 88px;
+  }
   .stage {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr);
     grid-template-areas:
       'editor preview'
-      'term preview';
-    gap: 16px;
-    height: 680px;
+      'term term';
+    gap: 12px;
+    height: 640px;
   }
   .stage :global(.window) {
     position: relative;
@@ -398,8 +391,8 @@ import TerminalWindow from './TerminalWindow.astro';
   @media (max-width: 920px) {
     .stage {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: 340px 300px 420px;
-      grid-template-areas: 'editor' 'term' 'preview';
+      grid-template-rows: 320px 380px 280px;
+      grid-template-areas: 'editor' 'preview' 'term';
       height: auto;
     }
   }

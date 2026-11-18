@@ -3,7 +3,6 @@
 import Base from '../layouts/Base.astro';
 import Nav from '../components/Nav.astro';
 import Hero from '../components/Hero.astro';
-import Demo from '../components/Demo.astro';
 import HowItWorks from '../components/HowItWorks.astro';
 import Features from '../components/Features.astro';
 import Quickstart from '../components/Quickstart.astro';
@@ -14,7 +13,7 @@ import { hero } from '../content/landing.ts';
 
 <Base title="ClientVM: Node.js, bash and npm in a browser tab" description={hero.lede}>
   <!--
-    xterm.js for the live demo loads from a CDN only when the demo starts
+    xterm.js for the live demo (in the hero) loads from a CDN only when the demo starts
     (src/demo/run.ts). This import map pins the files' hashes, so altered
     copies do not load.
   -->
@@ -30,7 +29,6 @@ import { hero } from '../content/landing.ts';
   <Nav />
   <main>
     <Hero />
-    <Demo />
     <HowItWorks />
     <Features />
     <Quickstart />
