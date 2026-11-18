@@ -112,7 +112,8 @@ because there is no OpenSSL) count as skipped, not passed.
 
 One interpreter serves `sh`, `bash`, `/bin/sh` and `/bin/bash`. It implements POSIX `sh` plus the
 bash extensions agents commonly write. Tested by `test/conformance/shell-differential.test.ts`:
-about 175 scripts run under real bash 5.2 and under ClientVM, and stdout, stderr and exit status
+about 175 scripts run under real bash 5.2 and GNU coreutils (the Ubuntu 24.04 CI runner, pinned
+for that reason) and under ClientVM, and stdout, stderr and exit status
 must match. Parser fuzzing is in `packages/shell/src/parser.test.ts`; e2e coverage, including
 pipes to and from `node`, is in `test/e2e/shell.spec.ts`. Design:
 [ADR 0011](decisions/0011-in-process-shell-commands.md).
