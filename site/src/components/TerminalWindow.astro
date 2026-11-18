@@ -1,6 +1,6 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-// The window chrome shared by the live demo and the quickstart.
+// The window chrome shared by the hero transcript, the live demo and the quickstart.
 interface Props {
   title?: string;
   class?: string;
@@ -22,39 +22,38 @@ const { title = '', class: className = '' } = Astro.props;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    background: #07090b;
+    background: var(--term-bg);
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
-    box-shadow:
-      0 0 0 1px #00000080,
-      0 30px 80px -20px #000000c0;
+    box-shadow: 0 30px 80px -30px #000000d0;
     overflow: hidden;
   }
   .bar {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
-    height: 38px;
+    gap: 14px;
+    height: 36px;
     padding: 0 12px;
-    background: var(--surface);
+    background: #09090c;
     border-bottom: 1px solid var(--line);
   }
   .dots {
     display: flex;
-    gap: 6px;
+    gap: 5px;
   }
+  /* Square window controls, in keeping with the page's pixel look. */
   .dots i {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #ffffff1f;
+    width: 7px;
+    height: 7px;
+    background: #ffffff26;
   }
   .title {
-    font: 12px var(--mono);
-    color: var(--muted);
-    white-space: nowrap;
     overflow: hidden;
+    color: var(--muted);
+    font: 12px var(--mono);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
     text-overflow: ellipsis;
   }
   .actions {
@@ -63,8 +62,8 @@ const { title = '', class: className = '' } = Astro.props;
     gap: 6px;
   }
   .body {
+    position: relative;
     flex: 1;
     min-height: 0;
-    position: relative;
   }
 </style>

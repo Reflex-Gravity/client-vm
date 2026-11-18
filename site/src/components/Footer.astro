@@ -1,18 +1,19 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-import { DOCS, REPO } from '../content/landing.ts';
+import { REPO, doc, upcoming } from '../content/landing.ts';
 ---
 
 <footer>
   <div class="wrap inner">
     <p class="fine">
-      <span class="brand">clientvm</span> · Apache-2.0 · © 2026 The ClientVM Authors
+      <span class="brand">clientvm</span> · free and open source, Apache-2.0 · © 2026 The ClientVM
+      Authors · next up: <span class="next">{upcoming.name}</span>
     </p>
     <nav aria-label="Footer">
       <a href={REPO}>GitHub</a>
-      <a href={`${DOCS}/architecture.md`}>Architecture</a>
-      <a href={`${DOCS}/hosting.md`}>Hosting</a>
-      <a href={`${DOCS}/agent-api.md`}>Agent API</a>
+      <a href={doc('architecture')}>Architecture</a>
+      <a href={doc('hosting')}>Hosting</a>
+      <a href={doc('agent-api')}>Agent API</a>
       <a href="/index.md">Markdown</a>
       <a href="/llms.txt">llms.txt</a>
     </nav>
@@ -22,7 +23,7 @@ import { DOCS, REPO } from '../content/landing.ts';
 <style>
   footer {
     padding-block: 40px;
-    border-top: 1px solid var(--line);
+    border-bottom: 0;
   }
   .inner {
     display: flex;
@@ -39,6 +40,9 @@ import { DOCS, REPO } from '../content/landing.ts';
   .brand {
     font-family: var(--mono);
     color: var(--text);
+  }
+  .next {
+    color: var(--accent);
   }
   nav {
     display: flex;

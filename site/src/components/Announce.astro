@@ -1,0 +1,44 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// A slim bar above the nav that teases an upcoming project. Not a link yet.
+import { upcoming } from '../content/landing.ts';
+---
+
+<p class="announce">
+  <span class="tag">{upcoming.label}</span>
+  <span class="text"><span class="long">Something new is on the way: </span><strong>{upcoming.name}</strong></span>
+</p>
+
+<style>
+  .announce {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 0;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+    background:
+      linear-gradient(90deg, transparent, #7be3b40f 30%, #7be3b40f 70%, transparent),
+      var(--bg);
+    color: var(--muted);
+    font: 12px var(--mono);
+  }
+  .tag {
+    padding: 2px 7px;
+    border: 1px solid #7be3b466;
+    color: var(--accent);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  @media (max-width: 520px) {
+    .long {
+      display: none;
+    }
+  }
+</style>

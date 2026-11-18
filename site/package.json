@@ -18,6 +18,7 @@
     "@astrojs/markdown-satteri": "0.4.10",
     "@fontsource/inter": "5.3.0",
     "@fontsource/jetbrains-mono": "5.3.0",
+    "@fontsource/pixelify-sans": "5.3.0",
     "astro": "7.4.12",
     "typescript": "~6.0.3"
   }

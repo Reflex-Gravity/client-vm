@@ -1,72 +1,257 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
+// Three steps, all on screen and in order: the sandbox your app needs first,
+// the install, and an instance with its preview. Optional extras sit in a
+// tabbed window under them. The copy is src/content/landing.ts.
 import { Code } from 'astro:components';
 import TerminalWindow from './TerminalWindow.astro';
-import { quickstart } from '../content/landing.ts';
+import { doc, quickstartAddons, quickstartSteps } from '../content/landing.ts';
+
+const windowTitle = (lang: string) => (lang === 'sh' ? 'terminal' : 'app.ts');
 ---
 
 <section id="quickstart">
   <div class="wrap qs">
-    <div>
-      <p class="eyebrow">quickstart</p>
-      <h2>Five steps, one static deployment.</h2>
+    <div class="intro">
+      <p class="eyebrow"><span><span class="n">04</span> / quickstart</span></p>
+      <h2>Three steps <span class="soft">to a running app.</span></h2>
       <p class="section-lede">
-        Install the packages, put the sandbox on a wildcard subdomain of its own domain, and create
-        instances from your page. The hosting guide has the full checklist.
+        You host one static sandbox, on a domain of its own; your app needs no special headers.
+        Then a few lines boot an instance and show what it serves.
       </p>
+      <p class="more"><a href={doc('hosting')}>Hosting guide →</a></p>
     </div>
-    <TerminalWindow title="quickstart" class="qs-window">
-      <div class="tabs" role="tablist" aria-label="Quickstart steps" data-tabs>
+
+    <div class="flow">
+      <ol class="steps">
         {
-          quickstart.map((q, i) => (
-            <button
-              type="button"
-              role="tab"
-              id={`qs-tab-${q.id}`}
-              aria-controls={`qs-panel-${q.id}`}
-              aria-selected={i === 0 ? 'true' : 'false'}
-              tabindex={i === 0 ? 0 : -1}
-            >
-              {q.label}
-            </button>
+          quickstartSteps.map((q, i) => (
+            <li class="step" id={`qs-${q.id}`}>
+              <span class="num" aria-hidden="true">
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <div class="content">
+                <h3>{q.title}</h3>
+                <p class="body">{q.body}</p>
+                {q.why && (
+                  <details class="why">
+                    <summary>{q.why.summary}</summary>
+                    <pre class="diagram" aria-label="Origins">{q.why.diagram.join('\n')}</pre>
+                    <ul>
+                      {q.why.points.map((p) => (
+                        <li>{p}</li>
+                      ))}
+                    </ul>
+                    <a href={q.why.href}>More in the hosting guide →</a>
+                  </details>
+                )}
+                <TerminalWindow title={windowTitle(q.lang)} class="code-window">
+                  <button
+                    slot="actions"
+                    type="button"
+                    class="copy"
+                    data-copy={q.code}
+                    aria-label={`Copy the ${q.label} snippet`}
+                  >
+                    copy
+                  </button>
+                  <Code code={q.code} lang={q.lang} theme="vitesse-dark" />
+                </TerminalWindow>
+              </div>
+            </li>
           ))
         }
-      </div>
-      {
-        quickstart.map((q, i) => (
-          <div
-            class="panel"
-            role="tabpanel"
-            id={`qs-panel-${q.id}`}
-            aria-labelledby={`qs-tab-${q.id}`}
-            hidden={i !== 0}
-          >
-            <button type="button" class="copy" data-copy={q.code} aria-label={`Copy ${q.label} snippet`}>
-              copy
-            </button>
-            <Code code={q.code} lang={q.lang} theme="vitesse-dark" />
+      </ol>
+
+      <div class="addons">
+        <h3>Add-ons <span class="soft">optional, on the same instance</span></h3>
+        <TerminalWindow title="add-ons" class="code-window">
+          <div class="tabs" role="tablist" aria-label="Add-ons" data-tabs>
+            {
+              quickstartAddons.map((q, i) => (
+                <button
+                  type="button"
+                  role="tab"
+                  id={`qs-tab-${q.id}`}
+                  aria-controls={`qs-panel-${q.id}`}
+                  aria-selected={i === 0 ? 'true' : 'false'}
+                  tabindex={i === 0 ? 0 : -1}
+                >
+                  {q.label}
+                </button>
+              ))
+            }
           </div>
-        ))
-      }
-    </TerminalWindow>
+          {
+            quickstartAddons.map((q, i) => (
+              <div
+                class="panel"
+                role="tabpanel"
+                id={`qs-panel-${q.id}`}
+                aria-labelledby={`qs-tab-${q.id}`}
+                hidden={i !== 0}
+              >
+                <button
+                  type="button"
+                  class="copy floating"
+                  data-copy={q.code}
+                  aria-label={`Copy the ${q.label} snippet`}
+                >
+                  copy
+                </button>
+                <Code code={q.code} lang={q.lang} theme="vitesse-dark" />
+              </div>
+            ))
+          }
+        </TerminalWindow>
+      </div>
+    </div>
   </div>
 </section>
 
 <script>
   import '../scripts/tabs.ts';
+  import '../scripts/copy.ts';
 </script>
 
 <style>
   .qs {
     display: grid;
-    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
     gap: 56px;
     align-items: start;
+  }
+  .intro {
+    position: sticky;
+    top: 96px;
+  }
+  .more a {
+    color: var(--accent);
+    font: 13px var(--mono);
+    text-decoration: none;
+  }
+  .more a:hover {
+    text-decoration: underline;
+  }
+
+  .steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 18px;
+    padding-bottom: 36px;
+  }
+  /* The rail that joins the step numbers. */
+  .step::before {
+    content: '';
+    position: absolute;
+    top: 34px;
+    bottom: 4px;
+    left: 19px;
+    width: 1px;
+    background: var(--line-strong);
+  }
+  .num {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 28px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--accent);
+    font: 13px var(--mono);
+  }
+  h3 {
+    margin: 2px 0 6px;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  h3 .soft {
+    margin-left: 6px;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 400;
+  }
+  .body {
+    margin: 0 0 14px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .why {
+    margin: 0 0 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .why summary {
+    padding: 10px 14px;
+    color: var(--text);
+    font: 13px var(--mono);
+    cursor: pointer;
+  }
+  .why summary::marker {
+    color: var(--accent);
+  }
+  .why[open] summary {
+    border-bottom: 1px solid var(--line);
+  }
+  .diagram {
+    margin: 0;
+    padding: 14px;
+    overflow-x: auto;
+    color: var(--accent);
+    font: 12.5px/1.7 var(--mono);
+    border-bottom: 1px solid var(--line);
+  }
+  .why ul {
+    margin: 0;
+    padding: 14px 14px 4px 32px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .why li + li {
+    margin-top: 6px;
+  }
+  .why a {
+    display: inline-block;
+    margin: 6px 14px 14px;
+    color: var(--accent);
+    font: 13px var(--mono);
+    text-decoration: none;
+  }
+  .why a:hover {
+    text-decoration: underline;
+  }
+
+  /* The windows are TerminalWindow's elements, so their code is styled from ours. */
+  .content :global(pre.astro-code),
+  .panel :global(pre.astro-code) {
+    margin: 0;
+    padding: 16px 20px;
+    background: transparent !important;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+
+  .addons {
+    padding-left: 58px;
+  }
+  .addons h3 {
+    margin-bottom: 12px;
   }
   .tabs {
     display: flex;
     gap: 2px;
-    padding: 8px 8px 0;
+    padding: 8px 72px 0 8px;
     overflow-x: auto;
     border-bottom: 1px solid var(--line);
   }
@@ -87,35 +272,49 @@ import { quickstart } from '../content/landing.ts';
   .panel {
     position: relative;
   }
-  .panel :global(pre) {
-    margin: 0;
-    padding: 20px;
-    min-height: 260px;
-    background: transparent !important;
-    font-size: 13.5px;
-    line-height: 1.7;
-    overflow-x: auto;
+  .panel :global(pre.astro-code) {
+    min-height: 220px;
   }
+
   .copy {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 1;
-    padding: 4px 10px;
+    padding: 2px 10px;
     border: 1px solid var(--line-strong);
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: var(--surface);
     color: var(--muted);
     font: 12px var(--mono);
     cursor: pointer;
   }
+  /* Sits in the tab bar, level with the tabs, clear of the code. */
+  .copy.floating {
+    position: absolute;
+    top: -34px;
+    right: 10px;
+    z-index: 1;
+  }
   .copy:hover {
     color: var(--text);
   }
+
   @media (max-width: 920px) {
     .qs {
       grid-template-columns: minmax(0, 1fr);
-      gap: 0;
+      gap: 28px;
+    }
+    .intro {
+      position: static;
+    }
+  }
+  @media (max-width: 560px) {
+    .step {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+    }
+    .step::before {
+      display: none;
+    }
+    .addons {
+      padding-left: 0;
     }
   }
 </style>

@@ -1,0 +1,86 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// The closing band: ClientVM is free to use and open source.
+import { REPO, openSource } from '../content/landing.ts';
+
+const points = [
+  { k: 'license', v: 'Apache-2.0' },
+  { k: 'price', v: 'free' },
+  { k: 'server compute', v: 'none' },
+  { k: 'on npm', v: '@clientvm/*' },
+];
+---
+
+<section id="open-source" class="oss">
+  <div class="wrap inner">
+    <div>
+      <p class="eyebrow"><span><span class="n">06</span> / open source</span></p>
+      <h2>{openSource.title}</h2>
+      <p class="section-lede">{openSource.body}</p>
+      <div class="ctas">
+        <a class="btn primary" href={REPO}>Star on GitHub ↗</a>
+        <a class="btn" href="#demo">Try the demo</a>
+      </div>
+    </div>
+    <dl class="facts">
+      {
+        points.map((p) => (
+          <div>
+            <dt>{p.k}</dt>
+            <dd>{p.v}</dd>
+          </div>
+        ))
+      }
+    </dl>
+  </div>
+</section>
+
+<style>
+  .oss {
+    background:
+      radial-gradient(50% 80% at 15% 100%, #7be3b414, transparent 70%),
+      radial-gradient(circle, #ffffff12 1px, transparent 1.5px) 0 0 / 22px 22px;
+  }
+  .inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    gap: 56px;
+    align-items: center;
+  }
+  .section-lede {
+    margin-bottom: 32px;
+  }
+  .ctas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .facts div {
+    padding: 22px;
+    background: var(--bg);
+  }
+  dt {
+    color: var(--dim);
+    font: 11px var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  dd {
+    margin: 8px 0 0;
+    color: var(--accent);
+    font: 500 26px/1 var(--display);
+  }
+  @media (max-width: 860px) {
+    .inner {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

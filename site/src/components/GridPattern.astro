@@ -1,16 +1,16 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-// A faint grid behind the hero where a few cells light up and fade, like
-// Magic UI's Animated Grid Pattern, in plain SVG. scripts/grid.ts moves the
-// cells; without JavaScript or with reduced motion the grid stays still.
-const SIZE = 44;
+// A dot matrix behind the hero where a few dots light up and fade, after
+// microsandbox.dev's dot-matrix texture, in plain SVG. scripts/grid.ts lights
+// the cells; without JavaScript or with reduced motion the matrix stays still.
+const SIZE = 22;
 ---
 
 <div class="grid-pattern" aria-hidden="true">
   <svg data-grid data-size={SIZE}>
     <defs>
-      <pattern id="hero-grid" width={SIZE} height={SIZE} patternUnits="userSpaceOnUse" x="-1" y="-1">
-        <path d={`M.5 ${SIZE}V.5H${SIZE}`} fill="none" stroke="currentColor"></path>
+      <pattern id="hero-grid" width={SIZE} height={SIZE} patternUnits="userSpaceOnUse">
+        <rect x={SIZE / 2 - 1} y={SIZE / 2 - 1} width="2" height="2" fill="currentColor"></rect>
       </pattern>
     </defs>
     <rect width="100%" height="100%" fill="url(#hero-grid)"></rect>
@@ -29,8 +29,8 @@ const SIZE = 44;
     z-index: -1;
     overflow: hidden;
     pointer-events: none;
-    color: #ffffff0f;
-    mask-image: radial-gradient(70% 65% at 60% 35%, #000 20%, transparent 80%);
+    color: #ffffff1c;
+    mask-image: radial-gradient(75% 70% at 70% 40%, #000 15%, transparent 85%);
   }
   svg {
     width: 100%;
@@ -39,9 +39,9 @@ const SIZE = 44;
   svg :global(rect.cell) {
     fill: #7be3b4;
     opacity: 0;
-    transition: opacity 1.6s ease-in-out;
+    transition: opacity 1.4s ease-in-out;
   }
   svg :global(rect.cell.on) {
-    opacity: 0.09;
+    opacity: 0.85;
   }
 </style>
