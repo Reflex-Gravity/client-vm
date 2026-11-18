@@ -1,6 +1,6 @@
 # Security review checklist
 
-CLAUDE.md §9 requires a security review of the sandbox boundary before any 1.0 claim. This is the
+ClientVM won't be called 1.0 until the sandbox boundary has had a security review. This is the
 checklist for that review. The threat model is in [security.md](security.md). Each item says what
 must hold, how it is checked today, and its status.
 

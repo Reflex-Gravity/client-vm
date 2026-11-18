@@ -1,11 +1,11 @@
 # ADR 0014: `git` runs on isomorphic-git, fetched and verified on first use
 
 - **Status:** accepted (2026-10-21)
-- **Context:** CLAUDE.md §7 lists `git` among the v1 commands, "via isomorphic-git or
-  equivalent". Agents use git to checkpoint work, diff their changes, and branch experiments.
+- **Context:** `git` is one of the v1 shell commands, planned to run on isomorphic-git or
+  an equivalent. Agents use git to checkpoint work, diff their changes, and branch experiments.
   isomorphic-git (MIT) is a pure-JavaScript implementation that reads and writes real git
   repositories. Its package is about 1.2 MB as a tarball and 5 MB unpacked. Bundling it into the
-  shell would add a runtime dependency to a core package (§5) and grow every process worker.
+  shell would add a runtime dependency to a core package (core packages avoid runtime dependencies) and grow every process worker.
 - **Decision:**
   - `git` is a shell command (`packages/shell/src/commands/git.ts`). On first use it downloads
     the pinned release `isomorphic-git@1.44.3` from the registry, checks its SHA-512 integrity,

@@ -7,8 +7,9 @@ and network namespace, runs real `npm install` and `npm run dev`, and drives the
 through a private, in-browser preview.
 
 > **Status: pre-1.0 (Phases 0–5 implemented).** Not production-ready until the sandbox boundary
-> has had an independent [security review](docs/security-review.md). See [CLAUDE.md](CLAUDE.md)
-> for the roadmap and [docs/compatibility.md](docs/compatibility.md) for exactly what works.
+> has had an independent [security review](docs/security-review.md). See
+> [docs/compatibility.md](docs/compatibility.md) for exactly what works and
+> [docs/decisions/](docs/decisions/) for why it is built the way it is.
 > **Chromium only** for v1.
 
 **Try it:** [clientvm.joeldsouza.me](https://clientvm.joeldsouza.me) runs a live instance in

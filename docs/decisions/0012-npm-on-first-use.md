@@ -1,7 +1,7 @@
 # ADR 0012: npm is the unmodified release, fetched and verified on first use
 
 - **Status:** accepted (2026-10-21)
-- **Context:** CLAUDE.md §2 says to run real npm unmodified on the Node-compat layer. Node ships
+- **Context:** The project runs the real, unmodified npm on the Node-compat layer. Node ships
   npm inside its distribution, at `<prefix>/lib/node_modules/npm`. ClientVM has no install step and
   ships no Node distribution. npm is about 2.9 MB gzipped and 12.5 MB unpacked (2,160 files). That
   is too large to put in the sandbox-host bundle or in every new instance's file tree.

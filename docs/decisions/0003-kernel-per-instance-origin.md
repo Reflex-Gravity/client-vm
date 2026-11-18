@@ -1,7 +1,7 @@
 # ADR 0003: One kernel per instance, on the instance's own origin
 
-- **Status:** accepted (2026-10-21). This supersedes the single-host-kernel diagram in the original
-  CLAUDE.md §4.
+- **Status:** accepted (2026-10-21). This supersedes the original design of a single kernel on one
+  shared sandbox origin.
 - **Context:** Workers share their origin's storage (OPFS, IndexedDB, Cache Storage),
   `BroadcastChannel`, and service worker. A `SharedArrayBuffer` cannot be posted to a different
   origin. If one kernel on one sandbox origin ran every instance's processes, hostile code in

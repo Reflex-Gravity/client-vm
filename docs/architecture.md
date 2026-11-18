@@ -1,7 +1,9 @@
 # Architecture
 
-The target architecture is in [CLAUDE.md §4](../CLAUDE.md#4-architecture). This page records what
-is built and how a syscall travels today.
+How ClientVM is put together today: which threads and origins run what, how a syscall travels, and
+how the packages depend on each other. For a gentler tour of the packages see
+[packages.md](packages.md); for the reasoning behind each choice see the
+[design decisions](decisions/).
 
 ## Thread layout
 

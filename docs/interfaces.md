@@ -1,16 +1,15 @@
 # Interfaces
 
 The public API is declared in [`packages/clientvm/src/types.ts`](../packages/clientvm/src/types.ts)
-and implemented by `createClientVM()` in [`controller.ts`](../packages/clientvm/src/controller.ts). Changes to that file must update this page and, if they
-affect decisions, CLAUDE.md.
+and implemented by `createClientVM()` in [`controller.ts`](../packages/clientvm/src/controller.ts). Changes to that file must update this page.
 
-## Refinements over the CLAUDE.md §6 sketch
+## Refinements over the original API sketch
 
 | Change | Why |
 |---|---|
 | `InstanceId` and `SnapshotId` are branded strings | Prevents mixing ids with names or paths at compile time |
 | Added `Disposable`, `Signal`, `ProcessType`, `FileTree`, `Limits`, `InstanceInfo`, `DirEntry`, `Stat`, `FsEvent`, `MountSource`, `SpawnOptions`, `ExecOptions`, `ExecResult` | The sketch referenced them without defining them |
-| `ProcessType = 'js' \| 'builtin' \| 'wasi' \| 'vm'` | Reserves the future tiers (§2: no CPU emulator in v1, but keep the interface) |
+| `ProcessType = 'js' \| 'builtin' \| 'wasi' \| 'vm'` | Reserves the future tiers (there is no CPU emulator in v1, but the interface is kept) |
 | `Limits.quotaBytes`, `Limits.maxCpuMs` | Per-instance budgets from the security model |
 | `ExecOptions.timeoutMs`, `ExecOptions.stdin` | Agents need bounded, non-interactive exec |
 | `MountSource` is a union of instance-dir and snapshot mounts | Mounting needs a source and a read-only flag that a capability can check |

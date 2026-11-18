@@ -1,7 +1,7 @@
 # ADR 0013: WebAssembly stand-ins for native toolchain packages
 
 - **Status:** accepted (2026-10-21); extended to rolldown and lightningcss (2026-10-22) and Tailwind's oxide (2026-10-22)
-- **Context:** Native addons and binaries are a v1 non-goal (CLAUDE.md §3). The golden template
+- **Context:** Native addons and binaries are a v1 non-goal. The golden template
   is a stock Vite + React project, and Vite depends on two native packages:
   - **esbuild:** a Go binary, spawned as a child process.
   - **rollup:** a Rust addon, loaded with `require('…/rollup.linux-x64-gnu.node')`.

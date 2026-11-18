@@ -5,7 +5,7 @@
   the user starts, its output while it runs, and how it ended (docs/terminal-plan.md). Only the
   caller of `spawn` saw a process's output, and `exec` ran through the kernel's `run` method,
   which returned all output at exit. Terminal emulators (xterm.js) are large and their choice
-  belongs to the host app; core packages have no runtime dependencies (CLAUDE.md §5).
+  belongs to the host app, and core packages have no runtime dependencies.
 - **Decision:**
   - `Instance.onProcess(cb)` reports `spawn` (pid, argv, cwd, tag, start time), `output` (fd 1
     or 2, bytes) and `exit` (code, signal, exit time) for processes started with `spawn` or

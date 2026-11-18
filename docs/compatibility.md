@@ -75,7 +75,7 @@ Status legend: **none** = not implemented · **partial** = subset, see gaps · *
 | Linux commands | partial | See [Commands](#commands) |
 | `npm` / `npx` | partial | npm 11.6.1, unmodified, fetched and integrity-checked on first use (ADR 0012). Tested in e2e: `init`, `pkg`, `install` from the public registry (110-package tree), `ci`, `ls`, `run`, lifecycle scripts, bin links, `npx`. Registry traffic is CORS `fetch` (the registry allows it). Not yet tested: git dependencies, private registries with auth, `npm publish` |
 | `pnpm` / `pnpx` | partial | pnpm 10.34.7, unmodified, fetched and integrity-checked on first use (as npm, ADR 0012). Tested in e2e: `init`, `add`, the content-addressed store and `.pnpm` symlink layout, `install --frozen-lockfile`, `run`, `exec`, `pnpx`, workspaces with `workspace:*` and `--filter` |
-| npm packages | partial | `test/e2e/smoke.spec.ts` installs 50 popular pure-JavaScript packages with npm and loads each (require or import) with a functional check: React, Express, Fastify, Koa, socket.io, axios, lodash, zod, TypeScript, Sass, Vue, Svelte, three, GraphQL, cheerio and others. Packages with native addons are out of scope (§3) |
+| npm packages | partial | `test/e2e/smoke.spec.ts` installs 50 popular pure-JavaScript packages with npm and loads each (require or import) with a functional check: React, Express, Fastify, Koa, socket.io, axios, lodash, zod, TypeScript, Sass, Vue, Svelte, three, GraphQL, cheerio and others. Packages with native addons are out of scope for v1 |
 
 ## Node's own tests
 

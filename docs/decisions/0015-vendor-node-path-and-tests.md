@@ -2,7 +2,7 @@
 
 - **Status:** accepted (2026-10-21)
 - **Context:**
-  - CLAUDE.md §9 asks for a ported subset of Node's own `test/parallel` suite run against the
+  - The quality bar for ClientVM includes a ported subset of Node's own `test/parallel` suite run against the
     compat layer.
   - Seeded fuzzing (5b) of `path.win32` against Node 24.11 kept finding divergences in edge
     cases: reserved device names, the CVE-2024-36139 drive-letter guard, and UNC roots. Each

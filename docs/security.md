@@ -135,7 +135,7 @@ rebuilt.
 
 ## Review status
 
-Before any 1.0 claim (CLAUDE.md §9) the sandbox boundary needs an independent review.
+Before ClientVM is called 1.0, the sandbox boundary needs an independent review.
 [security-review.md](security-review.md) is the checklist for it, with what has been verified so
 far and how.
 
