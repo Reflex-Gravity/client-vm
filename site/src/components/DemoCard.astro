@@ -1,0 +1,138 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// A demo's card, linking to its page. The poster is a screenshot of the demo
+// running (public/demos/<slug>.webp, from scripts/screenshot-demos.ts) when one
+// exists, or else a small terminal showing the demo's first "try" chip.
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Demo } from '../demos/catalog.ts';
+
+interface Props {
+  demo: Demo;
+  /** h2 on the gallery, h3 where the card sits under a section heading. */
+  level?: 2 | 3;
+}
+const { demo, level = 3 } = Astro.props;
+const Heading = `h${level}`;
+const poster = `/demos/${demo.slug}.webp`;
+const hasPoster = existsSync(join(process.cwd(), 'public', poster));
+const first = demo.triggers[0];
+const line = first?.command ?? (first?.tool ? `${first.tool.name}(…)` : demo.start);
+---
+
+<a class="demo-card" href={`/demos/${demo.slug}/`}>
+  <div class="poster" aria-hidden="true">
+    {
+      hasPoster ? (
+        <img src={poster} alt="" width="640" height="400" loading="lazy" decoding="async" />
+      ) : (
+        <div class="mock">
+          <span class="dim">{demo.name.toLowerCase()} · ~/app</span>
+          <span>
+            <span class="prompt">{first?.tool ? 'agent ▸ ' : '$ '}</span>
+            {line}
+          </span>
+          <span>
+            <span class="cursor" />
+          </span>
+        </div>
+      )
+    }
+  </div>
+  <div class="body">
+    <p class="cat">{demo.category}</p>
+    <Heading class="name">{demo.name}</Heading>
+    <p class="summary">{demo.summary}</p>
+    <ul class="chips" aria-label="Built with">
+      {demo.builtWith.map((b) => <li>{b}</li>)}
+    </ul>
+  </div>
+</a>
+
+<style>
+  .demo-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: inherit;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .demo-card:hover {
+    background: var(--surface);
+  }
+  .poster {
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(circle, #ffffff0d 1px, transparent 1.5px) 0 0 / 16px 16px,
+      var(--term-bg);
+  }
+  .poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+  }
+  .mock {
+    display: flex;
+    flex-direction: column;
+    padding: 18px 20px;
+    overflow: hidden;
+    color: var(--text);
+    font: 12.5px/1.8 var(--mono);
+    overflow-wrap: anywhere;
+  }
+  .dim {
+    color: var(--dim);
+  }
+  .prompt {
+    color: var(--accent);
+  }
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 15px;
+    vertical-align: -3px;
+    background: var(--accent);
+  }
+  .body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+    padding: 22px 24px 24px;
+  }
+  .cat {
+    margin: 0;
+    color: var(--accent);
+    font: 11px var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .name {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: -0.01em;
+  }
+  .summary {
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: auto 0 0;
+    padding: 8px 0 0;
+    list-style: none;
+  }
+  .chips li {
+    padding: 2px 8px;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    font: 11px var(--mono);
+  }
+</style>

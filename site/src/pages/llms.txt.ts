@@ -3,6 +3,7 @@
 // know before integrating it, and every doc as markdown, grouped as the sidebar is.
 import { REPO, SITE, hero } from '../content/landing.ts';
 import { docSections } from '../lib/doc-index.ts';
+import { DEMOS } from '../demos/catalog.ts';
 
 export async function GET(): Promise<Response> {
   const sections = await docSections();
@@ -24,6 +25,10 @@ export async function GET(): Promise<Response> {
     '- Keep model API keys on a server; relay tool calls to the page that owns the ClientVM.',
     '',
     ...sections.flatMap((s) => [`## ${s.label}`, '', ...s.docs.map(item), '']),
+    '## Demos',
+    '',
+    ...DEMOS.map((d) => `- [${d.name}](${SITE}/demos/${d.slug}.md): ${d.summary}`),
+    '',
     '## Optional',
     '',
     ...(sections.find((s) => s.records)?.records ?? []).map(item),

@@ -179,12 +179,75 @@ test('site: the shell example boots without an install and its chips drive bash'
   await expect(page.locator('[data-demo-status]')).toHaveText('idle');
 });
 
+test('site: a failed boot offers Retry, and the preview toolbar follows open ports', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  // The sandbox origin is unreachable, so the instance cannot boot.
+  const sandbox = /\.localhost:\d+\//;
+  await page.route(sandbox, (route) => route.abort());
+  await page.goto(SITE);
+  await page.getByRole('button', { name: /Shell & Node/ }).click();
+  await page.getByRole('button', { name: 'Start a bash shell' }).click();
+  await expect(page.locator('[data-demo-note-title]')).toHaveText('The sandbox failed to boot', {
+    timeout: 60_000,
+  });
+  await expect(page.locator('[data-demo-note]')).toContainText('Retrying is usually worth it');
+  const retry = page.locator('[data-demo-overlay] [data-demo-retry]');
+  await expect(retry).toBeVisible();
+
+  // With the sandbox back, Retry boots the same demo.
+  await page.unroute(sandbox);
+  await retry.click();
+  await expect(page.locator('[data-demo-status]')).toContainText('bash ready', {
+    timeout: 30_000,
+  });
+  await expect(page.locator('[data-demo-note-title]')).toBeHidden();
+  // Until the visitor uses the terminal, it says it is a real one.
+  const hint = page.locator('[data-demo-term-hint]');
+  await expect(hint).toBeVisible();
+  await page.locator('[data-demo-term]').click();
+  await expect(hint).toBeHidden();
+
+  // One server: its port shows, with no picker.
+  const ports = page.locator('[data-demo-ports]');
+  await page.getByRole('button', { name: 'serve in background' }).click();
+  const app = page.frameLocator('[data-demo-preview]');
+  await expect(app.locator('h1')).toHaveText('Sales by region', { timeout: 30_000 });
+  await expect(page.locator('[data-demo-port]')).toHaveText('● port 8080');
+  await expect(ports).toBeHidden();
+
+  // A second server opens a second port; the picker switches between them.
+  await page.locator('[data-demo-term]').click();
+  await page.keyboard.type(
+    `node -e "require('http').createServer((q, s) => s.end('<h1>second</h1>')).listen(9090)" &`,
+  );
+  await page.keyboard.press('Enter');
+  await expect(ports).toBeVisible({ timeout: 30_000 });
+  await expect(ports).toHaveValue('9090');
+  await expect(app.locator('h1')).toHaveText('second', { timeout: 15_000 });
+  await ports.selectOption('8080');
+  await expect(app.locator('h1')).toHaveText('Sales by region', { timeout: 15_000 });
+
+  // Full-size preview hides the terminal and editor; Escape brings them back.
+  await page.locator('[data-demo-expand]').click();
+  await expect(page.locator('[data-demo-term]')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-demo-term]')).toBeVisible();
+
+  await page.getByRole('button', { name: 'reset', exact: true }).click();
+  await expect(page.locator('[data-demo-status]')).toHaveText('idle');
+});
+
 test('site: browsers without Chromium get an explanation instead of the demo', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => undefined });
   });
   await page.goto(SITE);
+  await expect(page.locator('[data-demo-note-title]')).toHaveText('Unsupported browser');
   await expect(page.locator('[data-demo-note]')).toContainText('Chromium-based browser');
+  // There is nothing to retry: the browser cannot run it.
+  await expect(page.locator('[data-demo-overlay] [data-demo-retry]')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Start an Express app' })).toBeHidden();
 });
 
@@ -252,4 +315,261 @@ test('site: the quickstart shows its steps in order and the docs stay on the sit
   const md = await page.request.get(new URL('docs/hosting.md', SITE).href);
   expect(md.headers()['content-type']).toContain('text/markdown');
   expect(await md.text()).toContain('## Why subdomains');
+});
+
+test('site: the demos gallery links every demo to a page that runs it', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto(`${SITE}demos/`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runs in this tab.');
+  const cards = page.locator('.demo-card');
+  await expect(cards).toHaveCount(6);
+  await cards.filter({ hasText: 'Shell & Node' }).click();
+  await expect(page).toHaveURL(/\/demos\/shell\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Shell & Node');
+  // One demo, so no picker; it starts as on the landing page.
+  await expect(page.locator('[data-demo-picker]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Start a bash shell' }).click();
+  await expect(page.locator('[data-demo-status]')).toContainText('bash ready', {
+    timeout: 30_000,
+  });
+  await page.getByRole('button', { name: 'versions' }).click();
+  await expect(page.locator('[data-demo-term] .xterm-rows')).toContainText(/v24\.\d+/, {
+    timeout: 15_000,
+  });
+  // The page's own copy, and three more demos.
+  await expect(page.getByRole('heading', { name: "How it's built" })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View source ↗' })).toHaveAttribute(
+    'href',
+    /\/blob\/main\/site\/src\/demos\/shell\.ts$/,
+  );
+  await expect(page.locator('.demo-card')).toHaveCount(3);
+
+  // Agents get the gallery and each demo as markdown, also from llms.txt.
+  const gallery = await (await page.request.get(`${SITE}demos.md`)).text();
+  expect(gallery).toContain('/demos/agent-drives-preview.md');
+  const one = await page.request.get(`${SITE}demos/shell.md`);
+  expect(one.headers()['content-type']).toContain('text/markdown');
+  expect(await one.text()).toContain("## How it's built");
+  expect(await (await page.request.get(`${SITE}llms.txt`)).text()).toContain('## Demos');
+});
+
+test('site: the homepage links its facts, the other demos and the playground', async ({ page }) => {
+  await page.goto(SITE);
+  const nav = page.getByRole('navigation').first();
+  await expect(nav.getByRole('link', { name: 'Demos' })).toHaveAttribute('href', '/demos/');
+  await expect(nav.getByRole('link', { name: 'Playground' })).toHaveAttribute('href', '/play/');
+  // Every fact links to its evidence.
+  const facts = page.getByRole('region', { name: 'ClientVM in numbers' }).getByRole('link');
+  await expect(facts).toHaveCount(4);
+  for (const href of await facts.evaluateAll((as) => as.map((a) => a.getAttribute('href'))))
+    expect(href).toBeTruthy();
+  // The live demo points to the rest, and the band shows the ones it does not offer.
+  await expect(page.locator('#demo').getByRole('link', { name: 'More demos →' })).toHaveAttribute(
+    'href',
+    '/demos/',
+  );
+  const band = page.locator('#demos');
+  await expect(
+    band.locator('a[href^="/demos/"]').filter({ hasText: 'WebSocket chat' }),
+  ).toBeVisible();
+  await expect(band.getByText('Todo app')).toHaveCount(0);
+  // The footer's columns.
+  for (const title of ['Product', 'Developers', 'Project'])
+    await expect(page.getByRole('navigation', { name: title })).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Product' })
+    .getByRole('link', { name: 'Playground' })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeVisible();
+});
+
+test('site: the playground boots a template with a file tree, terminals and a preview', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const requests: string[] = [];
+  page.on('request', (r) => requests.push(r.url()));
+  await page.goto(`${SITE}play/`);
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeVisible();
+  await page.waitForTimeout(500);
+  // Nothing of ClientVM, xterm.js or the sandbox before a template is picked.
+  expect(requests.filter((u) => /\/run\.[^/]*\.js|jsdelivr|\.localhost:/.test(u))).toEqual([]);
+
+  // Every template is in the picker; the side panel holds only files.
+  await expect(page.locator('.card-btn')).toHaveCount(6);
+  await expect(page.locator('[data-side] .card-btn, [data-side] .template')).toHaveCount(0);
+  await page.locator('.card-btn', { hasText: 'Shell & Node' }).click();
+  await expect(page).toHaveURL(/\?template=shell$/);
+  await expect(page.locator('[data-play-current]')).toHaveText('Shell & Node');
+  await expect(page.locator('[data-play-status]')).toContainText('bash ready', {
+    timeout: 30_000,
+  });
+  // The tree lists the project; a file opens in the editor.
+  const tree = page.locator('[data-play-tree]');
+  await expect(tree.getByRole('button', { name: 'sales.csv', exact: true })).toBeVisible();
+  await tree.getByRole('button', { name: 'fib.js', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'fib.js' })).toHaveAttribute('aria-selected', 'true');
+  await expect(tree.getByRole('button', { name: 'fib.js', exact: true })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+
+  // A file made in bash shows up in the tree.
+  const term1 = page.locator('[data-play-terms] .term').first();
+  await term1.click();
+  await page.keyboard.type('mkdir -p notes && echo hi > notes/todo.txt');
+  await page.keyboard.press('Enter');
+  await expect(tree.getByRole('button', { name: 'todo.txt', exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+  // Folders fold.
+  await tree.getByRole('button', { name: 'notes', exact: true }).click();
+  await expect(tree.getByRole('button', { name: 'todo.txt', exact: true })).toHaveCount(0);
+  await tree.getByRole('button', { name: 'notes', exact: true }).click();
+  await expect(tree.getByRole('button', { name: 'todo.txt', exact: true })).toBeVisible();
+
+  // A second terminal runs its own bash while a server keeps running in the first.
+  await page.getByRole('button', { name: 'serve in background' }).click();
+  const app = page.frameLocator('[data-play-preview]');
+  await expect(app.locator('h1')).toHaveText('Sales by region', { timeout: 30_000 });
+  await page.getByRole('button', { name: '+ new terminal' }).click();
+  await expect(page.getByRole('tab', { name: 'bash 2' })).toHaveAttribute('aria-selected', 'true');
+  const term2 = page.locator('[data-play-terms] .term').nth(1);
+  await expect(term2.locator('.xterm-rows')).toContainText('user@clientvm', { timeout: 15_000 });
+  await page.keyboard.type('curl -s localhost:8080/api/summary');
+  await page.keyboard.press('Enter');
+  await expect(term2.locator('.xterm-rows')).toContainText('"north":650', { timeout: 15_000 });
+  // A "try" chip types into the terminal in front, not the first one.
+  await page.getByRole('button', { name: '$ versions' }).click();
+  await expect(page.getByRole('tab', { name: 'bash 2' })).toHaveAttribute('aria-selected', 'true');
+  await expect(term2.locator('.xterm-rows')).toContainText('uname -sr', { timeout: 15_000 });
+  await expect(term1.locator('.xterm-rows')).not.toContainText('uname -sr');
+
+  // Delete from the tree: the file goes from the tree and its tab closes.
+  page.once('dialog', (d) => void d.accept());
+  await tree.getByRole('button', { name: 'delete fib.js' }).click({ force: true });
+  await expect(tree.getByRole('button', { name: 'fib.js', exact: true })).toHaveCount(0, {
+    timeout: 10_000,
+  });
+  await expect(page.getByRole('tab', { name: 'fib.js' })).toHaveCount(0);
+
+  // The panes resize from the keyboard.
+  const side = page.getByRole('separator', { name: 'Resize the side panel' });
+  const before = (await page.locator('[data-side]').boundingBox())!.width;
+  await side.focus();
+  await page.keyboard.press('Shift+ArrowRight');
+  expect((await page.locator('[data-side]').boundingBox())!.width).toBeGreaterThan(before);
+
+  // An edit makes leaving ask first; switching templates asks too.
+  await tree.getByRole('button', { name: 'README.md', exact: true }).click();
+  await page.locator('[data-editor-input]').press('End');
+  await page.keyboard.type(' edited');
+  await page.locator('[data-play-switch]').click();
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeVisible();
+  page.once('dialog', (d) => {
+    expect(d.message()).toContain('Your changes will be lost');
+    void d.dismiss();
+  });
+  await page.locator('.card-btn', { hasText: 'Express server' }).click();
+  await expect(page).toHaveURL(/\?template=shell$/);
+  // Escape goes back to the running project.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeHidden();
+});
+
+test('site: a demo page opens its project in the playground', async ({ page }) => {
+  await page.goto(`${SITE}demos/websocket-chat/`);
+  await page.getByRole('link', { name: 'Open in the playground' }).click();
+  await expect(page).toHaveURL(/\/play\/\?template=websocket-chat$/);
+  // It boots straight away: no start screen.
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeHidden();
+  await expect(page.locator('[data-play-current]')).toHaveText('WebSocket chat');
+});
+
+test('site: the playground shows the chat to two clients at once', async ({ page }) => {
+  // npm installs Express and ws from the registry.
+  test.setTimeout(240_000);
+  await page.goto(`${SITE}play/?template=websocket-chat`);
+  const one = page.frameLocator('[data-play-preview]');
+  await expect(one.locator('#state')).toHaveText('connected over a WebSocket', {
+    timeout: 180_000,
+  });
+  await page.getByRole('button', { name: '2 clients' }).click();
+  const two = page.frameLocator('[data-play-preview-2]');
+  await expect(two.locator('#state')).toHaveText('connected over a WebSocket', {
+    timeout: 15_000,
+  });
+  await one.locator('#msg').fill('hi from one');
+  await one.locator('#msg').press('Enter');
+  await expect(two.locator('#log')).toContainText('page: hi from one', { timeout: 10_000 });
+});
+
+test('site: the Tailwind demo picks up a new class while Vite 8 runs', async ({ page }) => {
+  // npm installs Vite 8 and Tailwind 4, and the WebAssembly stand-ins download.
+  test.setTimeout(300_000);
+  await page.goto(`${SITE}demos/vite8-tailwind/`);
+  await page.getByRole('button', { name: 'Start Vite 8 with Tailwind' }).click();
+  await expect(page.locator('[data-demo-status]')).toContainText('port 5173', {
+    timeout: 240_000,
+  });
+  const app = page.frameLocator('[data-demo-preview]');
+  await expect(app.locator('#title')).toHaveText('Hello from Tailwind', { timeout: 30_000 });
+  const bg = () => app.locator('#count').evaluate((el) => getComputedStyle(el).backgroundColor);
+  const before = await bg();
+  // A utility the page did not use before: the scanner finds it, Vite updates the CSS.
+  await page.getByRole('button', { name: 'swap the colour' }).click();
+  await expect.poll(bg, { timeout: 30_000 }).not.toBe(before);
+});
+
+test('site: the chat demo talks over a WebSocket, and bash joins in', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.goto(`${SITE}demos/websocket-chat/`);
+  await page.getByRole('button', { name: 'Start the chat server' }).click();
+  const app = page.frameLocator('[data-demo-preview]');
+  await expect(app.locator('#state')).toHaveText('connected over a WebSocket', {
+    timeout: 200_000,
+  });
+  await app.locator('#msg').fill('hi from the page');
+  await app.locator('#msg').press('Enter');
+  await expect(app.locator('li', { hasText: 'page: hi from the page' })).toBeVisible();
+  await page.getByRole('button', { name: 'say from bash' }).click();
+  await expect(app.locator('li', { hasText: 'bash: hello from bash' })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.locator('[data-demo-term] .xterm-rows')).toContainText(
+    'chat: bash: hello from bash',
+  );
+});
+
+test('site: the agent demo drives the preview with agent tool calls', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto(`${SITE}demos/agent-drives-preview/`);
+  await page.getByRole('button', { name: 'Start the app for the agent' }).click();
+  await expect(page.locator('[data-demo-status]')).toContainText('port 5050', {
+    timeout: 60_000,
+  });
+  const term = page.locator('[data-demo-term] .xterm-rows');
+
+  // The model's view of the page: an outline with element refs.
+  await page.getByRole('button', { name: 'read the page' }).click();
+  await expect(term).toContainText('agent ▸ preview_snapshot');
+  await expect(term).toContainText(/\[ref=e\d+\]/, { timeout: 30_000 });
+
+  // The agent's own preview is the one on show, so its clicks are visible.
+  const app = page.frameLocator('[data-demo-agent-preview] iframe');
+  await page.getByRole('button', { name: 'click “Add item”' }).click();
+  await expect(app.locator('#status')).toHaveText('1 items', { timeout: 15_000 });
+  await page.getByRole('button', { name: 'fill the form' }).click();
+  await expect(app.locator('#status')).toHaveText('hello Ada', { timeout: 15_000 });
+  await page.getByRole('button', { name: 'read the console' }).click();
+  await expect(term).toContainText('submitted', { timeout: 15_000 });
+
+  // An edit to the project shows on the next load.
+  await page.getByRole('button', { name: 'edit index.html' }).click();
+  await expect(term).toContainText('agent ▸ edit_file');
+  await page.getByRole('button', { name: 'reload and read' }).click();
+  await expect(app.locator('h1')).toHaveText('Edited by the agent', { timeout: 30_000 });
+
+  await page.getByRole('button', { name: 'reset', exact: true }).click();
+  await expect(page.locator('[data-demo-agent-preview] iframe')).toHaveCount(0);
 });

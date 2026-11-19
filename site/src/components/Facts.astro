@@ -1,0 +1,65 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// Facts under the hero, each a link to its evidence, in place of the logos
+// and user counts a pre-1.0 project does not have.
+import { facts } from '../content/landing.ts';
+---
+
+<section class="facts" aria-label="ClientVM in numbers">
+  <div class="wrap">
+    <ul class="grid list">
+      {
+        facts.map((f) => (
+          <li>
+            <a href={f.href}>
+              <span class="value">{f.value}</span>
+              <span class="label">{f.label}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .facts {
+    padding-block: 0 !important;
+  }
+  .list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    border-block: 0;
+    list-style: none;
+  }
+  a {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    height: 100%;
+    padding: 22px 24px;
+    background: var(--bg);
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  a:hover {
+    background: var(--surface);
+  }
+  .value {
+    color: var(--text);
+    font: 500 20px var(--mono);
+  }
+  .label {
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+  a:hover .label {
+    color: var(--text);
+  }
+  @media (max-width: 860px) {
+    .list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+</style>

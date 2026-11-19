@@ -1,0 +1,1002 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// /play/: a playground. Pick a template (a demo's project), then edit it with
+// a file tree, an editor, terminals and a preview, all on one instance in this
+// tab. Nothing of ClientVM loads until a template is picked (src/play/play.ts).
+import Base from '../../layouts/Base.astro';
+import Nav from '../../components/Nav.astro';
+import XtermImportMap from '../../components/XtermImportMap.astro';
+import { DEMOS } from '../../demos/catalog.ts';
+import { SITE } from '../../content/landing.ts';
+import { homeGraph } from '../../lib/seo.ts';
+
+const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', ready: 'ready' };
+---
+
+<Base
+  title="Playground: edit and run a project in your browser tab"
+  description="A ClientVM playground: pick a template, then edit it with a file tree, an editor, real bash terminals and a live preview, all running in your browser tab."
+  jsonLd={[
+    ...homeGraph(),
+    {
+      '@type': 'WebApplication',
+      '@id': `${SITE}/play/#app`,
+      url: `${SITE}/play/`,
+      name: 'ClientVM playground',
+      applicationCategory: 'DeveloperApplication',
+      browserRequirements: 'Chromium 137 or later',
+      isPartOf: { '@id': `${SITE}/#website` },
+    },
+  ]}
+>
+  <XtermImportMap slot="head" />
+  <Nav />
+  <div class="play" data-play>
+    <header class="toolbar">
+      <button
+        type="button"
+        class="switcher"
+        data-play-switch
+        aria-haspopup="dialog"
+        aria-controls="play-picker"
+        title="Change template"
+      >
+        <span class="sw-label">template</span>
+        <span class="sw-name" data-play-current>none yet</span>
+        <span class="sw-tag" data-play-current-tag></span>
+        <span class="sw-cta">change ▾</span>
+      </button>
+      <a class="tb-link" data-play-about hidden>about this demo</a>
+      <a class="tb-link all" href="/demos/">all demos →</a>
+    </header>
+
+    <aside class="side" data-side aria-label="Files">
+      <div class="files-head">
+        <h2 class="side-h">Files <span class="root" data-play-root></span></h2>
+        <button
+          type="button"
+          class="mini"
+          data-play-new-file
+          title="New file in the project"
+          aria-label="New file"
+          disabled>+ file</button
+        >
+      </div>
+      <ul class="tree" data-play-tree aria-label="Project files"></ul>
+      <p class="tree-empty" data-play-tree-empty>
+        The project's files show here once you pick a template.
+      </p>
+      <p class="tree-help" data-play-tree-help hidden>
+        Click a file to edit it. Changes save as you type; files made in the terminal show up
+        here.
+      </p>
+    </aside>
+
+    <div
+      class="handle v"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the side panel"
+      tabindex="0"
+      data-split="side"
+    >
+    </div>
+
+    <section class="work" data-work>
+      <div class="left">
+        <div class="pane editor-pane">
+          <div class="pane-bar">
+            <span class="pane-title">editor</span>
+            <span class="hint" data-editor-state aria-live="polite"></span>
+          </div>
+          <div class="editor" data-editor>
+            <div class="file-tabs" role="tablist" aria-label="Open files" data-editor-tabs></div>
+            <div class="code" data-editor-code hidden>
+              <pre class="gutter" aria-hidden="true" data-editor-gutter></pre>
+              <div class="area">
+                <pre class="hl" aria-hidden="true" data-editor-hl></pre>
+                <textarea
+                  data-editor-input
+                  spellcheck="false"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  wrap="off"
+                  aria-describedby="play-editor-help"></textarea>
+              </div>
+            </div>
+            <p class="placeholder" data-editor-empty>Open a file from the tree.</p>
+            <p class="visually-hidden" id="play-editor-help">
+              Changes save as you type. Press Escape, then Tab, to leave the editor.
+            </p>
+          </div>
+        </div>
+
+        <div
+          class="handle h"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the terminal"
+          tabindex="0"
+          data-split="term"
+        >
+        </div>
+
+        <div class="pane term-pane">
+          <div class="pane-bar term-bar">
+            <div class="term-tabs" role="tablist" aria-label="Terminals" data-play-term-tabs></div>
+            <button type="button" class="mini" data-play-new-term disabled>+ new terminal</button>
+          </div>
+          {
+            DEMOS.map((d) => (
+              <div class="chips" data-play-chips={d.slug} hidden>
+                <span class="chips-label" aria-hidden="true">
+                  try
+                </span>
+                {d.triggers.map((t) => (
+                  <button
+                    type="button"
+                    class:list={['chip', { 'tool-chip': t.tool }]}
+                    data-play-try={t.command}
+                    data-play-tool={t.tool ? JSON.stringify(t.tool) : undefined}
+                    title={t.command ?? (t.tool && t.tool.name)}
+                    disabled
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            ))
+          }
+          <div class="terms" data-play-terms></div>
+        </div>
+      </div>
+
+      <div
+        class="handle v"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the preview"
+        tabindex="0"
+        data-split="left"
+      >
+      </div>
+
+      <div class="pane preview-pane">
+        <div class="pane-bar">
+          <span class="pane-title">preview</span>
+          <span class="preview-tools">
+            <select class="ports" data-play-ports aria-label="Port to preview" hidden></select>
+            <span class="status" data-play-port></span>
+            <button
+              type="button"
+              class="mini"
+              data-play-twin
+              aria-pressed="false"
+              title="Open a second, separate client of the same page, to see what each session gets"
+              disabled>2 clients</button
+            >
+            <button
+              type="button"
+              class="tool"
+              data-play-reload
+              title="Reload the preview"
+              aria-label="Reload the preview"
+              disabled>↻</button
+            >
+          </span>
+        </div>
+        <div class="preview-body" data-play-preview-body>
+          <div class="frame">
+            <span class="frame-label" aria-hidden="true">client 1</span>
+            <iframe data-play-preview title="Preview of the project's server"></iframe>
+          </div>
+          <div class="frame" data-play-twin-frame hidden>
+            <span class="frame-label" aria-hidden="true">client 2</span>
+            <iframe data-play-preview-2 title="A second client of the project's server"></iframe>
+          </div>
+          <div class="agent-preview" data-play-agent-preview></div>
+          <p class="empty" data-play-empty>
+            The page the project serves shows here. Start a server in any terminal and it opens
+            on its own.
+          </p>
+        </div>
+      </div>
+
+      <div class="overlay" data-play-overlay>
+        <div
+          class="start"
+          id="play-picker"
+          role="dialog"
+          aria-labelledby="play-picker-h"
+          data-play-start
+        >
+          <div class="start-head">
+            <div>
+              <p class="eyebrow"><span>playground</span></p>
+              <h1 id="play-picker-h">Pick a template.</h1>
+            </div>
+            <button
+              type="button"
+              class="mini close"
+              data-play-close
+              aria-label="Close the template picker"
+              hidden>✕ back to <span data-play-close-name></span></button
+            >
+          </div>
+          <p class="lede">
+            A template is a starter project. It boots in this tab with its files, an editor,
+            real bash terminals and a live preview. Nothing leaves your browser.
+          </p>
+          <div class="cards">
+            {
+              DEMOS.map((d) => (
+                <button type="button" class="card-btn" data-play-template={d.slug}>
+                  <span class="c-cat">{d.category}</span>
+                  <span class="c-name">{d.name}</span>
+                  <span class="c-sum">{d.summary}</span>
+                  <span class="c-tag">{d.tag}</span>
+                </button>
+              ))
+            }
+          </div>
+          <p class="more" data-play-switch-note hidden>
+            Switching starts a fresh copy of the new template; edits to this one are lost.
+          </p>
+        </div>
+        <div class="fail" data-play-fail hidden>
+          <p class="fail-title" data-play-fail-title></p>
+          <p class="fail-note" data-play-fail-note></p>
+          <button type="button" class="btn primary" data-play-retry hidden>Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="bar">
+      <ol class="steps" aria-label="Setup" data-play-steps>
+        {
+          Object.entries(STEP_LABELS).map(([step, label]) => (
+            <li data-step={step} class="skip">
+              <i aria-hidden="true" />
+              {label}
+            </li>
+          ))
+        }
+      </ol>
+      <p class="statusline" aria-live="polite"><span data-play-status>idle</span></p>
+    </footer>
+  </div>
+</Base>
+
+<script>
+  import '../../play/play.ts';
+</script>
+
+<style>
+  [hidden] {
+    display: none !important;
+  }
+  .play {
+    --side: 240px;
+    --left: 55%;
+    --term: 42%;
+    display: grid;
+    grid-template-columns: var(--side) 6px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: calc(100vh - 57px);
+    min-height: 520px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- toolbar: which template is running ---- */
+  .toolbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .switcher {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    padding: 5px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .switcher:hover:not([disabled]) {
+    border-color: var(--accent);
+  }
+  .switcher[disabled] {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .sw-label {
+    color: var(--dim);
+    font: 11px var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .sw-name {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .sw-tag {
+    overflow: hidden;
+    color: var(--dim);
+    font: 11.5px var(--mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .sw-cta {
+    color: var(--accent);
+    font: 11.5px var(--mono);
+    white-space: nowrap;
+  }
+  .tb-link {
+    color: var(--muted);
+    font: 12px var(--mono);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .tb-link:hover {
+    color: var(--text);
+  }
+  .tb-link.all {
+    margin-left: auto;
+    color: var(--accent);
+  }
+
+  /* ---- side panel: the project's files ---- */
+  .side {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: auto;
+    padding: 12px 10px;
+    background: var(--surface);
+  }
+  .side-h {
+    margin: 0 6px 8px;
+    color: var(--muted);
+    font: 500 11px var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .root {
+    color: var(--dim);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .tree {
+    margin: 0 0 14px;
+    padding: 0;
+    list-style: none;
+  }
+  .files-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-right: 6px;
+  }
+  .tree {
+    font: 12.5px/1.5 var(--mono);
+  }
+  .tree :global(ul) {
+    margin: 0;
+    padding-left: 12px;
+    list-style: none;
+  }
+  .tree :global(.row) {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .tree :global(.node) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding: 2px 6px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .tree :global(.node:hover) {
+    color: var(--text);
+  }
+  .tree :global(.dir) {
+    color: var(--dim);
+  }
+  .tree :global(.node.active) {
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  /* Faded rather than hidden, so keyboards and screen readers still reach them. */
+  .tree :global(.act) {
+    opacity: 0;
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    cursor: pointer;
+  }
+  .tree :global(.row:hover .act),
+  .tree :global(.act:focus-visible) {
+    opacity: 1;
+  }
+  .tree :global(.act:hover) {
+    color: var(--text);
+  }
+  .tree-empty,
+  .tree-help {
+    margin: 0 6px 14px;
+    color: var(--dim);
+    font: 12px/1.5 var(--mono);
+  }
+  .tree-help {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- resizable panes ---- */
+  .handle {
+    background: var(--line);
+    outline-offset: -2px;
+  }
+  .handle.v {
+    cursor: col-resize;
+  }
+  .handle.h {
+    cursor: row-resize;
+  }
+  .handle:hover,
+  .handle:focus-visible,
+  .handle[data-dragging] {
+    background: var(--accent);
+  }
+  .work {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--left) 6px minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+  }
+  .left {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) 6px var(--term);
+    min-width: 0;
+    min-height: 0;
+  }
+  .pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--term-bg);
+  }
+  .pane-bar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    height: 34px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .pane-title {
+    color: var(--muted);
+    font: 12px var(--mono);
+  }
+  .hint {
+    overflow: hidden;
+    color: var(--muted);
+    font: 12px var(--mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .mini {
+    padding: 2px 8px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted);
+    font: 11.5px var(--mono);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .mini:hover:not([disabled]) {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .mini[disabled] {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  /* ---- editor (the same markup as the demo's; src/demo/editor.ts) ---- */
+  .editor {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .file-tabs {
+    display: flex;
+    flex: none;
+    overflow-x: auto;
+    background: #09090c;
+    scrollbar-width: none;
+  }
+  .file-tabs:empty {
+    display: none;
+  }
+  .file-tabs :global(.file-tab) {
+    padding: 6px 14px;
+    border: 0;
+    border-right: 1px solid var(--line);
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font: 12px var(--mono);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .file-tabs :global(.file-tab[aria-selected='true']) {
+    background: var(--term-bg);
+    border-bottom-color: var(--accent);
+    color: var(--text);
+  }
+  .code {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    font: 13px/1.55 var(--mono);
+  }
+  .gutter {
+    flex: none;
+    min-width: 4ch;
+    margin: 0;
+    padding: 10px 10px 10px 12px;
+    border-right: 1px solid var(--line);
+    color: #4a4a52;
+    font: inherit;
+    text-align: right;
+    user-select: none;
+  }
+  .area {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .hl,
+  textarea {
+    margin: 0;
+    padding: 10px 14px;
+    font: inherit;
+    white-space: pre;
+    tab-size: 2;
+  }
+  .hl {
+    position: absolute;
+    top: 0;
+    left: 0;
+    min-width: 100%;
+    color: #c9d1d9;
+    pointer-events: none;
+  }
+  textarea {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    outline: none;
+    resize: none;
+    overflow: auto;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--accent);
+  }
+  .hl :global(.tk-kw) {
+    color: #c792ea;
+  }
+  .hl :global(.tk-str) {
+    color: #a8e6a1;
+  }
+  .hl :global(.tk-num),
+  .hl :global(.tk-lit) {
+    color: #f2c47a;
+  }
+  .hl :global(.tk-com) {
+    color: #5c5c66;
+    font-style: italic;
+  }
+  .hl :global(.tk-tag) {
+    color: #82aaff;
+  }
+  .hl :global(.tk-key) {
+    color: #89ddff;
+  }
+  .placeholder {
+    display: grid;
+    flex: 1;
+    place-content: center;
+    margin: 0;
+    color: var(--dim);
+    font: 13px var(--mono);
+  }
+
+  /* ---- terminals ---- */
+  .term-bar {
+    padding-left: 0;
+  }
+  .term-tabs {
+    display: flex;
+    align-self: stretch;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .term-tabs :global(.term-tab) {
+    padding: 0 14px;
+    border: 0;
+    border-right: 1px solid var(--line);
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font: 12px var(--mono);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .term-tabs :global(.term-tab[aria-selected='true']) {
+    border-bottom-color: var(--accent);
+    color: var(--text);
+  }
+  .chips {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+    background: #09090c;
+    scrollbar-width: none;
+  }
+  .chips-label {
+    color: var(--dim);
+    font: 11px var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .chip {
+    flex: none;
+    padding: 2px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: #ffffff05;
+    color: var(--text);
+    font: 11.5px var(--mono);
+    cursor: pointer;
+  }
+  .chip::before {
+    content: '$ ';
+    color: var(--accent);
+  }
+  .tool-chip::before {
+    content: 'agent ▸ ';
+    color: #7fd4e6;
+  }
+  .chip:hover:not([disabled]) {
+    border-color: var(--accent);
+  }
+  .chip[disabled] {
+    color: var(--dim);
+    cursor: default;
+  }
+  .terms {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+  .terms :global(.term) {
+    position: absolute;
+    inset: 8px 4px 8px 12px;
+  }
+
+  /* ---- preview ---- */
+  .preview-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ports {
+    padding: 1px 4px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font: 12px var(--mono);
+  }
+  .status {
+    color: var(--accent);
+    font: 12px var(--mono);
+  }
+  .tool {
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .tool[disabled] {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .preview-body {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+    min-height: 0;
+    background: var(--line);
+  }
+  .frame {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    background: var(--term-bg);
+  }
+  .frame-label {
+    display: none;
+  }
+  .preview-body.twin .frame-label {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 1;
+    display: block;
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    background: #000000b3;
+    color: #fff;
+    font: 11px var(--mono);
+    pointer-events: none;
+  }
+  iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #fff;
+  }
+  iframe:not([src]) {
+    display: none;
+  }
+  .mini[aria-pressed='true'] {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .agent-preview {
+    position: absolute;
+    inset: 0;
+  }
+  .agent-preview:empty {
+    display: none;
+  }
+  .agent-preview :global(iframe) {
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    margin: 0;
+    padding: 24px;
+    color: var(--dim);
+    font: 13px var(--mono);
+    text-align: center;
+  }
+
+  /* ---- start screen and failures, over the work area ---- */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    padding: 32px;
+    overflow: auto;
+    background:
+      radial-gradient(circle at center, #7be3b40f, transparent 50%),
+      #060608eb;
+  }
+  .start {
+    max-width: 880px;
+  }
+  .start-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .close {
+    margin-top: 4px;
+  }
+  .start h1 {
+    margin: 0;
+    font: 500 clamp(30px, 4vw, 44px) / 1.1 var(--display);
+  }
+  .lede {
+    max-width: 56ch;
+    margin: 12px 0 24px;
+    color: var(--muted);
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    border: 1px solid var(--line);
+    background: var(--line);
+  }
+  .card-btn {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 18px;
+    border: 0;
+    background: var(--bg);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .card-btn:hover {
+    background: var(--surface);
+  }
+  .c-cat {
+    color: var(--accent);
+    font: 11px var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .c-name {
+    font-weight: 500;
+  }
+  .c-sum {
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+  .c-tag {
+    margin-top: auto;
+    padding-top: 6px;
+    color: var(--dim);
+    font: 11px var(--mono);
+  }
+  .card-btn[aria-current='true'] {
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .more {
+    margin: 14px 0 0;
+    color: var(--dim);
+    font: 12px var(--mono);
+  }
+  .fail {
+    max-width: 52ch;
+    text-align: center;
+  }
+  .fail-title {
+    margin: 0 0 8px;
+    font: 500 20px var(--sans);
+  }
+  .fail-note {
+    margin: 0 0 18px;
+    color: var(--err);
+  }
+
+  /* ---- status bar ---- */
+  .bar {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 24px;
+    padding: 6px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .steps {
+    display: flex;
+    gap: 18px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--dim);
+    font: 12px var(--mono);
+  }
+  .steps li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .steps i {
+    width: 6px;
+    height: 6px;
+    background: currentColor;
+  }
+  .steps li.done {
+    color: var(--muted);
+  }
+  .steps li.done i,
+  .steps li.now i {
+    background: var(--accent);
+  }
+  .steps li.now {
+    color: var(--text);
+  }
+  .steps li.skip {
+    display: none;
+  }
+  .statusline {
+    margin: 0;
+    color: var(--muted);
+    font: 12px var(--mono);
+  }
+
+  @media (max-width: 900px) {
+    .play {
+      grid-template-columns: minmax(0, 1fr);
+      height: auto;
+    }
+    .sw-tag,
+    .tb-link[data-play-about] {
+      display: none;
+    }
+    .side {
+      max-height: 260px;
+    }
+    .handle {
+      display: none;
+    }
+    .work {
+      grid-template-columns: minmax(0, 1fr);
+      min-height: 1100px;
+    }
+    .left {
+      grid-template-rows: 380px 0 320px;
+    }
+    .preview-pane {
+      min-height: 400px;
+    }
+    .cards {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

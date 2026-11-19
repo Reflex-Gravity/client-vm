@@ -1,0 +1,228 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// /demos/<slug>/: one demo, live, with what it shows and how it's built.
+import { Code } from 'astro:components';
+import Base from '../../layouts/Base.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import Demo from '../../components/Demo.astro';
+import DemoCard from '../../components/DemoCard.astro';
+import XtermImportMap from '../../components/XtermImportMap.astro';
+import { DEMOS, type Demo as DemoEntry } from '../../demos/catalog.ts';
+import { SITE, doc } from '../../content/landing.ts';
+import { sourceUrl } from '../../lib/demo-pages.ts';
+import { homeGraph } from '../../lib/seo.ts';
+
+export function getStaticPaths() {
+  return DEMOS.map((demo) => ({ params: { slug: demo.slug }, props: { demo } }));
+}
+
+const { demo } = Astro.props as { demo: DemoEntry };
+// The next three in the catalog's order, wrapping around.
+const at = DEMOS.indexOf(demo);
+const others = [1, 2, 3].map((i) => DEMOS[(at + i) % DEMOS.length]!);
+---
+
+<Base
+  title={`${demo.name}: a ClientVM demo`}
+  description={demo.summary}
+  markdown={`/demos/${demo.slug}.md`}
+  jsonLd={[
+    ...homeGraph(),
+    {
+      '@type': 'WebPage',
+      '@id': `${SITE}/demos/${demo.slug}/#page`,
+      url: `${SITE}/demos/${demo.slug}/`,
+      name: demo.name,
+      description: demo.summary,
+      isPartOf: { '@id': `${SITE}/#website` },
+      about: { '@id': `${SITE}/#software` },
+      breadcrumb: {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE}/` },
+          { '@type': 'ListItem', position: 2, name: 'Demos', item: `${SITE}/demos/` },
+          { '@type': 'ListItem', position: 3, name: demo.name },
+        ],
+      },
+    },
+  ]}
+>
+  <XtermImportMap slot="head" />
+  <Nav />
+  <main>
+    <section class="top">
+      <div class="wrap">
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <a href="/">Home</a> / <a href="/demos/">Demos</a> / {demo.name}
+        </nav>
+        <p class="cat">{demo.category}</p>
+        <h1>{demo.name}</h1>
+        <p class="lede">{demo.summary}</p>
+      </div>
+    </section>
+    <Demo demos={[demo]} heading={false} />
+
+    <section>
+      <div class="wrap detail">
+        <div class="about">
+          <h2>About this demo</h2>
+          {demo.about.map((p) => <p>{p}</p>)}
+          <h2>How it's built</h2>
+          <div class="code"><Code code={demo.code} lang="ts" theme="vitesse-dark" /></div>
+        </div>
+        <aside class="side">
+          <h2 class="side-h">Built with</h2>
+          <ul class="chips">{demo.builtWith.map((b) => <li>{b}</li>)}</ul>
+          <h2 class="side-h">Links</h2>
+          <ul class="links">
+            <li><a href={`/play/?template=${demo.slug}`}>Open in the playground</a></li>
+            <li><a href={sourceUrl(demo)}>View source ↗</a></li>
+            {
+              demo.docs.map((d) => (
+                <li>
+                  <a href={doc(d.slug)}>{d.label}</a>
+                </li>
+              ))
+            }
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="more-head">
+          <h2>More demos</h2>
+          <a href="/demos/">View all →</a>
+        </div>
+        <div class="grid cards">{others.map((d) => <DemoCard demo={d} />)}</div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  main > .top {
+    padding-block: 64px 8px;
+    border-bottom: 0;
+  }
+  /* The demo follows the title directly. */
+  main > .top + :global(section) {
+    padding-top: 32px;
+  }
+  .crumbs {
+    margin-bottom: 20px;
+    color: var(--muted);
+    font: 12px var(--mono);
+  }
+  .crumbs a {
+    color: var(--muted);
+  }
+  .cat {
+    margin: 0 0 8px;
+    color: var(--accent);
+    font: 12px var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0;
+    font: 500 clamp(32px, 4.5vw, 48px) / 1.1 var(--display);
+  }
+  .lede {
+    max-width: 64ch;
+    margin: 14px 0 0;
+    color: var(--muted);
+    font-size: 17px;
+  }
+  .detail {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 64px;
+  }
+  .about h2 {
+    margin: 0 0 14px;
+    font-size: 22px;
+  }
+  .about h2:not(:first-child) {
+    margin-top: 40px;
+  }
+  .about p {
+    max-width: 66ch;
+    color: var(--muted);
+  }
+  .code {
+    border: 1px solid var(--line);
+  }
+  .code :global(pre) {
+    margin: 0;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .side-h {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font: 500 11px var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .side-h:not(:first-child) {
+    margin-top: 28px;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .chips li {
+    padding: 3px 9px;
+    border: 1px solid var(--line-strong);
+    font: 12px var(--mono);
+  }
+  .links {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .links a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .links a:hover {
+    text-decoration: underline;
+  }
+  .more-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .more-head h2 {
+    margin: 0;
+  }
+  .more-head a {
+    color: var(--accent);
+    font: 13px var(--mono);
+    text-decoration: none;
+  }
+  .cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  @media (max-width: 980px) {
+    .detail {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .cards {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

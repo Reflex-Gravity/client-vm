@@ -11,6 +11,9 @@ import Limits from '../components/Limits.astro';
 import OpenSource from '../components/OpenSource.astro';
 import Announce from '../components/Announce.astro';
 import Footer from '../components/Footer.astro';
+import Facts from '../components/Facts.astro';
+import DemosBand from '../components/DemosBand.astro';
+import XtermImportMap from '../components/XtermImportMap.astro';
 import { hero } from '../content/landing.ts';
 import { homeGraph } from '../lib/seo.ts';
 ---
@@ -20,27 +23,16 @@ import { homeGraph } from '../lib/seo.ts';
   description={hero.lede}
   jsonLd={homeGraph()}
 >
-  <!--
-    xterm.js for the live demo loads from a CDN only when the demo starts
-    (src/demo/run.ts). This import map pins the files' hashes, so altered
-    copies do not load.
-  -->
-  <script type="importmap" is:inline slot="head">
-    {
-      "imports": {},
-      "integrity": {
-        "https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.mjs": "sha384-8Xik+BkzF4UFDtZa8HkUiQ0FE/Xl+03xMuv69uQB3ichDzm8dWs4kPRihQxSZDiY",
-        "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.mjs": "sha384-0/1EW6dUPoaun7dgdlOtb5Wk8x5UQRW6hYM3ihuCCnaA2Xd4HwMFcn378RpxmoAc"
-      }
-    }
-  </script>
+  <XtermImportMap slot="head" />
   <Announce />
   <Nav />
   <main>
     <Hero />
-    <Demo />
+    <Facts />
+    <Demo more={{ label: 'More demos', href: '/demos/' }} />
     <HowItWorks />
     <Features />
+    <DemosBand />
     <Quickstart />
     <Limits />
     <OpenSource />

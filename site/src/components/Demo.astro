@@ -4,17 +4,29 @@
 // preview of one ClientVM instance come alive. Nothing of ClientVM loads until
 // a visitor presses start (src/demo/entry.ts imports src/demo/run.ts on
 // click). The setup is typed into the terminal's bash, so its output shows
-// there; the "try" chips type more commands the same way. The examples are
-// src/demo/examples.ts; the editor is src/demo/editor.ts.
+// there; the "try" chips type more commands the same way. The demos are
+// src/demos/catalog.ts; the editor is src/demo/editor.ts.
 import TerminalWindow from './TerminalWindow.astro';
-import { EXAMPLES } from '../demo/examples.ts';
+import { DEMOS, type Demo } from '../demos/catalog.ts';
 import { REPO, version } from '../content/landing.ts';
+
+interface Props {
+  /** The demos to offer, in the picker's order; the first is selected. */
+  demos?: Demo[];
+  /** The landing page's heading and picker; a demo's own page has its own. */
+  heading?: boolean;
+  /** A link under the stage, e.g. to every demo. */
+  more?: { label: string; href: string };
+}
+const { demos = DEMOS.slice(0, 3), heading = true, more } = Astro.props;
 
 const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', ready: 'ready' };
 ---
 
 <section id="demo" class="demo">
   <div class="wrap">
+    {
+      heading && (
     <div class="head">
       <div>
         <p class="eyebrow"><span><span class="n">01</span> / live demo</span></p>
@@ -23,11 +35,11 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
 
       <div class="picker" role="group" aria-label="Examples" data-demo-picker>
         {
-          EXAMPLES.map((ex, i) => (
+          demos.map((ex, i) => (
             <button
               type="button"
               class="pick"
-              data-demo-pick={ex.mode}
+              data-demo-pick={ex.slug}
               aria-pressed={i === 0 ? 'true' : 'false'}
             >
               <span class="pick-n">{String.fromCharCode(65 + i)}</span>
@@ -38,23 +50,26 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
         }
       </div>
     </div>
+      )
+    }
 
     <div class="stage" data-demo>
       <TerminalWindow title="bash · ~/app" class="term-window">
         <button slot="actions" type="button" class="mini" data-demo-reset hidden>reset</button>
         <div class="term-body">
           {
-            EXAMPLES.map((ex) => (
-              <div class="chips" data-demo-chips={ex.mode} hidden>
+            demos.map((ex) => (
+              <div class="chips" data-demo-chips={ex.slug} hidden>
                 <span class="chips-label" aria-hidden="true">
                   try
                 </span>
                 {ex.triggers.map((t) => (
                   <button
                     type="button"
-                    class="chip"
+                    class:list={['chip', { 'tool-chip': t.tool }]}
                     data-demo-try={t.command}
-                    title={t.command}
+                    data-demo-tool={t.tool ? JSON.stringify(t.tool) : undefined}
+                    title={t.command ?? (t.tool && `${t.tool.name} ${JSON.stringify(t.tool.input)}`)}
                     disabled
                   >
                     {t.label}
@@ -63,7 +78,12 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
               </div>
             ))
           }
-          <div class="term-wrap"><div class="term" data-demo-term></div></div>
+          <div class="term-wrap">
+            <div class="term" data-demo-term></div>
+            <p class="term-hint" data-demo-term-hint hidden>
+              This is a real terminal. Click into it and type.
+            </p>
+          </div>
         </div>
       </TerminalWindow>
 
@@ -92,8 +112,28 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
       </TerminalWindow>
 
       <TerminalWindow title="preview" class="preview-window">
-        <span slot="actions" class="status" data-demo-port></span>
+        <span slot="actions" class="preview-tools">
+          <select class="ports" data-demo-ports aria-label="Port to preview" hidden></select>
+          <span class="status" data-demo-port></span>
+          <button
+            type="button"
+            class="tool"
+            data-demo-reload
+            title="Reload the preview"
+            aria-label="Reload the preview"
+            disabled>↻</button
+          >
+          <button
+            type="button"
+            class="tool"
+            data-demo-expand
+            title="Full-size preview"
+            aria-label="Full-size preview"
+            aria-pressed="false">⤢</button
+          >
+        </span>
         <iframe data-demo-preview title="Preview of the server running in the demo"></iframe>
+        <div class="agent-preview" data-demo-agent-preview></div>
         <p class="empty" data-demo-empty>
           <span class="wait" aria-hidden="true"></span>
           <span data-demo-empty-text>The page the server serves shows here.</span>
@@ -103,11 +143,11 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
       <div class="overlay" data-demo-overlay>
         <div class="choices" data-demo-choices>
           {
-            EXAMPLES.map((ex, i) => (
+            demos.map((ex, i) => (
               <button
                 type="button"
                 class="btn primary start"
-                data-demo-start={ex.mode}
+                data-demo-start={ex.slug}
                 hidden={i !== 0}
               >
                 <span class="play" aria-hidden="true" />
@@ -116,7 +156,12 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
             ))
           }
         </div>
+        <p class="note-title" data-demo-note-title hidden></p>
         <p class="note" data-demo-note></p>
+        <button type="button" class="btn primary start" data-demo-retry hidden>
+          <span class="play" aria-hidden="true"></span>
+          Retry
+        </button>
       </div>
     </div>
 
@@ -132,8 +177,22 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
           ))
         }
       </ol>
-      <p class="statusline" aria-live="polite"><span data-demo-status>idle</span></p>
+      <p class="statusline" aria-live="polite">
+        <span data-demo-status>idle</span>
+        <button type="button" class="mini retry" data-demo-retry hidden>retry</button>
+      </p>
     </div>
+    <p class="firstrun" data-demo-firstrun hidden>
+      First run in this browser: the project is built once and cached, and npm and the
+      WebAssembly build tools are downloaded on first use. Later runs start in seconds.
+    </p>
+    {
+      more && (
+        <p class="more">
+          <a href={more.href}>{more.label} →</a>
+        </p>
+      )
+    }
     <p class="beta">
       <span class="beta-tag">beta</span>
       <span>
@@ -368,6 +427,10 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   .chip[disabled]::before {
     color: var(--dim);
   }
+  .tool-chip::before {
+    content: 'agent ▸ ';
+    color: #7fd4e6;
+  }
   .chip.typing {
     border-color: var(--accent);
     color: var(--accent);
@@ -376,6 +439,17 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
     position: relative;
     flex: 1;
     min-height: 0;
+  }
+  .more {
+    margin: 14px 0 0;
+    font: 13px var(--mono);
+  }
+  .more a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .more a:hover {
+    text-decoration: underline;
   }
   .beta {
     display: flex;
@@ -564,6 +638,24 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   iframe:not([src]) {
     display: none;
   }
+  /* The agent tools' own preview, over the plain one once a tool opens it. */
+  .agent-preview {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .agent-preview:empty {
+    display: none;
+  }
+  .agent-preview :global(iframe) {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0;
+    background: #fff;
+    pointer-events: auto;
+  }
   .empty {
     position: absolute;
     inset: 0;
@@ -711,6 +803,83 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
     }
   }
 
+  /* ---- failure and unsupported-browser panel ---- */
+  .note-title {
+    margin: 0;
+    font: 500 18px var(--sans);
+  }
+  .firstrun {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font: 12px/1.6 var(--mono);
+  }
+  .retry {
+    margin-left: 10px;
+  }
+  .retry:hover {
+    border-color: var(--accent);
+  }
+
+  /* ---- "this is a real terminal" ---- */
+  .term-hint {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 2;
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--line-strong);
+    background: #0b0b0ee6;
+    color: var(--muted);
+    font: 12px var(--mono);
+    pointer-events: none;
+  }
+
+  /* ---- preview toolbar ---- */
+  .preview-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ports {
+    padding: 1px 4px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font: 12px var(--mono);
+  }
+  .tool {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--muted);
+    font: 13px var(--mono);
+    cursor: pointer;
+  }
+  .tool:hover:not([disabled]),
+  .tool[aria-pressed='true'] {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .tool[disabled] {
+    opacity: 0.4;
+    cursor: default;
+  }
+  /* Full-size preview: the preview takes the whole stage. */
+  .stage[data-full-preview] {
+    grid-template-areas: 'preview preview' 'preview preview';
+  }
+  .stage[data-full-preview] :global(.term-window),
+  .stage[data-full-preview] :global(.editor-window) {
+    display: none;
+  }
+
   @media (max-width: 1080px) {
     .head {
       grid-template-columns: minmax(0, 1fr);
@@ -720,6 +889,10 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
     }
   }
   @media (max-width: 920px) {
+    .stage[data-full-preview] {
+      grid-template-rows: 640px;
+      grid-template-areas: 'preview';
+    }
     .stage {
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: 380px 320px 420px;

@@ -1,60 +1,109 @@
 ---
 // SPDX-License-Identifier: Apache-2.0
-import { REPO, doc, upcoming } from '../content/landing.ts';
+import { REPO, footerColumns, upcoming } from '../content/landing.ts';
 ---
 
 <footer>
-  <div class="wrap inner">
+  <div class="wrap">
+    <div class="top">
+      <div class="about">
+        <p class="brand">clientvm</p>
+        <p class="tag">Node.js, bash and npm in a browser tab, for AI agents.</p>
+        <div class="cta">
+          <p>Building something with ClientVM?</p>
+          <a class="btn" href={`${REPO}/discussions`}>Tell us in Discussions</a>
+        </div>
+      </div>
+      {
+        footerColumns.map((col) => (
+          <nav aria-label={col.title}>
+            <h2>{col.title}</h2>
+            <ul>
+              {col.links.map((l) => (
+                <li>
+                  <a href={l.href}>{l.label}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
+    </div>
     <p class="fine">
-      <span class="brand">clientvm</span> · free and open source, Apache-2.0 · © 2026 The ClientVM
-      Authors · next up: <span class="next">{upcoming.name}</span>
+      Free and open source, Apache-2.0 · © 2026 The ClientVM Authors · next up:
+      <span class="next">{upcoming.name}</span> · <a href="/index.md">this page as markdown</a>
     </p>
-    <nav aria-label="Footer">
-      <a href={REPO}>GitHub</a>
-      <a href={doc('architecture')}>Architecture</a>
-      <a href={doc('hosting')}>Hosting</a>
-      <a href={doc('agent-api')}>Agent API</a>
-      <a href="/index.md">Markdown</a>
-      <a href="/llms.txt">llms.txt</a>
-    </nav>
   </div>
 </footer>
 
 <style>
   footer {
-    padding-block: 40px;
+    padding-block: 64px 40px;
     border-bottom: 0;
   }
-  .inner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-  }
-  .fine {
-    margin: 0;
-    color: var(--muted);
-    font-size: 14px;
+  .top {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+    gap: 40px;
   }
   .brand {
-    font-family: var(--mono);
+    margin: 0;
+    font: 500 22px var(--display);
+  }
+  .tag {
+    max-width: 34ch;
+    margin: 8px 0 0;
+    color: var(--muted);
+  }
+  .cta {
+    margin-top: 24px;
+  }
+  .cta p {
+    margin: 0 0 10px;
+    font-size: 14px;
+  }
+  h2 {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font: 500 11px var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  ul {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 14px;
+  }
+  a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  a:hover {
     color: var(--text);
+  }
+  .fine {
+    margin: 48px 0 0;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--dim);
+    font-size: 13px;
+  }
+  .fine a {
+    color: var(--dim);
+    text-decoration: underline;
   }
   .next {
     color: var(--accent);
   }
-  nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    font-size: 14px;
-  }
-  nav a {
-    color: var(--muted);
-    text-decoration: none;
-  }
-  nav a:hover {
-    color: var(--text);
+  @media (max-width: 860px) {
+    .top {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .about {
+      grid-column: 1 / -1;
+    }
   }
 </style>
