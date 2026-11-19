@@ -112,6 +112,8 @@ async function openTerminal(
 
 /** Another terminal on a running instance: its own bash, the visitor's alone. */
 export interface ExtraTerminal {
+  /** Types a command into this terminal and runs it, like RunningDemo.type. */
+  type(command: string): Promise<void>;
   focus(): void;
   dispose(): void;
 }
@@ -382,41 +384,47 @@ export async function startDemo(
     cb.status(`instance ${instance.id} · port ${p}`);
   })();
 
-  /** Serializes "try" commands, so two clicks do not type into each other. */
-  let typing = Promise.resolve();
-  const type = (command: string): Promise<void> => {
-    const next = typing.then(async () => {
-      if (!alive) return;
-      // A short command (the last chip's, say) may be about to finish.
-      if (!shell.atPrompt) {
-        await Promise.race([shell.prompt(), new Promise((r) => setTimeout(r, SETTLE_MS))]);
-      }
-      if (!shell.atPrompt || shell.visitorTyped) {
-        // ^C stops a foreground server, or clears a half-typed line. A command
-        // that is still starting can miss it, so it is pressed again until
-        // bash prompts.
-        const deadline = Date.now() + PROMPT_TIMEOUT_MS;
-        for (;;) {
-          shell.send('\x03');
-          const prompted = await Promise.race([
-            shell.prompt().then(() => true),
-            new Promise<false>((r) => setTimeout(() => r(false), INTERRUPT_RETRY_MS)),
-          ]);
-          if (prompted || !alive) break;
-          if (Date.now() > deadline) throw new Error('the command did not stop');
+  /**
+   * A "try" typer for one shell. It serializes commands, so two clicks do not
+   * type into each other.
+   */
+  const typer = (shell: ShellDriver, live: () => boolean) => {
+    let typing = Promise.resolve();
+    return (command: string): Promise<void> => {
+      const next = typing.then(async () => {
+        if (!live()) return;
+        // A short command (the last chip's, say) may be about to finish.
+        if (!shell.atPrompt) {
+          await Promise.race([shell.prompt(), new Promise((r) => setTimeout(r, SETTLE_MS))]);
         }
-      }
-      shell.visitorTyped = false;
-      for (const ch of command) {
-        if (!alive) return;
-        shell.send(ch);
-        await new Promise((r) => setTimeout(r, TYPE_DELAY_MS));
-      }
-      shell.run('');
-    });
-    typing = next.catch(() => {});
-    return next;
+        if (!shell.atPrompt || shell.visitorTyped) {
+          // ^C stops a foreground server, or clears a half-typed line. A command
+          // that is still starting can miss it, so it is pressed again until
+          // bash prompts.
+          const deadline = Date.now() + PROMPT_TIMEOUT_MS;
+          for (;;) {
+            shell.send('\x03');
+            const prompted = await Promise.race([
+              shell.prompt().then(() => true),
+              new Promise<false>((r) => setTimeout(() => r(false), INTERRUPT_RETRY_MS)),
+            ]);
+            if (prompted || !live()) break;
+            if (Date.now() > deadline) throw new Error('the command did not stop');
+          }
+        }
+        shell.visitorTyped = false;
+        for (const ch of command) {
+          if (!live()) return;
+          shell.send(ch);
+          await new Promise((r) => setTimeout(r, TYPE_DELAY_MS));
+        }
+        shell.run('');
+      });
+      typing = next.catch(() => {});
+      return next;
+    };
   };
+  const type = typer(shell, () => alive);
 
   // Vite reloads edits itself (HMR). Node has no --watch here, so on a change
   // to a demo's `restartOn` file the runner presses Ctrl+C in the terminal and
@@ -482,9 +490,10 @@ export async function startDemo(
   const extras = new Set<ExtraTerminal>();
   const newTerminal = async (box: HTMLElement): Promise<ExtraTerminal> => {
     const { term: extra, resize: extraResize } = await openTerminal(box);
+    const driver = new ShellDriver(extra);
     let open = true;
     const start = async (): Promise<void> => {
-      const session = await attachShell(extra, instance, { cwd: APP });
+      const session = await attachShell(driver.view, instance, { cwd: APP });
       void session.exit.then(() => {
         if (!open || !alive) return;
         extra.write(note('Starting a new shell…'));
@@ -493,6 +502,7 @@ export async function startDemo(
     };
     await start();
     const handle: ExtraTerminal = {
+      type: typer(driver, () => open && alive),
       focus: () => extra.focus(),
       dispose: () => {
         open = false;

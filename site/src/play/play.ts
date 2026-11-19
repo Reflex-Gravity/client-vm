@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // The playground (pages/play/index.astro). A template is a demo's project: it
 // boots on the shared runner (../demo/run.ts), and the page adds a file tree,
-// more terminals and resizable panes. ClientVM loads only once a template is
-// picked; `?template=<slug>` picks one on arrival.
+// more terminals, a second preview client and resizable panes. The template is
+// picked in a dialog the toolbar opens, so the side panel only ever shows the
+// project's files. ClientVM loads only once a template is picked;
+// `?template=<slug>` picks one on arrival.
 import { checkSupport } from '../demo/support.ts';
 import { createEditor } from '../demo/editor.ts';
 import { demoOf, loadDefinition, type SetupStep } from '../demos/catalog.ts';
@@ -66,6 +68,19 @@ if (root) {
   const retry = $<HTMLButtonElement>('retry');
   const tree = $('tree');
   const treeEmpty = $('tree-empty');
+  const treeHelp = $('tree-help');
+  const rootLabel = $('root');
+  const switcher = $<HTMLButtonElement>('switch');
+  const currentName = $('current');
+  const currentTag = $('current-tag');
+  const about = $<HTMLAnchorElement>('about');
+  const closePicker = $<HTMLButtonElement>('close');
+  const closeName = $('close-name');
+  const switchNote = $('switch-note');
+  const previewBody = $('preview-body');
+  const preview2 = $<HTMLIFrameElement>('preview-2');
+  const twin = $<HTMLButtonElement>('twin');
+  const twinFrame = $('twin-frame');
   const newFile = $<HTMLButtonElement>('new-file');
   const termTabs = $('term-tabs');
   const terms = $('terms');
@@ -79,9 +94,14 @@ if (root) {
   const stepItems = all<HTMLLIElement>('[data-play-steps] li');
   const status = (text: string) => ($('status').textContent = text);
   const editorState = document.querySelector<HTMLElement>('[data-editor-state]')!;
+  let activeFile: string | undefined;
   const editor = createEditor(
     document.querySelector<HTMLElement>('[data-editor]')!,
     (text) => (editorState.textContent = text),
+    (path) => {
+      activeFile = path;
+      markActive();
+    },
   );
   const templates = all<HTMLButtonElement>('[data-play-template]');
   const chipGroups = all<HTMLElement>('[data-play-chips]');
@@ -93,6 +113,10 @@ if (root) {
   /** Bumped on every start and stop, so a stale boot cannot touch the page. */
   let run = 0;
   const open = new Map<number, string>();
+  /** The port the preview shows. */
+  let shown: number | undefined;
+  /** The index of the terminal tab in front; 0 is the setup's bash. */
+  let activeTerm = 0;
   const extras: { tab: HTMLButtonElement; box: HTMLElement; term?: ExtraTerminal }[] = [];
   let unwatch: (() => void) | undefined;
 
@@ -146,12 +170,36 @@ if (root) {
   const showPort = (p: number) => {
     const url = open.get(p);
     if (url === undefined) return;
+    shown = p;
     preview.src = url;
+    if (twinOn()) preview2.src = url;
     empty.hidden = true;
     port.textContent = `● port ${p}`;
     ports.value = String(p);
     reload.disabled = false;
+    twin.disabled = false;
   };
+  /** No server is listening: the preview says so instead of showing a dead page. */
+  const noServer = (text: string) => {
+    shown = undefined;
+    preview.removeAttribute('src');
+    preview2.removeAttribute('src');
+    empty.hidden = false;
+    empty.textContent = text;
+    port.textContent = '';
+    reload.disabled = true;
+    twin.disabled = true;
+  };
+  const twinOn = () => twin.getAttribute('aria-pressed') === 'true';
+  const setTwin = (on: boolean) => {
+    twin.setAttribute('aria-pressed', String(on));
+    twinFrame.hidden = !on;
+    previewBody.classList.toggle('twin', on);
+    const url = shown === undefined ? undefined : open.get(shown);
+    if (on && url) preview2.src = url;
+    if (!on) preview2.removeAttribute('src');
+  };
+  twin.addEventListener('click', () => setTwin(!twinOn()));
   const drawPorts = () => {
     const list = [...open.keys()].sort((a, b) => a - b);
     ports.replaceChildren(
@@ -167,11 +215,25 @@ if (root) {
   };
   ports.addEventListener('change', () => showPort(Number(ports.value)));
   reload.addEventListener('click', () => {
-    const p = Number(ports.hidden ? [...open.keys()].at(-1) : ports.value);
-    if (open.has(p)) showPort(p);
+    if (shown !== undefined) showPort(shown);
   });
 
   // ---- file tree ----
+  /** Folders the visitor folded; kept across redraws, cleared per template. */
+  const collapsed = new Set<string>();
+  let entriesShown: Entry[] = [];
+  const markActive = () => {
+    for (const n of tree.querySelectorAll<HTMLElement>('.node[data-path]')) {
+      const on = n.dataset['path'] === activeFile;
+      n.classList.toggle('active', on);
+      if (on) n.setAttribute('aria-current', 'true');
+      else n.removeAttribute('aria-current');
+    }
+  };
+  const redraw = () => {
+    drawTree(entriesShown, tree);
+    markActive();
+  };
   const drawTree = (entries: Entry[], into: HTMLElement) => {
     into.replaceChildren(
       ...entries.map((e) => {
@@ -181,9 +243,22 @@ if (root) {
         const node = document.createElement('button');
         node.type = 'button';
         node.className = e.dir ? 'node dir' : 'node';
-        node.textContent = (e.dir ? '▾ ' : '') + e.path.split('/').at(-1);
+        const folded = e.dir && collapsed.has(e.path);
+        const name = e.path.split('/').at(-1)!;
+        node.textContent = e.dir ? `${folded ? '▸' : '▾'} ${name}/` : name;
         node.title = e.path;
-        if (!e.dir) node.addEventListener('click', () => void editor.add(e.path));
+        if (e.dir) {
+          node.setAttribute('aria-expanded', String(!folded));
+          node.setAttribute('aria-label', name);
+          node.addEventListener('click', () => {
+            if (folded) collapsed.delete(e.path);
+            else collapsed.add(e.path);
+            redraw();
+          });
+        } else {
+          node.dataset['path'] = e.path;
+          node.addEventListener('click', () => void editor.add(e.path));
+        }
         row.append(node);
         if (!e.dir) {
           for (const [label, act] of [
@@ -201,7 +276,7 @@ if (root) {
           }
         }
         li.append(row);
-        if (e.children.length) {
+        if (e.children.length && !folded) {
           const ul = document.createElement('ul');
           drawTree(e.children, ul);
           li.append(ul);
@@ -218,9 +293,11 @@ if (root) {
       if (!demo) return;
       const entries = await listTree(demo.instance.fs, app);
       if (demo !== running) return;
-      drawTree(entries, tree);
+      entriesShown = entries;
+      redraw();
       treeEmpty.hidden = entries.length > 0;
       treeEmpty.textContent = 'No files yet.';
+      treeHelp.hidden = false;
     }, TREE_REFRESH_MS);
   };
 
@@ -280,6 +357,7 @@ if (root) {
   const showTerm = (index: number) => {
     const tabs = [...termTabs.querySelectorAll<HTMLButtonElement>('.term-tab')];
     const boxes = [...terms.querySelectorAll<HTMLElement>('.term')];
+    activeTerm = index;
     tabs.forEach((t, i) => t.setAttribute('aria-selected', String(i === index)));
     boxes.forEach((b, i) => (b.hidden = i !== index));
     // A hidden xterm.js has no size; it fits itself once shown (run.ts).
@@ -325,19 +403,57 @@ if (root) {
     chip.addEventListener('click', async () => {
       const demo = running;
       if (!demo) return;
-      showTerm(0);
       const tool = chip.dataset['playTool'];
       const command = chip.dataset['playTry'];
       try {
         if (tool) {
+          // The runner writes tool calls and their results to the first terminal.
+          showTerm(0);
           const t = JSON.parse(tool) as { name: string; input: Record<string, unknown> };
           await demo.callTool(t.name, t.input);
-        } else if (command) await demo.type(command);
+        } else if (command) {
+          // Into the terminal in front, so a server in another one keeps running.
+          const extra = activeTerm > 0 ? extras[activeTerm - 1]?.term : undefined;
+          showTerm(extra ? activeTerm : 0);
+          await (extra ?? demo).type(command);
+        }
       } catch {
         // the terminal shows what happened
       }
     });
   }
+
+  // ---- the template picker ----
+  const showPicker = () => {
+    overlay.hidden = false;
+    fail.hidden = true;
+    startScreen.hidden = false;
+    const name = current ? demoOf(current)?.name : undefined;
+    closePicker.hidden = !running || !name;
+    closeName.textContent = name ?? '';
+    switchNote.hidden = !running;
+    (startScreen.querySelector<HTMLButtonElement>('.card-btn[aria-current="true"]') ??
+      startScreen.querySelector<HTMLButtonElement>('.card-btn'))!.focus();
+  };
+  const hidePicker = () => {
+    if (!running) return;
+    overlay.hidden = true;
+    switcher.focus();
+  };
+  switcher.addEventListener('click', showPicker);
+  closePicker.addEventListener('click', hidePicker);
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !startScreen.hidden) hidePicker();
+  });
+  const showCurrent = (slug: string | undefined) => {
+    const meta = slug ? demoOf(slug) : undefined;
+    currentName.textContent = meta?.name ?? 'none yet';
+    currentTag.textContent = meta?.tag ?? '';
+    about.hidden = !meta;
+    if (meta) about.href = `/demos/${meta.slug}/`;
+    for (const t of templates)
+      t.setAttribute('aria-current', String(t.dataset['playTemplate'] === slug));
+  };
 
   // ---- start and stop ----
   const panel = (title: string, message: string, canRetry: boolean) => {
@@ -357,21 +473,26 @@ if (root) {
     unwatch = undefined;
     clearTimeout(treeTimer);
     for (const x of extras.splice(0)) x.term?.dispose();
+    activeTerm = 0;
     termTabs.replaceChildren();
     terms.replaceChildren();
     tree.replaceChildren();
+    entriesShown = [];
+    collapsed.clear();
     treeEmpty.hidden = false;
-    treeEmpty.textContent = 'Pick a template to see its files.';
+    treeEmpty.textContent = "The project's files show here once you pick a template.";
+    treeHelp.hidden = true;
+    rootLabel.textContent = '';
     newFile.disabled = true;
     newTerm.disabled = true;
     editor.clear();
     open.clear();
     drawPorts();
-    preview.removeAttribute('src');
+    noServer(
+      'The page the project serves shows here. Start a server in any terminal and it opens on its own.',
+    );
+    setTwin(false);
     agentPreview.replaceChildren();
-    empty.hidden = false;
-    port.textContent = '';
-    reload.disabled = true;
     showChips(undefined, false);
     showStep(undefined, undefined);
     if (demo) {
@@ -390,8 +511,7 @@ if (root) {
     await stop();
     const id = ++run;
     current = slug;
-    for (const t of templates)
-      t.setAttribute('aria-current', String(t.dataset['playTemplate'] === slug));
+    showCurrent(slug);
     history.replaceState(null, '', `?template=${slug}`);
     overlay.hidden = true;
     fail.hidden = true;
@@ -405,6 +525,7 @@ if (root) {
         loadDefinition(slug),
       ]);
       app = APP;
+      rootLabel.textContent = APP.replace(/^\/home\/user/, '~');
       const demo = await startDemo(
         definition,
         box,
@@ -422,8 +543,13 @@ if (root) {
             if (id !== run) return;
             open.delete(p);
             drawPorts();
+            if (shown !== p) return;
             const next = [...open.keys()].at(-1);
-            if (ports.value === String(p) && next !== undefined) showPort(next);
+            if (next !== undefined) showPort(next);
+            else
+              noServer(
+                `The server on port ${p} stopped. Start it again in a terminal and it shows here.`,
+              );
           },
         },
         definition.agentTools ? { agentPreview } : {},
@@ -470,6 +596,7 @@ if (root) {
   if (!support.ok) {
     panel('Unsupported browser', support.reason, false);
     for (const t of templates) t.disabled = true;
+    switcher.disabled = true;
     status('unsupported browser');
   } else {
     const wanted = new URLSearchParams(location.search).get('template');

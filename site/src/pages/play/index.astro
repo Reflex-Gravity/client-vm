@@ -32,27 +32,44 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   <XtermImportMap slot="head" />
   <Nav />
   <div class="play" data-play>
-    <aside class="side" data-side>
-      <h2 class="side-h">Templates</h2>
-      <ul class="templates">
-        {
-          DEMOS.map((d) => (
-            <li>
-              <button type="button" class="template" data-play-template={d.slug}>
-                <span class="t-name">{d.name}</span>
-                <span class="t-tag">{d.tag}</span>
-              </button>
-            </li>
-          ))
-        }
-      </ul>
+    <header class="toolbar">
+      <button
+        type="button"
+        class="switcher"
+        data-play-switch
+        aria-haspopup="dialog"
+        aria-controls="play-picker"
+        title="Change template"
+      >
+        <span class="sw-label">template</span>
+        <span class="sw-name" data-play-current>none yet</span>
+        <span class="sw-tag" data-play-current-tag></span>
+        <span class="sw-cta">change ▾</span>
+      </button>
+      <a class="tb-link" data-play-about hidden>about this demo</a>
+      <a class="tb-link all" href="/demos/">all demos →</a>
+    </header>
+
+    <aside class="side" data-side aria-label="Files">
       <div class="files-head">
-        <h2 class="side-h">Files</h2>
-        <button type="button" class="mini" data-play-new-file disabled>+ new file</button>
+        <h2 class="side-h">Files <span class="root" data-play-root></span></h2>
+        <button
+          type="button"
+          class="mini"
+          data-play-new-file
+          title="New file in the project"
+          aria-label="New file"
+          disabled>+ file</button
+        >
       </div>
       <ul class="tree" data-play-tree aria-label="Project files"></ul>
-      <p class="tree-empty" data-play-tree-empty>Pick a template to see its files.</p>
-      <a class="all" href="/demos/">See all demos →</a>
+      <p class="tree-empty" data-play-tree-empty>
+        The project's files show here once you pick a template.
+      </p>
+      <p class="tree-help" data-play-tree-help hidden>
+        Click a file to edit it. Changes save as you type; files made in the terminal show up
+        here.
+      </p>
     </aside>
 
     <div
@@ -152,6 +169,14 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
             <span class="status" data-play-port></span>
             <button
               type="button"
+              class="mini"
+              data-play-twin
+              aria-pressed="false"
+              title="Open a second, separate client of the same page, to see what each session gets"
+              disabled>2 clients</button
+            >
+            <button
+              type="button"
               class="tool"
               data-play-reload
               title="Reload the preview"
@@ -160,33 +185,63 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
             >
           </span>
         </div>
-        <div class="preview-body">
-          <iframe data-play-preview title="Preview of the project's server"></iframe>
+        <div class="preview-body" data-play-preview-body>
+          <div class="frame">
+            <span class="frame-label" aria-hidden="true">client 1</span>
+            <iframe data-play-preview title="Preview of the project's server"></iframe>
+          </div>
+          <div class="frame" data-play-twin-frame hidden>
+            <span class="frame-label" aria-hidden="true">client 2</span>
+            <iframe data-play-preview-2 title="A second client of the project's server"></iframe>
+          </div>
           <div class="agent-preview" data-play-agent-preview></div>
-          <p class="empty" data-play-empty>The page the project serves shows here.</p>
+          <p class="empty" data-play-empty>
+            The page the project serves shows here. Start a server in any terminal and it opens
+            on its own.
+          </p>
         </div>
       </div>
 
       <div class="overlay" data-play-overlay>
-        <div class="start" data-play-start>
-          <p class="eyebrow"><span>playground</span></p>
-          <h1>Pick a template.</h1>
+        <div
+          class="start"
+          id="play-picker"
+          role="dialog"
+          aria-labelledby="play-picker-h"
+          data-play-start
+        >
+          <div class="start-head">
+            <div>
+              <p class="eyebrow"><span>playground</span></p>
+              <h1 id="play-picker-h">Pick a template.</h1>
+            </div>
+            <button
+              type="button"
+              class="mini close"
+              data-play-close
+              aria-label="Close the template picker"
+              hidden>✕ back to <span data-play-close-name></span></button
+            >
+          </div>
           <p class="lede">
-            It boots in this tab with a file tree, an editor, real bash terminals and a live
-            preview. Nothing leaves your browser.
+            A template is a starter project. It boots in this tab with its files, an editor,
+            real bash terminals and a live preview. Nothing leaves your browser.
           </p>
           <div class="cards">
             {
-              DEMOS.slice(0, 3).map((d) => (
+              DEMOS.map((d) => (
                 <button type="button" class="card-btn" data-play-template={d.slug}>
                   <span class="c-cat">{d.category}</span>
                   <span class="c-name">{d.name}</span>
                   <span class="c-sum">{d.summary}</span>
+                  <span class="c-tag">{d.tag}</span>
                 </button>
               ))
             }
           </div>
-          <p class="more">Or pick any template on the left.</p>
+          <p class="more" data-play-switch-note hidden>
+            Switching starts a fresh copy of the new template; edits to this one are lost.
+          </p>
         </div>
         <div class="fail" data-play-fail hidden>
           <p class="fail-title" data-play-fail-title></p>
@@ -226,19 +281,85 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
     --term: 42%;
     display: grid;
     grid-template-columns: var(--side) 6px minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     height: calc(100vh - 57px);
     min-height: 520px;
     border-top: 1px solid var(--line);
   }
 
-  /* ---- side panel: templates and files ---- */
+  /* ---- toolbar: which template is running ---- */
+  .toolbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .switcher {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    padding: 5px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .switcher:hover:not([disabled]) {
+    border-color: var(--accent);
+  }
+  .switcher[disabled] {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .sw-label {
+    color: var(--dim);
+    font: 11px var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .sw-name {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .sw-tag {
+    overflow: hidden;
+    color: var(--dim);
+    font: 11.5px var(--mono);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .sw-cta {
+    color: var(--accent);
+    font: 11.5px var(--mono);
+    white-space: nowrap;
+  }
+  .tb-link {
+    color: var(--muted);
+    font: 12px var(--mono);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .tb-link:hover {
+    color: var(--text);
+  }
+  .tb-link.all {
+    margin-left: auto;
+    color: var(--accent);
+  }
+
+  /* ---- side panel: the project's files ---- */
   .side {
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: auto;
-    padding: 14px 10px;
+    padding: 12px 10px;
     background: var(--surface);
   }
   .side-h {
@@ -248,36 +369,16 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
-  .templates,
+  .root {
+    color: var(--dim);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+  }
   .tree {
-    margin: 0 0 18px;
+    margin: 0 0 14px;
     padding: 0;
     list-style: none;
-  }
-  .template {
-    display: grid;
-    width: 100%;
-    padding: 7px 8px;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-  }
-  .template:hover {
-    background: var(--surface-2);
-  }
-  .template[aria-current='true'] {
-    border-color: var(--line-strong);
-    background: var(--surface-2);
-  }
-  .t-name {
-    font-size: 13.5px;
-  }
-  .t-tag {
-    color: var(--dim);
-    font: 11px var(--mono);
   }
   .files-head {
     display: flex;
@@ -317,7 +418,11 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   }
   .tree :global(.dir) {
     color: var(--dim);
-    cursor: default;
+  }
+  .tree :global(.node.active) {
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    color: var(--text);
   }
   /* Faded rather than hidden, so keyboards and screen readers still reach them. */
   .tree :global(.act) {
@@ -336,16 +441,16 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   .tree :global(.act:hover) {
     color: var(--text);
   }
-  .tree-empty {
-    margin: 0 6px 18px;
+  .tree-empty,
+  .tree-help {
+    margin: 0 6px 14px;
     color: var(--dim);
-    font: 12px var(--mono);
+    font: 12px/1.5 var(--mono);
   }
-  .all {
-    margin: auto 6px 0;
-    color: var(--accent);
-    font: 12px var(--mono);
-    text-decoration: none;
+  .tree-help {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
   }
 
   /* ---- resizable panes ---- */
@@ -652,8 +757,34 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   }
   .preview-body {
     position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+    min-height: 0;
+    background: var(--line);
+  }
+  .frame {
+    position: relative;
     flex: 1;
     min-height: 0;
+    background: var(--term-bg);
+  }
+  .frame-label {
+    display: none;
+  }
+  .preview-body.twin .frame-label {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 1;
+    display: block;
+    padding: 1px 6px;
+    border-radius: var(--radius);
+    background: #000000b3;
+    color: #fff;
+    font: 11px var(--mono);
+    pointer-events: none;
   }
   iframe {
     position: absolute;
@@ -665,6 +796,10 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   }
   iframe:not([src]) {
     display: none;
+  }
+  .mini[aria-pressed='true'] {
+    border-color: var(--accent);
+    color: var(--text);
   }
   .agent-preview {
     position: absolute;
@@ -703,7 +838,16 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
       #060608eb;
   }
   .start {
-    max-width: 760px;
+    max-width: 880px;
+  }
+  .start-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .close {
+    margin-top: 4px;
   }
   .start h1 {
     margin: 0;
@@ -747,6 +891,16 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   .c-sum {
     color: var(--muted);
     font-size: 13.5px;
+  }
+  .c-tag {
+    margin-top: auto;
+    padding-top: 6px;
+    color: var(--dim);
+    font: 11px var(--mono);
+  }
+  .card-btn[aria-current='true'] {
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
   .more {
     margin: 14px 0 0;
@@ -820,6 +974,10 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
     .play {
       grid-template-columns: minmax(0, 1fr);
       height: auto;
+    }
+    .sw-tag,
+    .tb-link[data-play-about] {
+      display: none;
     }
     .side {
       max-height: 260px;

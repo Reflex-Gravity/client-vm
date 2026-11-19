@@ -395,8 +395,12 @@ test('site: the playground boots a template with a file tree, terminals and a pr
   // Nothing of ClientVM, xterm.js or the sandbox before a template is picked.
   expect(requests.filter((u) => /\/run\.[^/]*\.js|jsdelivr|\.localhost:/.test(u))).toEqual([]);
 
+  // Every template is in the picker; the side panel holds only files.
+  await expect(page.locator('.card-btn')).toHaveCount(6);
+  await expect(page.locator('[data-side] .card-btn, [data-side] .template')).toHaveCount(0);
   await page.locator('.card-btn', { hasText: 'Shell & Node' }).click();
   await expect(page).toHaveURL(/\?template=shell$/);
+  await expect(page.locator('[data-play-current]')).toHaveText('Shell & Node');
   await expect(page.locator('[data-play-status]')).toContainText('bash ready', {
     timeout: 30_000,
   });
@@ -405,6 +409,10 @@ test('site: the playground boots a template with a file tree, terminals and a pr
   await expect(tree.getByRole('button', { name: 'sales.csv', exact: true })).toBeVisible();
   await tree.getByRole('button', { name: 'fib.js', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'fib.js' })).toHaveAttribute('aria-selected', 'true');
+  await expect(tree.getByRole('button', { name: 'fib.js', exact: true })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
 
   // A file made in bash shows up in the tree.
   const term1 = page.locator('[data-play-terms] .term').first();
@@ -414,6 +422,11 @@ test('site: the playground boots a template with a file tree, terminals and a pr
   await expect(tree.getByRole('button', { name: 'todo.txt', exact: true })).toBeVisible({
     timeout: 10_000,
   });
+  // Folders fold.
+  await tree.getByRole('button', { name: 'notes', exact: true }).click();
+  await expect(tree.getByRole('button', { name: 'todo.txt', exact: true })).toHaveCount(0);
+  await tree.getByRole('button', { name: 'notes', exact: true }).click();
+  await expect(tree.getByRole('button', { name: 'todo.txt', exact: true })).toBeVisible();
 
   // A second terminal runs its own bash while a server keeps running in the first.
   await page.getByRole('button', { name: 'serve in background' }).click();
@@ -426,6 +439,11 @@ test('site: the playground boots a template with a file tree, terminals and a pr
   await page.keyboard.type('curl -s localhost:8080/api/summary');
   await page.keyboard.press('Enter');
   await expect(term2.locator('.xterm-rows')).toContainText('"north":650', { timeout: 15_000 });
+  // A "try" chip types into the terminal in front, not the first one.
+  await page.getByRole('button', { name: '$ versions' }).click();
+  await expect(page.getByRole('tab', { name: 'bash 2' })).toHaveAttribute('aria-selected', 'true');
+  await expect(term2.locator('.xterm-rows')).toContainText('uname -sr', { timeout: 15_000 });
+  await expect(term1.locator('.xterm-rows')).not.toContainText('uname -sr');
 
   // Delete from the tree: the file goes from the tree and its tab closes.
   page.once('dialog', (d) => void d.accept());
@@ -446,12 +464,17 @@ test('site: the playground boots a template with a file tree, terminals and a pr
   await tree.getByRole('button', { name: 'README.md', exact: true }).click();
   await page.locator('[data-editor-input]').press('End');
   await page.keyboard.type(' edited');
+  await page.locator('[data-play-switch]').click();
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeVisible();
   page.once('dialog', (d) => {
     expect(d.message()).toContain('Your changes will be lost');
     void d.dismiss();
   });
-  await page.locator('.template', { hasText: 'Express server' }).click();
+  await page.locator('.card-btn', { hasText: 'Express server' }).click();
   await expect(page).toHaveURL(/\?template=shell$/);
+  // Escape goes back to the running project.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeHidden();
 });
 
 test('site: a demo page opens its project in the playground', async ({ page }) => {
@@ -460,7 +483,25 @@ test('site: a demo page opens its project in the playground', async ({ page }) =
   await expect(page).toHaveURL(/\/play\/\?template=websocket-chat$/);
   // It boots straight away: no start screen.
   await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeHidden();
-  await expect(page.locator('.template[aria-current="true"]')).toContainText('WebSocket chat');
+  await expect(page.locator('[data-play-current]')).toHaveText('WebSocket chat');
+});
+
+test('site: the playground shows the chat to two clients at once', async ({ page }) => {
+  // npm installs Express and ws from the registry.
+  test.setTimeout(240_000);
+  await page.goto(`${SITE}play/?template=websocket-chat`);
+  const one = page.frameLocator('[data-play-preview]');
+  await expect(one.locator('#state')).toHaveText('connected over a WebSocket', {
+    timeout: 180_000,
+  });
+  await page.getByRole('button', { name: '2 clients' }).click();
+  const two = page.frameLocator('[data-play-preview-2]');
+  await expect(two.locator('#state')).toHaveText('connected over a WebSocket', {
+    timeout: 15_000,
+  });
+  await one.locator('#msg').fill('hi from one');
+  await one.locator('#msg').press('Enter');
+  await expect(two.locator('#log')).toContainText('page: hi from one', { timeout: 10_000 });
 });
 
 test('site: the Tailwind demo picks up a new class while Vite 8 runs', async ({ page }) => {

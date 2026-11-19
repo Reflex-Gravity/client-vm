@@ -35,7 +35,12 @@ export interface Editor {
   clear(): void;
 }
 
-export function createEditor(root: HTMLElement, onState: (text: string) => void): Editor {
+export function createEditor(
+  root: HTMLElement,
+  onState: (text: string) => void,
+  /** Called with the shown file's path whenever it changes (undefined: none). */
+  onActive?: (path: string | undefined) => void,
+): Editor {
   const q = <T extends HTMLElement>(name: string) =>
     root.querySelector<T>(`[data-editor-${name}]`)!;
   const tabs = q('tabs');
@@ -78,6 +83,7 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
 
   const show = (buf: Buffer) => {
     active = buf;
+    onActive?.(buf.path);
     for (const b of buffers) b.tab.setAttribute('aria-selected', String(b === buf));
     input.value = buf.text;
     input.setAttribute('aria-label', `Edit ${buf.path}`);
@@ -223,6 +229,7 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
       if (buffers[0]) show(buffers[0]);
       else {
         active = undefined;
+        onActive?.(undefined);
         code.hidden = true;
         empty.hidden = false;
       }
@@ -234,7 +241,9 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
       buf.path = to;
       buf.tab.textContent = to;
       buf.watch = fs.watch(full(to), () => void reload(buf));
-      if (buf === active) input.setAttribute('aria-label', `Edit ${to}`);
+      if (buf !== active) return;
+      input.setAttribute('aria-label', `Edit ${to}`);
+      onActive?.(to);
     },
     get edited() {
       return edited;
@@ -247,6 +256,7 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
       }
       buffers = [];
       active = undefined;
+      onActive?.(undefined);
       fs = undefined;
       lines = 0;
       edited = false;
