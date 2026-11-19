@@ -76,6 +76,7 @@ const others = [1, 2, 3].map((i) => DEMOS[(at + i) % DEMOS.length]!);
           <ul class="chips">{demo.builtWith.map((b) => <li>{b}</li>)}</ul>
           <h2 class="side-h">Links</h2>
           <ul class="links">
+            <li><a href={`/play/?template=${demo.slug}`}>Open in the playground</a></li>
             <li><a href={sourceUrl(demo)}>View source ↗</a></li>
             {
               demo.docs.map((d) => (

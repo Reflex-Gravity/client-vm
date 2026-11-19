@@ -79,6 +79,43 @@ function loadCss(): void {
   document.head.append(link);
 }
 
+/** An xterm.js terminal in `container`, fitted to it as it resizes. */
+async function openTerminal(
+  container: HTMLElement,
+): Promise<{ term: XTerm; resize: ResizeObserver }> {
+  loadCss();
+  const [{ Terminal }, { FitAddon }] = (await Promise.all([
+    import(/* @vite-ignore */ XTERM),
+    import(/* @vite-ignore */ FIT),
+  ])) as [{ Terminal: new (opts: object) => XTerm }, { FitAddon: new () => { fit(): void } }];
+  const term = new Terminal({
+    fontFamily: "'JetBrains Mono', ui-monospace, Menlo, monospace",
+    fontSize: 13,
+    scrollback: 5000,
+    cursorBlink: true,
+    allowProposedApi: true,
+    theme: { background: '#07090b', foreground: '#e7e9ec', cursor: '#7be3b4' },
+    linkHandler: {
+      activate: (_e: MouseEvent, uri: string) => window.open(uri, '_blank', 'noopener'),
+    },
+  });
+  const fit = new FitAddon();
+  term.loadAddon(fit);
+  term.open(container);
+  const resize = new ResizeObserver(() => {
+    if (container.offsetWidth > 0) fit.fit();
+  });
+  resize.observe(container);
+  fit.fit();
+  return { term, resize };
+}
+
+/** Another terminal on a running instance: its own bash, the visitor's alone. */
+export interface ExtraTerminal {
+  focus(): void;
+  dispose(): void;
+}
+
 const vm = createClientVM({ sandboxOrigin: (id) => SANDBOX.replace('{id}', id) });
 
 export interface RunningDemo {
@@ -95,6 +132,8 @@ export interface RunningDemo {
    * result to the terminal. Only for demos with `agentTools`.
    */
   callTool(name: string, input: Record<string, unknown>): Promise<void>;
+  /** Opens another bash on the same instance, in `container`. */
+  newTerminal(container: HTMLElement): Promise<ExtraTerminal>;
   focus(): void;
   destroy(): Promise<void>;
 }
@@ -210,32 +249,8 @@ export async function startDemo(
   cb: DemoCallbacks,
   opts: DemoOptions = {},
 ): Promise<RunningDemo> {
-  loadCss();
   cb.status('loading the terminal…');
-  const [{ Terminal }, { FitAddon }] = (await Promise.all([
-    import(/* @vite-ignore */ XTERM),
-    import(/* @vite-ignore */ FIT),
-  ])) as [{ Terminal: new (opts: object) => XTerm }, { FitAddon: new () => { fit(): void } }];
-
-  const term = new Terminal({
-    fontFamily: "'JetBrains Mono', ui-monospace, Menlo, monospace",
-    fontSize: 13,
-    scrollback: 5000,
-    cursorBlink: true,
-    allowProposedApi: true,
-    theme: { background: '#07090b', foreground: '#e7e9ec', cursor: '#7be3b4' },
-    linkHandler: {
-      activate: (_e: MouseEvent, uri: string) => window.open(uri, '_blank', 'noopener'),
-    },
-  });
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-  term.open(container);
-  const resize = new ResizeObserver(() => {
-    if (container.offsetWidth > 0) fit.fit();
-  });
-  resize.observe(container);
-  fit.fit();
+  const { term, resize } = await openTerminal(container);
 
   let instance: Instance;
   cb.status('booting the sandbox…');
@@ -464,11 +479,38 @@ export async function startDemo(
     shell.send('\r');
   };
 
+  const extras = new Set<ExtraTerminal>();
+  const newTerminal = async (box: HTMLElement): Promise<ExtraTerminal> => {
+    const { term: extra, resize: extraResize } = await openTerminal(box);
+    let open = true;
+    const start = async (): Promise<void> => {
+      const session = await attachShell(extra, instance, { cwd: APP });
+      void session.exit.then(() => {
+        if (!open || !alive) return;
+        extra.write(note('Starting a new shell…'));
+        void start();
+      });
+    };
+    await start();
+    const handle: ExtraTerminal = {
+      focus: () => extra.focus(),
+      dispose: () => {
+        open = false;
+        extras.delete(handle);
+        extraResize.disconnect();
+        extra.dispose();
+      },
+    };
+    extras.add(handle);
+    return handle;
+  };
+
   return {
     instance,
     setup,
     type,
     callTool,
+    newTerminal,
     focus: () => term.focus(),
     destroy: async () => {
       alive = false;
@@ -478,6 +520,7 @@ export async function startDemo(
           (t) => t.dispose(),
           () => {},
         );
+      for (const extra of [...extras]) extra.dispose();
       for (const s of subs) s.dispose();
       resize.disconnect();
       await instance.destroy().catch(() => {});

@@ -24,6 +24,14 @@ interface Buffer {
 export interface Editor {
   /** Opens `files` (relative to `dir`); the first is shown. Missing files are skipped. */
   open(fs: FileSystem, dir: string, files: string[]): Promise<void>;
+  /** Opens one more file (relative to the open directory) and shows it. */
+  add(path: string): Promise<void>;
+  /** Closes a file's tab, after it was deleted. */
+  forget(path: string): void;
+  /** Follows a rename: the tab keeps its text under the new path. */
+  renamed(from: string, to: string): void;
+  /** The visitor edited a file since it opened. */
+  readonly edited: boolean;
   clear(): void;
 }
 
@@ -44,6 +52,7 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
   /** Bumped by clear(), so a stale read or save cannot touch the editor. */
   let gen = 0;
   let lines = 0;
+  let edited = false;
   /** After Escape, Tab moves focus out of the editor instead of indenting. */
   let tabMovesFocus = false;
   const decoder = new TextDecoder();
@@ -125,6 +134,7 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
     if (!buf || !fs) return;
     buf.text = input.value;
     buf.pending = true;
+    edited = true;
     clearTimeout(buf.timer);
     buf.timer = setTimeout(() => void save(buf), SAVE_DELAY_MS);
     onState('edited');
@@ -149,6 +159,23 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
     }
   });
 
+  /** A tab for a file read from disk; the editor shows once there is one. */
+  const attach = (file: { path: string; text: string }): Buffer => {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.role = 'tab';
+    tab.className = 'file-tab';
+    tab.textContent = file.path;
+    const buf: Buffer = { ...file, pending: false, tab };
+    tab.addEventListener('click', () => show(buf));
+    buf.watch = fs!.watch(full(file.path), () => void reload(buf));
+    tabs.append(tab);
+    buffers.push(buf);
+    code.hidden = false;
+    empty.hidden = true;
+    return buf;
+  };
+
   return {
     async open(nextFs, nextDir, files) {
       this.clear();
@@ -165,24 +192,52 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
         }),
       );
       if (g !== gen) return;
-      for (const file of loaded) {
-        if (!file) continue;
-        const tab = document.createElement('button');
-        tab.type = 'button';
-        tab.role = 'tab';
-        tab.className = 'file-tab';
-        tab.textContent = file.path;
-        const buf: Buffer = { ...file, pending: false, tab };
-        tab.addEventListener('click', () => show(buf));
-        buf.watch = nextFs.watch(full(file.path), () => void reload(buf));
-        tabs.append(tab);
-        buffers.push(buf);
-      }
+      for (const file of loaded) if (file) attach(file);
       if (!buffers[0]) return;
-      code.hidden = false;
-      empty.hidden = true;
       show(buffers[0]);
       onState('changes save as you type');
+    },
+    async add(path) {
+      const open = buffers.find((b) => b.path === path);
+      if (open) return show(open);
+      if (!fs) return;
+      const g = gen;
+      let text: string;
+      try {
+        text = decoder.decode(await fs.readFile(full(path)));
+      } catch (err) {
+        onState(`could not open ${path}: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      if (g !== gen) return;
+      show(attach({ path, text }));
+    },
+    forget(path) {
+      const buf = buffers.find((b) => b.path === path);
+      if (!buf) return;
+      clearTimeout(buf.timer);
+      buf.watch?.dispose();
+      buf.tab.remove();
+      buffers = buffers.filter((b) => b !== buf);
+      if (active !== buf) return;
+      if (buffers[0]) show(buffers[0]);
+      else {
+        active = undefined;
+        code.hidden = true;
+        empty.hidden = false;
+      }
+    },
+    renamed(from, to) {
+      const buf = buffers.find((b) => b.path === from);
+      if (!buf || !fs) return;
+      buf.watch?.dispose();
+      buf.path = to;
+      buf.tab.textContent = to;
+      buf.watch = fs.watch(full(to), () => void reload(buf));
+      if (buf === active) input.setAttribute('aria-label', `Edit ${to}`);
+    },
+    get edited() {
+      return edited;
     },
     clear() {
       gen++;
@@ -194,6 +249,7 @@ export function createEditor(root: HTMLElement, onState: (text: string) => void)
       active = undefined;
       fs = undefined;
       lines = 0;
+      edited = false;
       tabs.replaceChildren();
       input.value = '';
       hl.textContent = '';
