@@ -1,0 +1,14 @@
+{
+  "name": "ClientVM",
+  "short_name": "ClientVM",
+  "description": "Node.js, bash and npm in a browser tab, for AI agents.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#060608",
+  "theme_color": "#060608",
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}

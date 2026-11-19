@@ -30,7 +30,11 @@ const {
   jsonLd = [],
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
+// Link previews (WhatsApp, iMessage, Slack, X, LinkedIn) need an absolute PNG
+// URL: none of them render SVG. og.png is rendered from og.svg by
+// scripts/render-site-images.mjs.
 const ogImage = new URL('/og.png', Astro.site);
+const ogImageAlt = 'ClientVM: Node.js, bash and npm in a browser tab, for AI agents';
 // `<` escaped so a string in the graph can never close the script element.
 const graph = JSON.stringify({ '@context': 'https://schema.org', '@graph': jsonLd }).replace(
   /</g,
@@ -47,6 +51,9 @@ const graph = JSON.stringify({ '@context': 'https://schema.org', '@graph': jsonL
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     <link rel="alternate" type="text/markdown" href={markdown} title="This page as markdown" />
@@ -58,17 +65,17 @@ const graph = JSON.stringify({ '@context': 'https://schema.org', '@graph': jsonL
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
+    <meta property="og:image:secure_url" content={ogImage} />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta
-      property="og:image:alt"
-      content="ClientVM: Node.js, bash and npm in a browser tab, for AI agents"
-    />
+    <meta property="og:image:alt" content={ogImageAlt} />
     {modified && <meta property="article:modified_time" content={modified} />}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
     <meta name="theme-color" content="#060608" />
     {jsonLd.length > 0 && <script type="application/ld+json" is:inline set:html={graph} />}
     <slot name="head" />

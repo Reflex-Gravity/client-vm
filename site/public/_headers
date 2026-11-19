@@ -17,3 +17,5 @@
   Link: </index.md>; rel="alternate"; type="text/markdown", </llms.txt>; rel="alternate"; type="text/plain"
 /docs/:slug/
   Link: </docs/:slug.md>; rel="alternate"; type="text/markdown"
+/site.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
