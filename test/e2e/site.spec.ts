@@ -353,6 +353,36 @@ test('site: the demos gallery links every demo to a page that runs it', async ({
   expect(await (await page.request.get(`${SITE}llms.txt`)).text()).toContain('## Demos');
 });
 
+test('site: the homepage links its facts, the other demos and the playground', async ({ page }) => {
+  await page.goto(SITE);
+  const nav = page.getByRole('navigation').first();
+  await expect(nav.getByRole('link', { name: 'Demos' })).toHaveAttribute('href', '/demos/');
+  await expect(nav.getByRole('link', { name: 'Playground' })).toHaveAttribute('href', '/play/');
+  // Every fact links to its evidence.
+  const facts = page.getByRole('region', { name: 'ClientVM in numbers' }).getByRole('link');
+  await expect(facts).toHaveCount(4);
+  for (const href of await facts.evaluateAll((as) => as.map((a) => a.getAttribute('href'))))
+    expect(href).toBeTruthy();
+  // The live demo points to the rest, and the band shows the ones it does not offer.
+  await expect(page.locator('#demo').getByRole('link', { name: 'More demos →' })).toHaveAttribute(
+    'href',
+    '/demos/',
+  );
+  const band = page.locator('#demos');
+  await expect(
+    band.locator('a[href^="/demos/"]').filter({ hasText: 'WebSocket chat' }),
+  ).toBeVisible();
+  await expect(band.getByText('Todo app')).toHaveCount(0);
+  // The footer's columns.
+  for (const title of ['Product', 'Developers', 'Project'])
+    await expect(page.getByRole('navigation', { name: title })).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Product' })
+    .getByRole('link', { name: 'Playground' })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Pick a template.' })).toBeVisible();
+});
+
 test('site: the playground boots a template with a file tree, terminals and a preview', async ({
   page,
 }) => {

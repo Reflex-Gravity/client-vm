@@ -1,0 +1,60 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// The landing page's pointer to the demos: three cards and a link to the rest.
+import DemoCard from './DemoCard.astro';
+import { DEMOS } from '../demos/catalog.ts';
+
+// The live demo above offers the first three; these are the others.
+const picks = DEMOS.slice(3, 6);
+---
+
+<section id="demos">
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <p class="eyebrow"><span>more demos</span></p>
+        <h2>Each one runs in this tab.</h2>
+      </div>
+      <p class="links">
+        <a href="/demos/">All {DEMOS.length} demos →</a>
+        <a href="/play/">Open the playground →</a>
+      </p>
+    </div>
+    <div class="grid cards">{picks.map((d) => <DemoCard demo={d} />)}</div>
+  </div>
+</section>
+
+<style>
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px 32px;
+    margin-bottom: 28px;
+  }
+  h2 {
+    margin: 0;
+  }
+  .links {
+    display: flex;
+    gap: 24px;
+    margin: 0;
+    font: 13px var(--mono);
+  }
+  .links a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .links a:hover {
+    text-decoration: underline;
+  }
+  .cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  @media (max-width: 920px) {
+    .cards {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

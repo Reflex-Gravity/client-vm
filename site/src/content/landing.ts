@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The landing page's copy, in one place. The page (src/pages/index.astro), the
 // markdown version for agents (/index.md) and /llms.txt all render from it.
+import nodeTests from '../../../test/conformance/node-tests/manifest.json';
+import { DEMOS } from '../demos/catalog.ts';
 
 export const REPO = 'https://github.com/Reflex-Gravity/client-vm';
 export const SITE = 'https://clientvm.joeldsouza.me';
@@ -290,10 +292,58 @@ export const limitLinks = [
 ];
 
 export const nav = [
-  { label: 'Demo', href: '/#demo' },
+  { label: 'Demos', href: '/demos/' },
+  { label: 'Playground', href: '/play/' },
   { label: 'Docs', href: '/docs/' },
   { label: 'Compatibility', href: doc('compatibility') },
-  { label: 'Security', href: doc('security') },
+];
+
+/**
+ * Facts under the hero, each linking to its evidence. The Node test count is
+ * read from the vendored suite's manifest, so it cannot drift from what CI runs.
+ */
+export const facts = [
+  { value: 'Apache-2.0', label: 'free to use and fork', href: `${REPO}/blob/main/LICENSE` },
+  {
+    value: `${nodeTests.passing.length}`,
+    label: `of Node ${nodeTests.node.replace(/^v(\d+).*/, '$1')}'s own tests, run in CI`,
+    href: doc('decisions/0015-vendor-node-path-and-tests'),
+  },
+  { value: 'npm 11 · pnpm 10', label: 'unmodified releases', href: doc('compatibility') },
+  { value: '~10 µs', label: 'per synchronous syscall', href: `${REPO_DOCS}/spike-results.md` },
+];
+
+/** The footer's columns. */
+export const footerColumns = [
+  {
+    title: 'Product',
+    links: [
+      { label: 'Demos', href: '/demos/' },
+      { label: 'Playground', href: '/play/' },
+      { label: 'Live demo', href: '/#demo' },
+    ],
+  },
+  {
+    title: 'Developers',
+    links: [
+      { label: 'Docs', href: '/docs/' },
+      { label: 'Quickstart', href: doc('quickstart') },
+      { label: 'Hosting', href: doc('hosting') },
+      { label: 'Agent API', href: doc('agent-api') },
+      { label: 'Compatibility', href: doc('compatibility') },
+      { label: 'llms.txt', href: '/llms.txt' },
+    ],
+  },
+  {
+    title: 'Project',
+    links: [
+      { label: 'GitHub', href: REPO },
+      { label: 'Releases', href: `${REPO}/releases` },
+      { label: 'Security model', href: doc('security') },
+      { label: 'Security review', href: doc('security-review') },
+      { label: 'Licence', href: `${REPO}/blob/main/LICENSE` },
+    ],
+  },
 ];
 
 /** The markdown version of the page, for agents (/index.md) and /llms.txt. */
@@ -306,6 +356,8 @@ export function landingMarkdown(): string {
     `> ${hero.title} ${hero.lede}`,
     '',
     `Free and open source (Apache-2.0) · Source: ${REPO} · Live demo: ${SITE}/#demo`,
+    '',
+    ...facts.map((f) => `- **${f.value}** ${f.label} (${abs(f.href)})`),
     '',
     '## Install',
     '',
@@ -350,6 +402,12 @@ export function landingMarkdown(): string {
     '### Add-ons',
     '',
     ...quickstartAddons.flatMap((q) => [`#### ${q.label}`, '', '```' + q.lang, q.code, '```', '']),
+    '## Demos',
+    '',
+    `Each runs in the browser tab. All of them: ${SITE}/demos/ · Playground: ${SITE}/play/`,
+    '',
+    ...DEMOS.map((d) => `- [${d.name}](${SITE}/demos/${d.slug}/): ${d.summary}`),
+    '',
     '## Limits',
     '',
     ...limits.map((l) => `- **${l.title}.** ${l.body}`),

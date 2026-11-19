@@ -11,6 +11,8 @@ import Limits from '../components/Limits.astro';
 import OpenSource from '../components/OpenSource.astro';
 import Announce from '../components/Announce.astro';
 import Footer from '../components/Footer.astro';
+import Facts from '../components/Facts.astro';
+import DemosBand from '../components/DemosBand.astro';
 import XtermImportMap from '../components/XtermImportMap.astro';
 import { hero } from '../content/landing.ts';
 import { homeGraph } from '../lib/seo.ts';
@@ -26,9 +28,11 @@ import { homeGraph } from '../lib/seo.ts';
   <Nav />
   <main>
     <Hero />
-    <Demo />
+    <Facts />
+    <Demo more={{ label: 'More demos', href: '/demos/' }} />
     <HowItWorks />
     <Features />
+    <DemosBand />
     <Quickstart />
     <Limits />
     <OpenSource />
