@@ -179,12 +179,75 @@ test('site: the shell example boots without an install and its chips drive bash'
   await expect(page.locator('[data-demo-status]')).toHaveText('idle');
 });
 
+test('site: a failed boot offers Retry, and the preview toolbar follows open ports', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  // The sandbox origin is unreachable, so the instance cannot boot.
+  const sandbox = /\.localhost:\d+\//;
+  await page.route(sandbox, (route) => route.abort());
+  await page.goto(SITE);
+  await page.getByRole('button', { name: /Shell & Node/ }).click();
+  await page.getByRole('button', { name: 'Start a bash shell' }).click();
+  await expect(page.locator('[data-demo-note-title]')).toHaveText('The sandbox failed to boot', {
+    timeout: 60_000,
+  });
+  await expect(page.locator('[data-demo-note]')).toContainText('Retrying is usually worth it');
+  const retry = page.locator('[data-demo-overlay] [data-demo-retry]');
+  await expect(retry).toBeVisible();
+
+  // With the sandbox back, Retry boots the same demo.
+  await page.unroute(sandbox);
+  await retry.click();
+  await expect(page.locator('[data-demo-status]')).toContainText('bash ready', {
+    timeout: 30_000,
+  });
+  await expect(page.locator('[data-demo-note-title]')).toBeHidden();
+  // Until the visitor uses the terminal, it says it is a real one.
+  const hint = page.locator('[data-demo-term-hint]');
+  await expect(hint).toBeVisible();
+  await page.locator('[data-demo-term]').click();
+  await expect(hint).toBeHidden();
+
+  // One server: its port shows, with no picker.
+  const ports = page.locator('[data-demo-ports]');
+  await page.getByRole('button', { name: 'serve in background' }).click();
+  const app = page.frameLocator('[data-demo-preview]');
+  await expect(app.locator('h1')).toHaveText('Sales by region', { timeout: 30_000 });
+  await expect(page.locator('[data-demo-port]')).toHaveText('● port 8080');
+  await expect(ports).toBeHidden();
+
+  // A second server opens a second port; the picker switches between them.
+  await page.locator('[data-demo-term]').click();
+  await page.keyboard.type(
+    `node -e "require('http').createServer((q, s) => s.end('<h1>second</h1>')).listen(9090)" &`,
+  );
+  await page.keyboard.press('Enter');
+  await expect(ports).toBeVisible({ timeout: 30_000 });
+  await expect(ports).toHaveValue('9090');
+  await expect(app.locator('h1')).toHaveText('second', { timeout: 15_000 });
+  await ports.selectOption('8080');
+  await expect(app.locator('h1')).toHaveText('Sales by region', { timeout: 15_000 });
+
+  // Full-size preview hides the terminal and editor; Escape brings them back.
+  await page.locator('[data-demo-expand]').click();
+  await expect(page.locator('[data-demo-term]')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-demo-term]')).toBeVisible();
+
+  await page.getByRole('button', { name: 'reset', exact: true }).click();
+  await expect(page.locator('[data-demo-status]')).toHaveText('idle');
+});
+
 test('site: browsers without Chromium get an explanation instead of the demo', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => undefined });
   });
   await page.goto(SITE);
+  await expect(page.locator('[data-demo-note-title]')).toHaveText('Unsupported browser');
   await expect(page.locator('[data-demo-note]')).toContainText('Chromium-based browser');
+  // There is nothing to retry: the browser cannot run it.
+  await expect(page.locator('[data-demo-overlay] [data-demo-retry]')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Start an Express app' })).toBeHidden();
 });
 

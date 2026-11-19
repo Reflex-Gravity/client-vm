@@ -51,6 +51,10 @@ export interface DemoCallbacks {
   /** The setup reached this step (the progress strip in components/Demo.astro). */
   step(step: SetupStep): void;
   preview(url: string, port: number): void;
+  /** A server stopped listening on `port`. */
+  portClosed?(port: number): void;
+  /** This browser has no cached copy of the preset yet, so it is built once. */
+  firstRun?(): void;
 }
 
 interface XTerm extends InteractiveTerminalLike {
@@ -218,8 +222,10 @@ export async function startDemo(
             // has no terminal of its own, so bare \n needs a \r here.
             onPresetBuild: (e) => {
               if (e.type === 'spawn') {
-                if (!building)
+                if (!building) {
                   term.write(note('First start in this browser: building the project once'));
+                  cb.firstRun?.();
+                }
                 building = true;
                 const cmd = e.process.argv.at(-1) ?? '';
                 term.write(`\x1b[2m$ ${stripAnsi(cmd).replace(/[\r\n]/g, ' ')}\x1b[0m\r\n`);
@@ -256,6 +262,7 @@ export async function startDemo(
     }),
     instance.onPortClose((p) => {
       if (p === port) port = undefined;
+      cb.portClosed?.(p);
     }),
   ];
 

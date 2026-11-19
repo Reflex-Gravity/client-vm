@@ -14,16 +14,27 @@ const all = <T extends HTMLElement>(selector: string) => [
   ...document.querySelectorAll<T>(selector),
 ];
 
+/** Why a boot usually fails, after the error itself. */
+const LIKELY_CAUSE =
+  'A dropped connection while npm or the WebAssembly build tools download is the usual cause. ' +
+  'Retrying is usually worth it; the browser console has the details.';
+
 if (root) {
   const overlay = $('overlay');
   const choices = $('choices');
   const note = $('note');
+  const noteTitle = $('note-title');
   const termEl = $('term');
+  const termHint = $('term-hint');
   const preview = $<HTMLIFrameElement>('preview');
   const empty = $('empty');
   const port = $('port');
+  const ports = $<HTMLSelectElement>('ports');
+  const reload = $<HTMLButtonElement>('reload');
+  const expand = $<HTMLButtonElement>('expand');
   const reset = $<HTMLButtonElement>('reset');
   const bar = $('bar');
+  const firstRun = $('firstrun');
   const emptyText = $('empty-text');
   const stepItems = all<HTMLLIElement>('[data-demo-steps] li');
   const status = (text: string) => ($('status').textContent = text);
@@ -34,6 +45,7 @@ if (root) {
   );
   const picks = all<HTMLButtonElement>('[data-demo-pick]');
   const buttons = all<HTMLButtonElement>('[data-demo-start]');
+  const retries = all<HTMLButtonElement>('[data-demo-retry]');
   const chipGroups = all<HTMLElement>('[data-demo-chips]');
   const chips = all<HTMLButtonElement>('[data-demo-try]');
 
@@ -45,6 +57,8 @@ if (root) {
   let runningMode: string | undefined;
   /** Bumped on every start and reset, so a stale setup cannot touch the page. */
   let run = 0;
+  /** The ports open in the running demo, and their preview URLs. */
+  const open = new Map<number, string>();
 
   /** The scan line and spinner run while setup is in progress. */
   const busy = (on: boolean) => {
@@ -78,23 +92,68 @@ if (root) {
     for (const c of chips) c.disabled = !enabled;
   };
 
-  const fail = (message: string) => {
+  const showRetry = (where: 'overlay' | 'bar' | undefined) => {
+    for (const r of retries) {
+      r.hidden = where === undefined || (where === 'overlay') !== overlay.contains(r);
+    }
+  };
+
+  /** The panel over the stage, with a title, a message and, after a failure, Retry. */
+  const panel = (title: string, message: string, retry: boolean) => {
     overlay.hidden = false;
+    choices.hidden = true;
+    noteTitle.hidden = false;
+    noteTitle.textContent = title;
     note.textContent = message;
     note.classList.add('error');
+    showRetry(retry ? 'overlay' : undefined);
   };
 
   const support = checkSupport();
   if (!support.ok) {
-    choices.hidden = true;
-    fail(support.reason);
+    panel('Unsupported browser', support.reason, false);
     status('unsupported browser');
   }
 
+  /** Shows `p` in the preview; assigning src reloads the page, also after a restart. */
+  const showPort = (p: number) => {
+    const url = open.get(p);
+    if (url === undefined) return;
+    preview.src = url;
+    empty.hidden = true;
+    port.textContent = `● port ${p}`;
+    ports.value = String(p);
+    reload.disabled = false;
+  };
+
+  /** The port picker appears once more than one server listens. */
+  const drawPorts = () => {
+    const list = [...open.keys()].sort((a, b) => a - b);
+    ports.replaceChildren(
+      ...list.map((p) => {
+        const option = document.createElement('option');
+        option.value = String(p);
+        option.textContent = `port ${p}`;
+        return option;
+      }),
+    );
+    ports.hidden = list.length < 2;
+    port.hidden = list.length >= 2;
+  };
+
   const clearPreview = () => {
+    open.clear();
+    drawPorts();
     preview.removeAttribute('src');
     empty.hidden = false;
     port.textContent = '';
+    reload.disabled = true;
+  };
+
+  const setExpanded = (on: boolean) => {
+    if (on) root.dataset['fullPreview'] = '';
+    else delete root.dataset['fullPreview'];
+    expand.setAttribute('aria-pressed', String(on));
   };
 
   const start = async (mode: string) => {
@@ -103,7 +162,12 @@ if (root) {
     for (const b of buttons) b.disabled = true;
     note.textContent = '';
     note.classList.remove('error');
+    noteTitle.hidden = true;
     overlay.hidden = true;
+    choices.hidden = false;
+    showRetry(undefined);
+    firstRun.hidden = true;
+    termHint.hidden = true;
     runningMode = mode;
     emptyText.textContent = demoOf(mode)?.previewHint ?? '';
     showChips(mode, false);
@@ -117,12 +181,23 @@ if (root) {
       const demo = await startDemo(definition, termEl, {
         status: (text) => id === run && status(text),
         step: (step) => id === run && showStep(mode, step),
+        firstRun: () => {
+          if (id === run) firstRun.hidden = false;
+        },
         preview: (url, p) => {
           if (id !== run) return;
-          // Assigning src reloads the page, also after a server restart.
-          preview.src = url;
-          empty.hidden = true;
-          port.textContent = `● port ${p}`;
+          open.set(p, url);
+          drawPorts();
+          // The newest server is the one to look at.
+          showPort(p);
+        },
+        portClosed: (p) => {
+          if (id !== run) return;
+          open.delete(p);
+          drawPorts();
+          // A restart closes and opens the same port; another one shows meanwhile.
+          const next = [...open.keys()].at(-1);
+          if (ports.value === String(p) && next !== undefined) showPort(next);
         },
       });
       if (id !== run) return void demo.destroy();
@@ -135,12 +210,15 @@ if (root) {
           if (id !== run) return;
           busy(false);
           showChips(mode, true);
+          firstRun.hidden = true;
+          termHint.hidden = false;
         },
         () => {
           if (id !== run) return;
           busy(false);
           showChips(mode, true);
           status('setup failed: the terminal shows why');
+          showRetry('bar');
         },
       );
     } catch (err) {
@@ -150,7 +228,8 @@ if (root) {
       showChips(undefined, false);
       showStep(mode, undefined);
       status('failed');
-      fail(`The demo could not start: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      panel('The sandbox failed to boot', `${message}. ${LIKELY_CAUSE}`, true);
     } finally {
       for (const b of buttons) b.disabled = false;
     }
@@ -165,6 +244,10 @@ if (root) {
     reset.hidden = true;
     showChips(undefined, false);
     showStep(selected, undefined);
+    showRetry(undefined);
+    termHint.hidden = true;
+    firstRun.hidden = true;
+    setExpanded(false);
     editor.clear();
     clearPreview();
     if (demo) {
@@ -195,11 +278,34 @@ if (root) {
     });
   }
 
+  for (const retry of retries) {
+    retry.addEventListener('click', async () => {
+      await stop();
+      void start(selected);
+    });
+  }
+
+  // The hint goes once the visitor uses the terminal.
+  for (const type of ['pointerdown', 'keydown'] as const) {
+    termEl.addEventListener(type, () => (termHint.hidden = true));
+  }
+
+  ports.addEventListener('change', () => showPort(Number(ports.value)));
+  reload.addEventListener('click', () => {
+    const p = Number(ports.hidden ? [...open.keys()].at(-1) : ports.value);
+    if (open.has(p)) showPort(p);
+  });
+  expand.addEventListener('click', () => setExpanded(!('fullPreview' in root.dataset)));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && 'fullPreview' in root.dataset) setExpanded(false);
+  });
+
   for (const chip of chips) {
     chip.addEventListener('click', async () => {
       const demo = running;
       const command = chip.dataset['demoTry'];
       if (!demo || !command) return;
+      termHint.hidden = true;
       chip.classList.add('typing');
       try {
         await demo.type(command);
