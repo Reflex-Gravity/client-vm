@@ -13,14 +13,20 @@ import { REPO, version } from '../content/landing.ts';
 interface Props {
   /** The demos to offer, in the picker's order; the first is selected. */
   demos?: Demo[];
+  /** The landing page's heading and picker; a demo's own page has its own. */
+  heading?: boolean;
+  /** A link under the stage, e.g. to every demo. */
+  more?: { label: string; href: string };
 }
-const { demos = DEMOS.slice(0, 3) } = Astro.props;
+const { demos = DEMOS.slice(0, 3), heading = true, more } = Astro.props;
 
 const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', ready: 'ready' };
 ---
 
 <section id="demo" class="demo">
   <div class="wrap">
+    {
+      heading && (
     <div class="head">
       <div>
         <p class="eyebrow"><span><span class="n">01</span> / live demo</span></p>
@@ -44,6 +50,8 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
         }
       </div>
     </div>
+      )
+    }
 
     <div class="stage" data-demo>
       <TerminalWindow title="bash · ~/app" class="term-window">
@@ -58,9 +66,10 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
                 {ex.triggers.map((t) => (
                   <button
                     type="button"
-                    class="chip"
+                    class:list={['chip', { 'tool-chip': t.tool }]}
                     data-demo-try={t.command}
-                    title={t.command}
+                    data-demo-tool={t.tool ? JSON.stringify(t.tool) : undefined}
+                    title={t.command ?? (t.tool && `${t.tool.name} ${JSON.stringify(t.tool.input)}`)}
                     disabled
                   >
                     {t.label}
@@ -124,6 +133,7 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
           >
         </span>
         <iframe data-demo-preview title="Preview of the server running in the demo"></iframe>
+        <div class="agent-preview" data-demo-agent-preview></div>
         <p class="empty" data-demo-empty>
           <span class="wait" aria-hidden="true"></span>
           <span data-demo-empty-text>The page the server serves shows here.</span>
@@ -176,6 +186,13 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
       First run in this browser: the project is built once and cached, and npm and the
       WebAssembly build tools are downloaded on first use. Later runs start in seconds.
     </p>
+    {
+      more && (
+        <p class="more">
+          <a href={more.href}>{more.label} →</a>
+        </p>
+      )
+    }
     <p class="beta">
       <span class="beta-tag">beta</span>
       <span>
@@ -410,6 +427,10 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   .chip[disabled]::before {
     color: var(--dim);
   }
+  .tool-chip::before {
+    content: 'agent ▸ ';
+    color: #7fd4e6;
+  }
   .chip.typing {
     border-color: var(--accent);
     color: var(--accent);
@@ -418,6 +439,17 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
     position: relative;
     flex: 1;
     min-height: 0;
+  }
+  .more {
+    margin: 14px 0 0;
+    font: 13px var(--mono);
+  }
+  .more a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .more a:hover {
+    text-decoration: underline;
   }
   .beta {
     display: flex;
@@ -605,6 +637,24 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
   }
   iframe:not([src]) {
     display: none;
+  }
+  /* The agent tools' own preview, over the plain one once a tool opens it. */
+  .agent-preview {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .agent-preview:empty {
+    display: none;
+  }
+  .agent-preview :global(iframe) {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0;
+    background: #fff;
+    pointer-events: auto;
   }
   .empty {
     position: absolute;

@@ -128,6 +128,135 @@ await attachShell(term, box, { cwd: '/home/user/app' });`,
       { label: 'Shell commands', slug: 'decisions/0011-in-process-shell-commands' },
     ],
   },
+  {
+    slug: 'agent-drives-preview',
+    name: 'Agent drives the app',
+    tag: 'agent tools · preview',
+    summary:
+      'The tool calls an AI agent makes: read the running app, click and type in it, check its console and edit its files.',
+    category: 'Agents',
+    builtWith: ['@clientvm/agent-api', 'Node.js 24', 'driveable preview'],
+    start: 'Start the app for the agent',
+    steps: ['boot', 'start', 'ready'],
+    previewHint: 'The app shows here; the agent’s clicks and typing happen in it.',
+    triggers: [
+      { label: 'read the page', tool: { name: 'preview_snapshot', input: { port: 5050 } } },
+      {
+        label: 'click “Add item”',
+        tool: { name: 'preview_click', input: { port: 5050, text: 'Add item' } },
+      },
+      {
+        label: 'fill the form',
+        tool: {
+          name: 'preview_type',
+          input: { port: 5050, selector: '#name', value: 'Ada', submit: true },
+        },
+      },
+      { label: 'read the console', tool: { name: 'preview_console', input: { port: 5050 } } },
+      {
+        label: 'edit index.html',
+        tool: {
+          name: 'edit_file',
+          input: {
+            path: '/home/user/app/index.html',
+            old_string: '<h1>Todo</h1>',
+            new_string: '<h1>Edited by the agent</h1>',
+          },
+        },
+      },
+      {
+        label: 'reload and read',
+        tool: { name: 'preview_snapshot', input: { port: 5050, path: '/' } },
+      },
+    ],
+    about: [
+      'This is what an AI app builder does between a model’s turns. Each chip is one tool call from @clientvm/agent-api, made here in the browser exactly as it would be for a model’s tool_use block, and the terminal shows the call and the result the model would get back.',
+      'The preview is the agent’s own: preview_snapshot reads it as a text outline with element refs, preview_click and preview_type drive it, and preview_console returns what the page logged. edit_file changes the project, and the next load shows the change.',
+    ],
+    code: `import { createAgentTools } from '@clientvm/agent-api';
+
+const tools = createAgentTools({ instance: app, previewContainer });
+// send tools.definitions to the model; for each tool_use block it returns:
+const result = await tools.call('preview_click', { port: 5050, text: 'Add item' });`,
+    source: 'site/src/demos/agent-drives-preview.ts',
+    docs: [
+      { label: 'Agent API', slug: 'agent-api' },
+      { label: 'Security model', slug: 'security' },
+    ],
+  },
+  {
+    slug: 'vite8-tailwind',
+    name: 'Tailwind on Vite 8',
+    tag: 'Vite 8 · Tailwind 4',
+    summary:
+      'Vite 8, React 19 and Tailwind CSS 4, with rolldown, lightningcss and Tailwind’s oxide scanner running as WebAssembly.',
+    category: 'Frameworks',
+    builtWith: ['Vite 8', 'React 19', 'Tailwind CSS 4', 'WebAssembly'],
+    start: 'Start Vite 8 with Tailwind',
+    steps: BOOT_INSTALL_START,
+    previewHint: 'The page shows here once Vite is ready.',
+    triggers: [
+      {
+        label: 'swap the colour',
+        command: "sed -i 's/emerald/rose/g' src/App.jsx && grep -c rose src/App.jsx",
+      },
+      {
+        label: 'add a class',
+        command: "sed -i 's/rounded-2xl bg-white/rounded-2xl bg-white -rotate-2/' src/App.jsx",
+      },
+      { label: 'build', command: 'npx vite build' },
+      { label: 'list the build', command: 'ls -la dist/assets' },
+      { label: 'stand-ins', command: 'ls /usr/local/lib/clientvm/standins' },
+    ],
+    about: [
+      'Vite 8 and Tailwind 4 lean on native binaries: rolldown for bundling, lightningcss for CSS, and Tailwind’s oxide scanner. ClientVM swaps each for its official WebAssembly build of the same version, downloaded and integrity-checked on first use, so the project needs no changes.',
+      'The package.json and lockfile are the ones the end-to-end tests install. Edit a class in App.jsx and the scanner finds it; Vite hot-reloads the CSS.',
+    ],
+    code: `const app = await vm.createInstance({ fs: { from: { home: { user: { app: project } } } } });
+
+app.onPortOpen((port, url) => (preview.src = url));
+// native rolldown, lightningcss and oxide are swapped for their WebAssembly builds
+await app.exec('npm install && npm run dev', { cwd: '/home/user/app' });`,
+    source: 'test/fixtures/vite8-tailwind',
+    docs: [
+      { label: 'WebAssembly stand-ins', slug: 'decisions/0013-wasm-stand-ins-for-native-packages' },
+      { label: 'Compatibility', slug: 'compatibility' },
+    ],
+  },
+  {
+    slug: 'websocket-chat',
+    name: 'WebSocket chat',
+    tag: 'Express · ws',
+    summary:
+      'A chat room on Express and ws: the page talks to the server over a real WebSocket, and bash posts into the same room.',
+    category: 'Servers',
+    builtWith: ['Express 4', 'ws 8', 'npm 11'],
+    start: 'Start the chat server',
+    steps: BOOT_INSTALL_START,
+    previewHint: 'The chat page shows here once the server listens.',
+    triggers: [
+      {
+        label: 'say from bash',
+        command: "curl -s --data 'hello from bash' localhost:3000/say",
+      },
+      { label: 'who is connected', command: 'curl -s localhost:3000/clients' },
+      { label: 'start server', command: 'npm start' },
+    ],
+    about: [
+      'The server is the unmodified ws package on an Express app. When the page opens a WebSocket to its own origin, the preview’s service worker hands it to the server listening inside the instance; nothing leaves the tab.',
+      'Send a message in the page, or post one from bash with curl: every connected page gets it, and the server logs it in the terminal.',
+    ],
+    code: `const app = await vm.createInstance({ fs: { from: { home: { user: { app: chat } } } } });
+
+app.onPortOpen((port, url) => (preview.src = url));
+// the page's WebSocket reaches the ws server through the preview's service worker
+await app.exec('npm install && npm start', { cwd: '/home/user/app' });`,
+    source: 'site/src/demos/websocket-chat.ts',
+    docs: [
+      { label: 'Previews', slug: 'decisions/0008-sub-origin-per-port' },
+      { label: 'Compatibility', slug: 'compatibility' },
+    ],
+  },
 ];
 
 /** Each demo's files, loaded when it starts. */
@@ -135,6 +264,9 @@ const DEFINITIONS: Record<string, () => Promise<{ default: DemoDefinition }>> = 
   'todo-vite-react': () => import('./todo-vite-react.ts'),
   express: () => import('./express.ts'),
   shell: () => import('./shell.ts'),
+  'agent-drives-preview': () => import('./agent-drives-preview.ts'),
+  'vite8-tailwind': () => import('./vite8-tailwind.ts'),
+  'websocket-chat': () => import('./websocket-chat.ts'),
 };
 
 export const demoOf = (slug: string): Demo | undefined => DEMOS.find((d) => d.slug === slug);

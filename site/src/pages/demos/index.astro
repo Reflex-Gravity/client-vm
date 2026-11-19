@@ -1,0 +1,154 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// /demos/: every demo as a card. Each runs on its own page, in this tab.
+import Base from '../../layouts/Base.astro';
+import Nav from '../../components/Nav.astro';
+import Footer from '../../components/Footer.astro';
+import DemoCard from '../../components/DemoCard.astro';
+import { DEMOS } from '../../demos/catalog.ts';
+import { REPO, SITE } from '../../content/landing.ts';
+import { gallery } from '../../lib/demo-pages.ts';
+import { homeGraph } from '../../lib/seo.ts';
+---
+
+<Base
+  title="Demos: ClientVM running in your browser tab"
+  description={gallery.lede}
+  markdown="/demos.md"
+  jsonLd={[
+    ...homeGraph(),
+    {
+      '@type': 'CollectionPage',
+      '@id': `${SITE}/demos/#page`,
+      url: `${SITE}/demos/`,
+      name: 'ClientVM demos',
+      isPartOf: { '@id': `${SITE}/#website` },
+      about: { '@id': `${SITE}/#software` },
+    },
+  ]}
+>
+  <Nav />
+  <main>
+    <section class="top">
+      <div class="wrap">
+        <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> / Demos</nav>
+        <h1>{gallery.title}</h1>
+        <p class="lede">{gallery.lede}</p>
+        <p class="count">{DEMOS.length} demos · Chromium 137+</p>
+        <div class="grid cards">
+          {DEMOS.map((demo) => <DemoCard demo={demo} level={2} />)}
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap faq-wrap">
+        <div>
+          <h2>Questions</h2>
+          <dl class="faq">
+            {
+              gallery.faq.map((f) => (
+                <div>
+                  <dt>{f.q}</dt>
+                  <dd>{f.a}</dd>
+                </div>
+              ))
+            }
+          </dl>
+        </div>
+        <aside class="add">
+          <h2>Built something with ClientVM?</h2>
+          <p>
+            A demo is a definition in <code>site/src/demos/</code> and an entry in its catalog. Open
+            a pull request with yours, or tell us about it in Discussions.
+          </p>
+          <p class="actions">
+            <a class="btn primary" href={`${REPO}/tree/main/site/src/demos`}>Add a demo</a>
+            <a class="btn" href={`${REPO}/discussions`}>Discussions</a>
+          </p>
+        </aside>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .top {
+    padding-block: 72px 104px;
+  }
+  .crumbs {
+    margin-bottom: 20px;
+    color: var(--muted);
+    font: 12px var(--mono);
+  }
+  .crumbs a {
+    color: var(--muted);
+  }
+  h1 {
+    margin: 0;
+    font: 500 clamp(36px, 5vw, 56px) / 1.05 var(--display);
+  }
+  .lede {
+    max-width: 62ch;
+    margin: 18px 0 0;
+    color: var(--muted);
+    font-size: 17px;
+  }
+  .count {
+    margin: 28px 0 16px;
+    color: var(--dim);
+    font: 12px var(--mono);
+  }
+  .cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .faq-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 64px;
+  }
+  .faq {
+    display: grid;
+    gap: 24px;
+    margin: 24px 0 0;
+  }
+  dt {
+    font-weight: 500;
+  }
+  dd {
+    margin: 6px 0 0;
+    color: var(--muted);
+  }
+  .add {
+    align-self: start;
+    padding: 28px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .add h2 {
+    font-size: 20px;
+  }
+  .add p {
+    color: var(--muted);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 20px 0 0;
+  }
+  @media (max-width: 980px) {
+    .cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .faq-wrap {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 620px) {
+    .cards {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

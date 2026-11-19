@@ -1,0 +1,16 @@
+---
+// SPDX-License-Identifier: Apache-2.0
+// For any page with a live demo. xterm.js loads from a CDN only when a demo
+// starts (src/demo/run.ts); this import map pins the files' hashes, so altered
+// copies do not load. Use it in the page's `head` slot.
+---
+
+<script type="importmap" is:inline>
+  {
+    "imports": {},
+    "integrity": {
+      "https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.mjs": "sha384-8Xik+BkzF4UFDtZa8HkUiQ0FE/Xl+03xMuv69uQB3ichDzm8dWs4kPRihQxSZDiY",
+      "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.mjs": "sha384-0/1EW6dUPoaun7dgdlOtb5Wk8x5UQRW6hYM3ihuCCnaA2Xd4HwMFcn378RpxmoAc"
+    }
+  }
+</script>

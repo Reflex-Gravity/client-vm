@@ -316,3 +316,109 @@ test('site: the quickstart shows its steps in order and the docs stay on the sit
   expect(md.headers()['content-type']).toContain('text/markdown');
   expect(await md.text()).toContain('## Why subdomains');
 });
+
+test('site: the demos gallery links every demo to a page that runs it', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.goto(`${SITE}demos/`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runs in this tab.');
+  const cards = page.locator('.demo-card');
+  await expect(cards).toHaveCount(6);
+  await cards.filter({ hasText: 'Shell & Node' }).click();
+  await expect(page).toHaveURL(/\/demos\/shell\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Shell & Node');
+  // One demo, so no picker; it starts as on the landing page.
+  await expect(page.locator('[data-demo-picker]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Start a bash shell' }).click();
+  await expect(page.locator('[data-demo-status]')).toContainText('bash ready', {
+    timeout: 30_000,
+  });
+  await page.getByRole('button', { name: 'versions' }).click();
+  await expect(page.locator('[data-demo-term] .xterm-rows')).toContainText(/v24\.\d+/, {
+    timeout: 15_000,
+  });
+  // The page's own copy, and three more demos.
+  await expect(page.getByRole('heading', { name: "How it's built" })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View source ↗' })).toHaveAttribute(
+    'href',
+    /\/blob\/main\/site\/src\/demos\/shell\.ts$/,
+  );
+  await expect(page.locator('.demo-card')).toHaveCount(3);
+
+  // Agents get the gallery and each demo as markdown, also from llms.txt.
+  const gallery = await (await page.request.get(`${SITE}demos.md`)).text();
+  expect(gallery).toContain('/demos/agent-drives-preview.md');
+  const one = await page.request.get(`${SITE}demos/shell.md`);
+  expect(one.headers()['content-type']).toContain('text/markdown');
+  expect(await one.text()).toContain("## How it's built");
+  expect(await (await page.request.get(`${SITE}llms.txt`)).text()).toContain('## Demos');
+});
+
+test('site: the Tailwind demo picks up a new class while Vite 8 runs', async ({ page }) => {
+  // npm installs Vite 8 and Tailwind 4, and the WebAssembly stand-ins download.
+  test.setTimeout(300_000);
+  await page.goto(`${SITE}demos/vite8-tailwind/`);
+  await page.getByRole('button', { name: 'Start Vite 8 with Tailwind' }).click();
+  await expect(page.locator('[data-demo-status]')).toContainText('port 5173', {
+    timeout: 240_000,
+  });
+  const app = page.frameLocator('[data-demo-preview]');
+  await expect(app.locator('#title')).toHaveText('Hello from Tailwind', { timeout: 30_000 });
+  const bg = () => app.locator('#count').evaluate((el) => getComputedStyle(el).backgroundColor);
+  const before = await bg();
+  // A utility the page did not use before: the scanner finds it, Vite updates the CSS.
+  await page.getByRole('button', { name: 'swap the colour' }).click();
+  await expect.poll(bg, { timeout: 30_000 }).not.toBe(before);
+});
+
+test('site: the chat demo talks over a WebSocket, and bash joins in', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.goto(`${SITE}demos/websocket-chat/`);
+  await page.getByRole('button', { name: 'Start the chat server' }).click();
+  const app = page.frameLocator('[data-demo-preview]');
+  await expect(app.locator('#state')).toHaveText('connected over a WebSocket', {
+    timeout: 200_000,
+  });
+  await app.locator('#msg').fill('hi from the page');
+  await app.locator('#msg').press('Enter');
+  await expect(app.locator('li', { hasText: 'page: hi from the page' })).toBeVisible();
+  await page.getByRole('button', { name: 'say from bash' }).click();
+  await expect(app.locator('li', { hasText: 'bash: hello from bash' })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.locator('[data-demo-term] .xterm-rows')).toContainText(
+    'chat: bash: hello from bash',
+  );
+});
+
+test('site: the agent demo drives the preview with agent tool calls', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto(`${SITE}demos/agent-drives-preview/`);
+  await page.getByRole('button', { name: 'Start the app for the agent' }).click();
+  await expect(page.locator('[data-demo-status]')).toContainText('port 5050', {
+    timeout: 60_000,
+  });
+  const term = page.locator('[data-demo-term] .xterm-rows');
+
+  // The model's view of the page: an outline with element refs.
+  await page.getByRole('button', { name: 'read the page' }).click();
+  await expect(term).toContainText('agent ▸ preview_snapshot');
+  await expect(term).toContainText(/\[ref=e\d+\]/, { timeout: 30_000 });
+
+  // The agent's own preview is the one on show, so its clicks are visible.
+  const app = page.frameLocator('[data-demo-agent-preview] iframe');
+  await page.getByRole('button', { name: 'click “Add item”' }).click();
+  await expect(app.locator('#status')).toHaveText('1 items', { timeout: 15_000 });
+  await page.getByRole('button', { name: 'fill the form' }).click();
+  await expect(app.locator('#status')).toHaveText('hello Ada', { timeout: 15_000 });
+  await page.getByRole('button', { name: 'read the console' }).click();
+  await expect(term).toContainText('submitted', { timeout: 15_000 });
+
+  // An edit to the project shows on the next load.
+  await page.getByRole('button', { name: 'edit index.html' }).click();
+  await expect(term).toContainText('agent ▸ edit_file');
+  await page.getByRole('button', { name: 'reload and read' }).click();
+  await expect(app.locator('h1')).toHaveText('Edited by the agent', { timeout: 30_000 });
+
+  await page.getByRole('button', { name: 'reset', exact: true }).click();
+  await expect(page.locator('[data-demo-agent-preview] iframe')).toHaveCount(0);
+});

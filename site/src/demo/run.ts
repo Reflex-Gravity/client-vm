@@ -6,9 +6,10 @@
 // types is a demo's definition (../demos/<slug>.ts).
 // Patterned on examples/agent-playground/src/terminal.ts.
 import { createClientVM } from '@clientvm/clientvm';
-import type { Disposable, Instance } from '@clientvm/clientvm';
+import type { Disposable, FileTree, Instance } from '@clientvm/clientvm';
 import { attachShell, stripAnsi } from '@clientvm/terminal';
 import type { InteractiveTerminalLike } from '@clientvm/terminal';
+import type { AgentTools } from '@clientvm/agent-api';
 import type { DemoDefinition, SetupStep } from '../demos/catalog.ts';
 
 // The terminal emulator is the host app's choice (ADR 0016). These pinned
@@ -45,6 +46,8 @@ const SETTLE_MS = 700;
  * it logs each registry fetch, so the install's progress shows.
  */
 const INSTALL = 'npm install --no-audit --no-fund --loglevel http';
+/** The most lines of a tool result the terminal shows. */
+const TOOL_LINES = 14;
 
 export interface DemoCallbacks {
   status(text: string): void;
@@ -87,8 +90,29 @@ export interface RunningDemo {
    * server in the foreground, or a half-typed line, gets a Ctrl+C first.
    */
   type(command: string): Promise<void>;
+  /**
+   * Makes one agent tool call, as a model would, and writes the call and its
+   * result to the terminal. Only for demos with `agentTools`.
+   */
+  callTool(name: string, input: Record<string, unknown>): Promise<void>;
   focus(): void;
   destroy(): Promise<void>;
+}
+
+/** Nests `src/App.jsx`-style paths into the tree a file tree wants. */
+function tree(files: Record<string, string>): FileTree {
+  const root: FileTree = {};
+  for (const [path, text] of Object.entries(files)) {
+    const parts = path.split('/');
+    let dir = root;
+    for (const part of parts.slice(0, -1)) {
+      const next = dir[part];
+      if (typeof next === 'object' && !(next instanceof Uint8Array)) dir = next;
+      else dir = dir[part] = {};
+    }
+    dir[parts.at(-1)!] = text;
+  }
+  return root;
 }
 
 const withTimeout = <T>(p: Promise<T>, ms: number, what: string) =>
@@ -175,10 +199,16 @@ class ShellDriver {
  * Boots the instance and attaches a shell, then types the setup into it in
  * `setup`. Rejects only if the sandbox cannot boot.
  */
+export interface DemoOptions {
+  /** Where the agent tools' preview of the app goes (demos with `agentTools`). */
+  agentPreview?: HTMLElement;
+}
+
 export async function startDemo(
   demo: DemoDefinition,
   container: HTMLElement,
   cb: DemoCallbacks,
+  opts: DemoOptions = {},
 ): Promise<RunningDemo> {
   loadCss();
   cb.status('loading the terminal…');
@@ -235,7 +265,7 @@ export async function startDemo(
             },
           }
         : {
-            fs: { from: { home: { user: { app: demo.files } } } },
+            fs: { from: { home: { user: { app: tree(demo.files) } } } },
           }),
       limits: { maxProcesses: 64, maxCpuMs: 60_000 },
     });
@@ -292,8 +322,11 @@ export async function startDemo(
       return;
     }
     const background = demo.background ?? false;
-    cb.status('installing packages…');
-    cb.step('install');
+    const install = demo.install ?? true;
+    if (install) {
+      cb.status('installing packages…');
+      cb.step('install');
+    }
     const opened = new Promise<number>((resolve) => {
       const sub = instance.onPortOpen((p) => {
         sub.dispose();
@@ -312,8 +345,10 @@ export async function startDemo(
     subs.push(starting);
     if (background) {
       // Install in the foreground, then start the server as a background job.
-      shell.run(INSTALL);
-      await withTimeout(shell.prompt(), SETUP_TIMEOUT_MS, 'npm install');
+      if (install) {
+        shell.run(INSTALL);
+        await withTimeout(shell.prompt(), SETUP_TIMEOUT_MS, 'npm install');
+      }
       cb.step('start');
       cb.status('starting the server…');
       shell.run(start);
@@ -322,7 +357,7 @@ export async function startDemo(
       cb.status(`instance ${instance.id} · port ${p}`);
       return;
     }
-    shell.run(`${INSTALL} && ${start}`);
+    shell.run(install ? `${INSTALL} && ${start}` : start);
     // The prompt comes back only if npm install or the server stops.
     const stopped = shell.prompt().then(() => {
       throw new Error('the command stopped before the server opened a port');
@@ -400,14 +435,49 @@ export async function startDemo(
     );
   }
 
+  // The agent tools load with the first tool chip.
+  let tools: Promise<AgentTools> | undefined;
+  const callTool = async (name: string, input: Record<string, unknown>): Promise<void> => {
+    tools ??= import('@clientvm/agent-api').then(({ createAgentTools }) =>
+      createAgentTools({
+        instance,
+        ...(opts.agentPreview ? { previewContainer: opts.agentPreview } : {}),
+      }),
+    );
+    const t = await tools;
+    if (!alive) return;
+    term.write(`\r\n\x1b[36magent ▸ ${name} ${JSON.stringify(input)}\x1b[0m\r\n`);
+    const result = await t.call(name, input);
+    if (!alive) return;
+    for (const block of result.content) {
+      const text =
+        block.type === 'text'
+          ? block.text
+          : `[a ${block.source.media_type} image, ${Math.round((block.source.data.length * 3) / 4 / 1024)} KB]`;
+      const lines = text.split('\n');
+      const shown = lines.slice(0, TOOL_LINES);
+      if (lines.length > TOOL_LINES) shown.push(`… ${lines.length - TOOL_LINES} more lines`);
+      const color = result.is_error ? '\x1b[31m' : '\x1b[2m';
+      term.write(shown.map((l) => `${color}${l}\x1b[0m`).join('\r\n') + '\r\n');
+    }
+    // The prompt the shell drew before stays above; a fresh line reads better.
+    shell.send('\r');
+  };
+
   return {
     instance,
     setup,
     type,
+    callTool,
     focus: () => term.focus(),
     destroy: async () => {
       alive = false;
       clearTimeout(restartTimer);
+      if (tools)
+        void tools.then(
+          (t) => t.dispose(),
+          () => {},
+        );
       for (const s of subs) s.dispose();
       resize.disconnect();
       await instance.destroy().catch(() => {});

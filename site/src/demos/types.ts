@@ -8,9 +8,13 @@
 /** The steps the progress strip walks through, in order. */
 export type SetupStep = 'boot' | 'install' | 'start' | 'ready';
 
+/** A "try" chip: types a shell command, or makes one agent tool call. */
 export interface Trigger {
   label: string;
-  command: string;
+  /** Typed into the terminal's bash. */
+  command?: string;
+  /** Called through @clientvm/agent-api, as a model's tool call would be. */
+  tool?: { name: string; input: Record<string, unknown> };
 }
 
 export type DemoCategory = 'Frameworks' | 'Servers' | 'Shell & tools' | 'Agents';
@@ -61,6 +65,8 @@ export interface DemoDefinition {
    * installed and the demo is ready at the first prompt.
    */
   start?: string;
+  /** Run `npm install` before `start` (default true). */
+  install?: boolean;
   /**
    * `start` is a background job (it ends in `&`): install in the foreground,
    * then start it, so bash prompts again and the chips can reach the server.
@@ -73,4 +79,9 @@ export interface DemoDefinition {
    * Ctrl+C and types `command` again.
    */
   restartOn?: { file: string; command: string };
+  /**
+   * The chips call agent tools, and the agent's preview of the app replaces
+   * the plain one, so a visitor sees what the agent clicks and types.
+   */
+  agentTools?: boolean;
 }

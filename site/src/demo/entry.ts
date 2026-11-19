@@ -27,6 +27,7 @@ if (root) {
   const termEl = $('term');
   const termHint = $('term-hint');
   const preview = $<HTMLIFrameElement>('preview');
+  const agentPreview = $('agent-preview');
   const empty = $('empty');
   const port = $('port');
   const ports = $<HTMLSelectElement>('ports');
@@ -47,7 +48,7 @@ if (root) {
   const buttons = all<HTMLButtonElement>('[data-demo-start]');
   const retries = all<HTMLButtonElement>('[data-demo-retry]');
   const chipGroups = all<HTMLElement>('[data-demo-chips]');
-  const chips = all<HTMLButtonElement>('[data-demo-try]');
+  const chips = all<HTMLButtonElement>('[data-demo-chips] .chip');
 
   /** The demos this page offers, in the picker's order. */
   const slugs = buttons.map((b) => b.dataset['demoStart']!);
@@ -178,28 +179,33 @@ if (root) {
         import('./run.ts'),
         loadDefinition(mode),
       ]);
-      const demo = await startDemo(definition, termEl, {
-        status: (text) => id === run && status(text),
-        step: (step) => id === run && showStep(mode, step),
-        firstRun: () => {
-          if (id === run) firstRun.hidden = false;
+      const demo = await startDemo(
+        definition,
+        termEl,
+        {
+          status: (text) => id === run && status(text),
+          step: (step) => id === run && showStep(mode, step),
+          firstRun: () => {
+            if (id === run) firstRun.hidden = false;
+          },
+          preview: (url, p) => {
+            if (id !== run) return;
+            open.set(p, url);
+            drawPorts();
+            // The newest server is the one to look at.
+            showPort(p);
+          },
+          portClosed: (p) => {
+            if (id !== run) return;
+            open.delete(p);
+            drawPorts();
+            // A restart closes and opens the same port; another one shows meanwhile.
+            const next = [...open.keys()].at(-1);
+            if (ports.value === String(p) && next !== undefined) showPort(next);
+          },
         },
-        preview: (url, p) => {
-          if (id !== run) return;
-          open.set(p, url);
-          drawPorts();
-          // The newest server is the one to look at.
-          showPort(p);
-        },
-        portClosed: (p) => {
-          if (id !== run) return;
-          open.delete(p);
-          drawPorts();
-          // A restart closes and opens the same port; another one shows meanwhile.
-          const next = [...open.keys()].at(-1);
-          if (ports.value === String(p) && next !== undefined) showPort(next);
-        },
-      });
+        definition.agentTools ? { agentPreview } : {},
+      );
       if (id !== run) return void demo.destroy();
       running = demo;
       reset.hidden = false;
@@ -250,6 +256,7 @@ if (root) {
     setExpanded(false);
     editor.clear();
     clearPreview();
+    agentPreview.replaceChildren();
     if (demo) {
       status('stopping…');
       await demo.destroy();
@@ -304,11 +311,20 @@ if (root) {
     chip.addEventListener('click', async () => {
       const demo = running;
       const command = chip.dataset['demoTry'];
-      if (!demo || !command) return;
+      const tool = chip.dataset['demoTool'];
+      if (!demo || (!command && !tool)) return;
       termHint.hidden = true;
       chip.classList.add('typing');
       try {
-        await demo.type(command);
+        if (tool) {
+          const { name, input } = JSON.parse(tool) as {
+            name: string;
+            input: Record<string, unknown>;
+          };
+          await demo.callTool(name, input);
+        } else if (command) {
+          await demo.type(command);
+        }
       } catch {
         // the terminal shows what happened
       } finally {
