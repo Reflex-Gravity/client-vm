@@ -5,6 +5,7 @@
 // SVG with the site's own fonts, then sharp writes a palette PNG, so og.png stays
 // well under WhatsApp's ~300 KB limit. Run after changing og.svg or favicon.svg:
 //   node scripts/render-site-images.mjs
+/* global document -- used only inside page.evaluate, which runs in Chromium */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
