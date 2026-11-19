@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Wires the demo's picker, buttons and "try" chips (components/Demo.astro).
-// Kept small: the runtime (./run.ts, ClientVM and xterm.js) is imported only
-// when a visitor starts an example.
+// Kept small: the runtime (./run.ts, ClientVM and xterm.js) and a demo's files
+// (../demos/<slug>.ts) are imported only when a visitor starts it.
 import { checkSupport } from './support.ts';
 import { createEditor } from './editor.ts';
-import { EXAMPLES, exampleOf, type DemoMode, type SetupStep } from './examples.ts';
+import { demoOf, loadDefinition, type SetupStep } from '../demos/catalog.ts';
 import type { RunningDemo } from './run.ts';
 
 const root = document.querySelector<HTMLElement>('[data-demo]');
@@ -13,8 +13,6 @@ const $ = <T extends HTMLElement>(name: string) =>
 const all = <T extends HTMLElement>(selector: string) => [
   ...document.querySelectorAll<T>(selector),
 ];
-
-const isMode = (v: string | undefined): v is DemoMode => EXAMPLES.some((e) => e.mode === v);
 
 if (root) {
   const overlay = $('overlay');
@@ -39,9 +37,12 @@ if (root) {
   const chipGroups = all<HTMLElement>('[data-demo-chips]');
   const chips = all<HTMLButtonElement>('[data-demo-try]');
 
-  let selected: DemoMode = EXAMPLES[0]!.mode;
+  /** The demos this page offers, in the picker's order. */
+  const slugs = buttons.map((b) => b.dataset['demoStart']!);
+  const isDemo = (v: string | undefined): v is string => v !== undefined && slugs.includes(v);
+  let selected = slugs[0]!;
   let running: RunningDemo | undefined;
-  let runningMode: DemoMode | undefined;
+  let runningMode: string | undefined;
   /** Bumped on every start and reset, so a stale setup cannot touch the page. */
   let run = 0;
 
@@ -54,8 +55,8 @@ if (root) {
   };
 
   /** Lights the setup strip up to `step`; undefined clears it. */
-  const showStep = (mode: DemoMode, step: SetupStep | undefined) => {
-    const steps = exampleOf(mode).steps;
+  const showStep = (mode: string, step: SetupStep | undefined) => {
+    const steps = demoOf(mode)?.steps ?? [];
     const at = step ? steps.indexOf(step) : -1;
     for (const li of stepItems) {
       const i = steps.indexOf(li.dataset['step'] as SetupStep);
@@ -65,14 +66,14 @@ if (root) {
     }
   };
 
-  const select = (mode: DemoMode) => {
+  const select = (mode: string) => {
     selected = mode;
     for (const p of picks) p.setAttribute('aria-pressed', String(p.dataset['demoPick'] === mode));
     for (const b of buttons) b.hidden = b.dataset['demoStart'] !== mode;
     if (!running) showStep(mode, undefined);
   };
 
-  const showChips = (mode: DemoMode | undefined, enabled: boolean) => {
+  const showChips = (mode: string | undefined, enabled: boolean) => {
     for (const g of chipGroups) g.hidden = g.dataset['demoChips'] !== mode;
     for (const c of chips) c.disabled = !enabled;
   };
@@ -96,7 +97,7 @@ if (root) {
     port.textContent = '';
   };
 
-  const start = async (mode: DemoMode) => {
+  const start = async (mode: string) => {
     if (running) return;
     const id = ++run;
     for (const b of buttons) b.disabled = true;
@@ -104,13 +105,16 @@ if (root) {
     note.classList.remove('error');
     overlay.hidden = true;
     runningMode = mode;
-    emptyText.textContent = exampleOf(mode).previewHint;
+    emptyText.textContent = demoOf(mode)?.previewHint ?? '';
     showChips(mode, false);
     showStep(mode, 'boot');
     busy(true);
     try {
-      const { startDemo, APP, EDITABLE } = await import('./run.ts');
-      const demo = await startDemo(mode, termEl, {
+      const [{ startDemo, APP }, definition] = await Promise.all([
+        import('./run.ts'),
+        loadDefinition(mode),
+      ]);
+      const demo = await startDemo(definition, termEl, {
         status: (text) => id === run && status(text),
         step: (step) => id === run && showStep(mode, step),
         preview: (url, p) => {
@@ -125,7 +129,7 @@ if (root) {
       running = demo;
       reset.hidden = false;
       demo.focus();
-      void editor.open(demo.instance.fs, APP, EDITABLE[mode]);
+      void editor.open(demo.instance.fs, APP, definition.editable);
       demo.setup.then(
         () => {
           if (id !== run) return;
@@ -174,7 +178,7 @@ if (root) {
   for (const pick of picks) {
     pick.addEventListener('click', async () => {
       const mode = pick.dataset['demoPick'];
-      if (!isMode(mode) || mode === runningMode) return;
+      if (!isDemo(mode) || mode === runningMode) return;
       select(mode);
       // Switching while one runs tears it down and starts the new one.
       if (runningMode !== undefined && support.ok) {
@@ -187,7 +191,7 @@ if (root) {
   for (const button of buttons) {
     button.addEventListener('click', () => {
       const mode = button.dataset['demoStart'];
-      if (isMode(mode)) void start(mode);
+      if (isDemo(mode)) void start(mode);
     });
   }
 

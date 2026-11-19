@@ -4,11 +4,17 @@
 // preview of one ClientVM instance come alive. Nothing of ClientVM loads until
 // a visitor presses start (src/demo/entry.ts imports src/demo/run.ts on
 // click). The setup is typed into the terminal's bash, so its output shows
-// there; the "try" chips type more commands the same way. The examples are
-// src/demo/examples.ts; the editor is src/demo/editor.ts.
+// there; the "try" chips type more commands the same way. The demos are
+// src/demos/catalog.ts; the editor is src/demo/editor.ts.
 import TerminalWindow from './TerminalWindow.astro';
-import { EXAMPLES } from '../demo/examples.ts';
+import { DEMOS, type Demo } from '../demos/catalog.ts';
 import { REPO, version } from '../content/landing.ts';
+
+interface Props {
+  /** The demos to offer, in the picker's order; the first is selected. */
+  demos?: Demo[];
+}
+const { demos = DEMOS.slice(0, 3) } = Astro.props;
 
 const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', ready: 'ready' };
 ---
@@ -23,11 +29,11 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
 
       <div class="picker" role="group" aria-label="Examples" data-demo-picker>
         {
-          EXAMPLES.map((ex, i) => (
+          demos.map((ex, i) => (
             <button
               type="button"
               class="pick"
-              data-demo-pick={ex.mode}
+              data-demo-pick={ex.slug}
               aria-pressed={i === 0 ? 'true' : 'false'}
             >
               <span class="pick-n">{String.fromCharCode(65 + i)}</span>
@@ -44,8 +50,8 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
         <button slot="actions" type="button" class="mini" data-demo-reset hidden>reset</button>
         <div class="term-body">
           {
-            EXAMPLES.map((ex) => (
-              <div class="chips" data-demo-chips={ex.mode} hidden>
+            demos.map((ex) => (
+              <div class="chips" data-demo-chips={ex.slug} hidden>
                 <span class="chips-label" aria-hidden="true">
                   try
                 </span>
@@ -103,11 +109,11 @@ const STEP_LABELS = { boot: 'boot', install: 'npm install', start: 'start', read
       <div class="overlay" data-demo-overlay>
         <div class="choices" data-demo-choices>
           {
-            EXAMPLES.map((ex, i) => (
+            demos.map((ex, i) => (
               <button
                 type="button"
                 class="btn primary start"
-                data-demo-start={ex.mode}
+                data-demo-start={ex.slug}
                 hidden={i !== 0}
               >
                 <span class="play" aria-hidden="true" />
