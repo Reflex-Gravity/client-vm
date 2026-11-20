@@ -217,7 +217,12 @@ export function createBuiltins(deps: BuiltinDeps): Record<string, unknown> {
   lazy('stream', loadStream);
   let net: NetModule | undefined;
   const loadNet = () =>
-    (net ??= createNet({ ctx: deps.ctx, loop: deps.loop, stream: loadStream as never }));
+    (net ??= createNet({
+      ctx: deps.ctx,
+      loop: deps.loop,
+      stream: loadStream as never,
+      fs: () => fsFull as never,
+    }));
   let http: Record<string, unknown> | undefined;
   let https: Record<string, unknown> | undefined;
   lazy('net', () => loadNet().module);

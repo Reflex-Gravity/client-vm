@@ -125,11 +125,14 @@ export type ProcessToKernel =
  * (outgoing connections), so the two never collide.
  */
 export type NetToKernel =
-  /** Listen on `port` (0 picks a free one). `http` gets requests; `tcp` gets raw connections. */
-  | { t: 'net-listen'; id: number; port: number; kind: 'http' | 'tcp' }
+  /**
+   * Listen on `port` (0 picks a free one). `http` gets requests; `tcp` gets raw connections.
+   * A `tcp` listener with `path` is a Unix-domain socket instead (`port` is ignored).
+   */
+  | { t: 'net-listen'; id: number; port: number; kind: 'http' | 'tcp'; path?: string }
   | { t: 'net-unlisten'; id: number }
-  /** Opens a raw connection to a `tcp` listener in this instance. */
-  | { t: 'net-connect'; sid: number; port: number }
+  /** Opens a raw connection to a `tcp` listener in this instance (by `path` for Unix sockets). */
+  | { t: 'net-connect'; sid: number; port: number; path?: string }
   | {
       t: 'http-res-head';
       sid: number;

@@ -84,7 +84,21 @@ Questions recorded instead of guessed (CLAUDE.md §11.6). Resolve with an ADR in
   kernel. A credit-based `child-stdin` protocol would bound it.
 - **Shell arrays** (`a=(...)`, `"${a[@]}"`) are not implemented. Add them if agent scripts need
   them (common in hand-written bash, rare in generated build scripts).
-- **Brotli** is absent from `zlib`. Add a decoder if a package needs it (most feature-detect).
+- **Brotli** is not implemented in `zlib`. The one-shot functions exist and throw when called,
+  because rollup-plugin-visualizer (loaded by Nuxt) promisifies `zlib.brotliCompress` at import
+  time; the `createBrotli*` streams stay absent so `compression`-style checks fall back. Code that
+  checks `typeof zlib.brotliCompress` would now take the Brotli path and fail. A real codec (a
+  WebAssembly Brotli build) would remove both caveats.
+- **A socket that `end()`s first never closes.** If a `net` server calls `socket.end()` and the
+  client then ends too, the server-side socket never emits `'close'`, so `server.close()` never
+  calls back and the process does not exit. Client-ends-first works. Reproduced on main
+  (2026-11-20) with TCP and with Unix sockets.
+- **`http` servers on Unix-socket paths.** Nitro's dev worker listens on an abstract socket on
+  Linux; Nuxt dev in ClientVM needs `NITRO_NO_UNIX_SOCKET=1` so it uses a TCP port. Supporting it
+  means a path namespace in the HTTP router and `http.request({ socketPath })` in the client.
+- **`nuxt dev` occasionally stalls at "building server · step 6/7".** About 2 of 26 runs of
+  `test/e2e/nuxt.spec.ts` (2026-11-20) never got past Nitro's dev build; the others reach first
+  render in under a second. The spec now prints the dev server's output when that step fails.
 - ~~git~~: isomorphic-git, fetched on first use (ADR 0014). Still open: remote operations need
   a CORS proxy for most hosts (`GIT_CORS_PROXY`), which ClientVM does not provide. Should the
   docs recommend one, or should hosts be told to run their own?

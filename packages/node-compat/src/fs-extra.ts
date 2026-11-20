@@ -110,7 +110,10 @@ export function extendFs(deps: FsExtraDeps): NodeFs & Record<string, unknown> {
         fs.chmodSync(d, st.mode & 0o7777);
       }
     };
-    copy(path.resolve(src), path.resolve(dest));
+    const to = path.resolve(dest);
+    // Node creates the destination's parent directories (cp's checkParentDir).
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    copy(path.resolve(src), to);
   };
 
   class Dirent {

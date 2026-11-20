@@ -69,12 +69,14 @@ describe('ModuleServer', () => {
     expect(line1).toContain('const fs = globalThis.__clientvmBuiltin("fs");');
     expect(line1).toContain('const { "readFileSync": rf } = globalThis.__clientvmBuiltin("fs");');
     expect(line1).toContain('const path = globalThis.__clientvmBuiltinNs("path");');
-    expect(line1).toContain('const __cvm_meta = globalThis.__clientvmImportMeta("/p/main.js");');
+    expect(line1).toContain(
+      'Object.assign(import.meta, globalThis.__clientvmImportMeta("/p/main.js"));',
+    );
     expect(rest[1]).toBe('import { x } from "/__clientvm/fs/p/dep.js";');
     expect(rest[2]).toBe('export { y as z } from "/__clientvm/fs/p/dep.js";');
     expect(rest[3]).toBe('export { __cvm_b0 as "join" };');
     expect(rest[4]).toMatch(/^import \{ gone \} from "\/__clientvm\/error\/\d+";$/);
-    expect(rest[5]).toBe("const m = __cvm_meta.url; const d = __cvm_import('./dep.js');");
+    expect(rest[5]).toBe("const m = import.meta.url; const d = __cvm_import('./dep.js');");
     expect(out.body).toContain('//# sourceURL=file:///p/main.js');
     // Seven source lines in, seven out (plus the sourceURL line).
     expect(out.body.split('\n')).toHaveLength(8);

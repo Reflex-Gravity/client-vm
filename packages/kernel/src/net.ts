@@ -43,6 +43,8 @@ export class NetStack {
   private readonly router: HttpRouter;
   /** Raw `net` listeners: port -> process + listener id. */
   private readonly tcp = new Map<number, { proc: ProcessNet; id: number }>();
+  /** Unix-domain socket listeners: path -> process + listener id (raw only). */
+  private readonly unix = new Map<string, { proc: ProcessNet; id: number }>();
   private nextSid = 1;
   private nextEphemeral = EPHEMERAL_START;
 
@@ -92,15 +94,22 @@ export class NetStack {
   }
 
   /** @internal */
-  unlisten(port: number, kind: 'http' | 'tcp'): void {
-    if (kind === 'tcp') this.tcp.delete(port);
+  listenPath(proc: ProcessNet, id: number, path: string): void {
+    if (this.unix.has(path)) throw new SystemError('EADDRINUSE', 'listen');
+    this.unix.set(path, { proc, id });
+  }
+
+  /** @internal */
+  unlisten(port: number, kind: 'http' | 'tcp', path?: string): void {
+    if (path !== undefined) this.unix.delete(path);
+    else if (kind === 'tcp') this.tcp.delete(port);
     else this.router.close(port);
   }
 
-  /** @internal Connects a process's outgoing socket to a tcp listener. */
-  connect(client: ProcessNet, clientSid: number, port: number): void {
-    const listener = this.tcp.get(port);
-    if (!listener) throw new SystemError('ECONNREFUSED', 'connect');
+  /** @internal Connects a process's outgoing socket to a tcp (or Unix socket) listener. */
+  connect(client: ProcessNet, clientSid: number, port: number, path?: string): void {
+    const listener = path !== undefined ? this.unix.get(path) : this.tcp.get(port);
+    if (!listener) throw new SystemError(path !== undefined ? 'ENOENT' : 'ECONNREFUSED', 'connect');
     const serverSid = this.allocSid();
     const toClient = client.endpoint(clientSid);
     const toServer = listener.proc.endpoint(serverSid);
@@ -114,7 +123,10 @@ export class NetStack {
 export class ProcessNet {
   private readonly stack: NetStack;
   readonly post: (msg: KernelToProcess) => void;
-  private readonly listeners = new Map<number, { port: number; kind: 'http' | 'tcp' }>();
+  private readonly listeners = new Map<
+    number,
+    { port: number; kind: 'http' | 'tcp'; path?: string }
+  >();
   /** Where bytes written to each of this process's sockets go. */
   private readonly peers = new Map<number, Endpoint>();
   private readonly responses = new Map<number, PendingResponse>();
@@ -195,6 +207,12 @@ export class ProcessNet {
     switch (msg.t) {
       case 'net-listen': {
         try {
+          if (msg.path !== undefined) {
+            this.stack.listenPath(this, msg.id, msg.path);
+            this.listeners.set(msg.id, { port: 0, kind: 'tcp', path: msg.path });
+            this.post({ t: 'net-listening', id: msg.id, port: 0 });
+            break;
+          }
           const port = this.stack.listen(this, msg.id, msg.port, msg.kind);
           this.listeners.set(msg.id, { port, kind: msg.kind });
           this.post({ t: 'net-listening', id: msg.id, port });
@@ -211,12 +229,12 @@ export class ProcessNet {
         const l = this.listeners.get(msg.id);
         if (!l) break;
         this.listeners.delete(msg.id);
-        this.stack.unlisten(l.port, l.kind);
+        this.stack.unlisten(l.port, l.kind, l.path);
         break;
       }
       case 'net-connect':
         try {
-          this.stack.connect(this, msg.sid, msg.port);
+          this.stack.connect(this, msg.sid, msg.port, msg.path);
           this.post({ t: 'net-connected', sid: msg.sid });
         } catch (err) {
           this.post({
@@ -281,7 +299,7 @@ export class ProcessNet {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    for (const l of this.listeners.values()) this.stack.unlisten(l.port, l.kind);
+    for (const l of this.listeners.values()) this.stack.unlisten(l.port, l.kind, l.path);
     this.listeners.clear();
     for (const peer of this.peers.values()) peer.send(null);
     this.peers.clear();

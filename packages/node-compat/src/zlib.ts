@@ -2,7 +2,7 @@
 // `zlib` on pako (ADR 0007): sync, callback and stream APIs for deflate,
 // inflate, gzip, gunzip, raw and unzip. Streams also expose the
 // `_processChunk` / `_handle` internals that minizlib (npm, tar) drives
-// synchronously. Brotli is not provided, so feature checks fall back.
+// synchronously. Brotli functions exist but fail when called (no codec yet).
 
 import { Deflate, Inflate } from 'pako';
 import { Buffer } from './buffer.ts';
@@ -360,6 +360,24 @@ export function createZlib(
     unzip: asyncFn('unzip'),
     crc32: (data: unknown, value = 0) => crc32(toBytes(data), value),
   };
+  // No Brotli codec yet, but the one-shot functions must exist: rollup-plugin-visualizer
+  // (Nuxt) runs promisify(zlib.brotliCompress) at import time. They fail when called.
+  // The stream constructors stay absent, because servers and clients feature-check them
+  // (compression's `typeof zlib.createBrotliCompress`, axios) and must keep falling back.
+  const noBrotli = () => {
+    const err = new Error('Brotli is not available in ClientVM');
+    (err as Error & { code: string }).code = 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM';
+    return err;
+  };
+  for (const name of ['brotliCompress', 'brotliDecompress']) {
+    zlib[name] = (_data: unknown, opts: unknown, cb?: (e: Error) => void) => {
+      const done = typeof opts === 'function' ? (opts as (e: Error) => void) : cb;
+      queueMicrotask(() => done?.(noBrotli()));
+    };
+    zlib[`${name}Sync`] = () => {
+      throw noBrotli();
+    };
+  }
   const ctor = (name: string) => (options?: ZlibOptions) =>
     new (makeClasses()[name] as new (o?: ZlibOptions) => unknown)(options);
   for (const name of [

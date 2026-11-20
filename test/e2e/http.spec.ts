@@ -179,4 +179,64 @@ test.describe('http and WebSocket servers', () => {
     );
     expect(status.stdout).toBe('ECONNREFUSED\n');
   });
+
+  // Nuxt's dev server talks to its SSR worker thread over one (vite-node IPC).
+  test('net Unix-domain sockets: path listeners, worker clients, abstract names', async ({
+    page,
+  }) => {
+    await openHost(page);
+    const id = await host(page, 'createInstance');
+    const script = String.raw`
+          const fs = require('fs');
+          const net = require('net');
+          const { Worker } = require('worker_threads');
+          fs.mkdirSync('/tmp/sock', { recursive: true });
+          const path = '/tmp/sock/app.sock';
+          const server = net.createServer((s) => s.on('data', (d) => s.write('echo:' + d)));
+          server.listen(path, () => {
+            console.log('address', server.address());
+            fs.chmodSync(path, 0o600);
+            console.log('file', fs.existsSync(path));
+            net.createServer().on('error', (e) => console.log('again:', e.code)).listen(path);
+            net.connect('/tmp/sock/missing.sock').on('error', (e) => console.log('missing:', e.code));
+            const w = new Worker(
+              "const net = require('net'); const { parentPort, workerData } = require('worker_threads');" +
+                "const s = net.createConnection(workerData, () => s.write('from worker'));" +
+                "s.on('data', (d) => { parentPort.postMessage(String(d)); s.end(); });",
+              { eval: true, workerData: path },
+            );
+            w.on('message', (m) => {
+              console.log(m);
+              server.close(() => {
+                console.log('removed', !fs.existsSync(path));
+                const abs = net.createServer((s) => s.on('data', (d) => s.write(d + ' ok')));
+                abs.listen({ path: '\0cvm-test' }, () => {
+                  console.log('abstract file', fs.readdirSync('/tmp/sock').length);
+                  const c = net.connect({ path: '\0cvm-test' }, () => c.write('abstract'));
+                  c.on('data', (d) => {
+                    console.log(String(d));
+                    c.end();
+                    abs.close();
+                  });
+                });
+              });
+            });
+          });`;
+    await host(page, 'writeFile', id, '/tmp/unix.js', script);
+    const r = await host(page, 'exec', id, 'node /tmp/unix.js', { timeoutMs: 20_000 });
+    expect(r.stderr).toBe('');
+    expect(r.code).toBe(0);
+    expect(r.stdout.split('\n').filter(Boolean)).toEqual(
+      expect.arrayContaining([
+        'address /tmp/sock/app.sock',
+        'file true',
+        'again: EADDRINUSE',
+        'missing: ENOENT',
+        'echo:from worker',
+        'removed true',
+        'abstract file 0',
+        'abstract ok',
+      ]),
+    );
+  });
 });

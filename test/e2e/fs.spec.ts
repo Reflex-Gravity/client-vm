@@ -44,6 +44,8 @@ fs.linkSync('src/b.txt', 'hard.txt');
 log('nlink', () => fs.statSync('src/b.txt').nlink);
 fs.copyFileSync('hard.txt', 'copy.txt');
 log('copy excl', () => fs.copyFileSync('hard.txt', 'copy.txt', fs.constants.COPYFILE_EXCL));
+log('cp into missing dirs', () => { fs.cpSync('hard.txt', 'deep/er/c.txt'); return fs.readFileSync('deep/er/c.txt', 'utf8'); });
+fs.rmSync('deep', { recursive: true });
 fs.truncateSync('copy.txt', 3);
 log('truncated', () => fs.readFileSync('copy.txt', 'utf8'));
 fs.chmodSync('copy.txt', 0o600);

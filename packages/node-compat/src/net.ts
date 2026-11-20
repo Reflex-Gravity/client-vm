@@ -24,7 +24,15 @@ export interface NetDeps {
   ctx: ProcessContext;
   loop: EventLoop;
   stream: () => { Duplex: DuplexCtor };
+  /** For the file a Unix-domain socket leaves at its path (loaded on first use). */
+  fs?: () => {
+    writeFileSync(p: string, d: string, o?: { flag?: string; mode?: number }): void;
+    unlinkSync(p: string): void;
+  };
 }
+
+/** Abstract Unix sockets (Linux `\0name`) have no file in the filesystem. */
+const isAbstract = (path: string) => path.startsWith('\0');
 
 const ERRNO: Record<string, number> = {
   EADDRINUSE: -98,
@@ -237,13 +245,12 @@ export function createNet(deps: NetDeps): NetModule {
         const first = args[0];
         if (typeof first === 'object' && first !== null) {
           const o = first as { port?: unknown; host?: string; path?: string };
-          if (o.path !== undefined) {
-            queueMicrotask(() => this.destroy(netError('ENOENT', 'connect', o.path)));
-            return this;
-          }
+          if (o.path !== undefined) return this._connectPath(String(o.path), args[1]);
           port = Number(o.port);
           host = o.host ?? host;
           cb = args[1] as (() => void) | undefined;
+        } else if (typeof first === 'string' && !/^\d+$/.test(first)) {
+          return this._connectPath(first, args[1]);
         } else {
           port = Number(first);
           if (typeof args[1] === 'string') {
@@ -275,6 +282,28 @@ export function createNet(deps: NetDeps): NetModule {
           this.emit('ready');
         });
         hub.ctx.send({ t: 'net-connect', sid, port });
+        return this;
+      }
+
+      /** Connects to a Unix-domain socket listener in this instance. */
+      private _connectPath(path: string, cb: unknown): this {
+        if (typeof cb === 'function') this.once('connect', cb as () => void);
+        this.connecting = true;
+        const sid = hub.clientSid();
+        const handle = hub.loop.handle();
+        hub.connects.set(sid, (err) => {
+          hub.connects.delete(sid);
+          handle.close();
+          if (err) {
+            this.connecting = false;
+            this.destroy(netError(err, 'connect', path));
+            return;
+          }
+          this._attach(sid);
+          this.emit('connect');
+          this.emit('ready');
+        });
+        hub.ctx.send({ t: 'net-connect', sid, port: 0, path });
         return this;
       }
 
@@ -376,6 +405,8 @@ export function createNet(deps: NetDeps): NetModule {
     private _id: number | null = null;
     private _port = 0;
     private _host: string | undefined;
+    /** Set while listening on a Unix-domain socket. */
+    private _path: string | undefined;
     private _handle: Handle | null = null;
     private _connections = new Set<Duplex>();
 
@@ -395,15 +426,11 @@ export function createNet(deps: NetDeps): NetModule {
       const first = rest[0];
       if (typeof first === 'object' && first !== null) {
         const o = first as { port?: unknown; host?: string; path?: string };
-        if (o.path !== undefined) {
-          queueMicrotask(() => this.emit('error', netError('EACCES', 'listen', o.path)));
-          return this;
-        }
+        if (o.path !== undefined) return this._listenPath(String(o.path), cb);
         port = Number(o.port ?? 0);
         host = o.host;
       } else if (typeof first === 'string' && !/^\d+$/.test(first)) {
-        queueMicrotask(() => this.emit('error', netError('EACCES', 'listen', first)));
-        return this;
+        return this._listenPath(first, cb);
       } else if (first !== undefined && first !== null) {
         port = Number(first);
         if (typeof rest[1] === 'string') host = rest[1];
@@ -431,6 +458,43 @@ export function createNet(deps: NetDeps): NetModule {
       return this;
     }
 
+    /** Listens on a Unix-domain socket (raw connections only, like `net` on Node). */
+    private _listenPath(path: string, cb: (() => void) | undefined): this {
+      if (this._kind !== 'tcp') {
+        // http servers are reached through the port router, which has no paths.
+        queueMicrotask(() => this.emit('error', netError('EACCES', 'listen', path)));
+        return this;
+      }
+      if (this.listening) {
+        const err = new Error('Listen method has been called more than once without closing.');
+        (err as Error & { code: string }).code = 'ERR_SERVER_ALREADY_LISTEN';
+        throw err;
+      }
+      if (!isAbstract(path) && deps.fs) {
+        try {
+          // Node leaves a socket file at the path (tools chmod it); `wx` gives EADDRINUSE-like failure.
+          deps.fs().writeFileSync(path, '', { flag: 'wx', mode: 0o755 });
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          queueMicrotask(() =>
+            this.emit(
+              'error',
+              netError(code === 'EEXIST' ? 'EADDRINUSE' : (code ?? 'EACCES'), 'listen', path),
+            ),
+          );
+          return this;
+        }
+      }
+      if (cb) this.once('listening', cb);
+      this._path = path;
+      const id = hub.listenerId();
+      this._id = id;
+      this._handle = hub.loop.handle();
+      hub.listeners.set(id, { onMessage: (m) => this._onKernel(m) });
+      hub.ctx.send({ t: 'net-listen', id, port: 0, kind: 'tcp', path });
+      return this;
+    }
+
     /** @internal */
     _onKernel(msg: NetToProcess): void {
       if (msg.t === 'net-listening') {
@@ -438,7 +502,12 @@ export function createNet(deps: NetDeps): NetModule {
         this._port = msg.port;
         this.emit('listening');
       } else if (msg.t === 'net-listen-error') {
+        const path = this._path;
         this._cleanup();
+        if (path !== undefined) {
+          this.emit('error', netError(msg.code, 'listen', path));
+          return;
+        }
         const address = this._host === undefined ? '::' : this._host;
         this.emit('error', netError(msg.code, 'listen', address, this._port || undefined));
       } else if (msg.t === 'tcp-accept') {
@@ -458,6 +527,15 @@ export function createNet(deps: NetDeps): NetModule {
     private _closeCbs: ((err?: Error) => void)[] = [];
 
     private _cleanup(): void {
+      const path = this._path;
+      this._path = undefined;
+      if (path !== undefined && !isAbstract(path) && deps.fs) {
+        try {
+          deps.fs().unlinkSync(path);
+        } catch {
+          // already gone
+        }
+      }
       if (this._id !== null) hub.listeners.delete(this._id);
       this._id = null;
       this.listening = false;
@@ -501,8 +579,9 @@ export function createNet(deps: NetDeps): NetModule {
       return this;
     }
 
-    address(): { address: string; family: string; port: number } | null {
+    address(): { address: string; family: string; port: number } | string | null {
       if (!this.listening) return null;
+      if (this._path !== undefined) return this._path;
       const host = this._host;
       if (host === undefined || host === '::') {
         return { address: '::', family: 'IPv6', port: this._port };

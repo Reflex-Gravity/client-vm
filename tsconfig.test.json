@@ -16,5 +16,6 @@
     "deploy/*/src/**/*.ts",
     "*.config.ts",
     "packages/sandbox-host/vite.config.ts"
-  ]
+  ],
+  "exclude": ["test/fixtures/**"]
 }

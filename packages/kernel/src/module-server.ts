@@ -191,9 +191,13 @@ export class ModuleServer {
         edits.push({ start: t.start, end: t.end, text: '__cvm_import' });
     }
     if (analysis.importMetas.length > 0) {
-      prelude.push(`const __cvm_meta = globalThis.__clientvmImportMeta(${JSON.stringify(file)});`);
-      for (const [start, end] of analysis.importMetas)
-        edits.push({ start, end, text: '__cvm_meta' });
+      // Fill in the module's own import.meta (an ordinary, writable object)
+      // rather than renaming it in the source: code that serializes its own
+      // functions (Vite's preload helper is `preload.toString()`) must still
+      // say `import.meta`, or the name leaks into generated bundles.
+      prelude.push(
+        `Object.assign(import.meta, globalThis.__clientvmImportMeta(${JSON.stringify(file)}));`,
+      );
     }
 
     let out = applyEdits(source, edits);
