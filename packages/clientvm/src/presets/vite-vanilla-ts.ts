@@ -4,7 +4,7 @@
 import type { PresetTemplate } from '../presets.ts';
 
 export const template: PresetTemplate = {
-  version: '3ab73da0f0b76cd8',
+  version: 'd05322e7bd1b6c64',
   files: {
     'index.html':
       '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>Vite + TS</title>\n  </head>\n  <body>\n    <main id="app"></main>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n',
@@ -14,13 +14,13 @@ export const template: PresetTemplate = {
       '{\n  "name": "app",\n  "private": true,\n  "version": "0.0.0",\n  "type": "module",\n  "scripts": {\n    "dev": "vite",\n    "build": "tsc && vite build",\n    "preview": "vite preview"\n  },\n  "devDependencies": {\n    "typescript": "6.0.3",\n    "vite": "8.3.5"\n  }\n}\n',
     src: {
       'main.ts':
-        "import './style.css';\n\nconst app = document.querySelector<HTMLElement>('#app')!;\nlet count = 0;\n\napp.innerHTML = `\n  <h1>Vite + TypeScript</h1>\n  <button type=\"button\" id=\"counter\"></button>\n  <p>Edit <code>src/main.ts</code> and save to reload.</p>\n`;\n\nconst button = app.querySelector<HTMLButtonElement>('#counter')!;\nconst render = () => (button.textContent = `count is ${count}`);\nbutton.addEventListener('click', () => {\n  count += 1;\n  render();\n});\nrender();\n",
+        "// SPDX-License-Identifier: Apache-2.0\nimport './style.css';\n\nconst app = document.querySelector<HTMLElement>('#app')!;\nlet count = 0;\n\napp.innerHTML = `\n  <h1>Vite + TypeScript</h1>\n  <button type=\"button\" id=\"counter\"></button>\n  <p>Edit <code>src/main.ts</code> and save to reload.</p>\n`;\n\nconst button = app.querySelector<HTMLButtonElement>('#counter')!;\nconst render = () => (button.textContent = `count is ${count}`);\nbutton.addEventListener('click', () => {\n  count += 1;\n  render();\n});\nrender();\n",
       'style.css':
         ':root {\n  font-family: system-ui, sans-serif;\n  color-scheme: light dark;\n}\n\nmain {\n  max-width: 40rem;\n  margin: 4rem auto;\n  text-align: center;\n}\n',
     },
     'tsconfig.json':
       '{\n  "compilerOptions": {\n    "target": "ES2022",\n    "lib": ["ES2022", "DOM", "DOM.Iterable"],\n    "module": "ESNext",\n    "moduleResolution": "bundler",\n    "strict": true,\n    "noEmit": true,\n    "skipLibCheck": true,\n    "isolatedModules": true,\n    "allowImportingTsExtensions": true,\n    "types": ["vite/client"]\n  },\n  "include": ["src", "vite.config.ts"]\n}\n',
     'vite.config.ts':
-      "import { defineConfig } from 'vite';\n\nexport default defineConfig({\n  // Previews arrive on the sandbox's own Host, which Vite's DNS-rebinding check rejects.\n  // The dev server is a ClientVM virtual port only that origin can reach.\n  server: { allowedHosts: true },\n});\n",
+      "// SPDX-License-Identifier: Apache-2.0\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  // Previews arrive on the sandbox's own Host, which Vite's DNS-rebinding check rejects.\n  // The dev server is a ClientVM virtual port only that origin can reach.\n  server: { allowedHosts: true },\n});\n",
   },
 };

@@ -1,6 +1,6 @@
 {
   "name": "@clientvm/process",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "ClientVM process worker bootstrap and stdio.",
   "license": "Apache-2.0",
   "repository": {

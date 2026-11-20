@@ -4,7 +4,7 @@
 import type { PresetTemplate } from '../presets.ts';
 
 export const template: PresetTemplate = {
-  version: '780e579c24b206b7',
+  version: '6cfc9eb134c288c1',
   files: {
     'index.html':
       '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>Vite + Svelte + TS</title>\n  </head>\n  <body>\n    <div id="app"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n',
@@ -16,15 +16,15 @@ export const template: PresetTemplate = {
       'App.svelte':
         '<script lang="ts">\n  let count = $state(0);\n</script>\n\n<main>\n  <h1>Vite + Svelte + TS</h1>\n  <button type="button" onclick={() => (count += 1)}>count is {count}</button>\n  <p>Edit <code>src/App.svelte</code> and save to test HMR.</p>\n</main>\n',
       'main.ts':
-        "import { mount } from 'svelte';\nimport './style.css';\nimport App from './App.svelte';\n\nmount(App, { target: document.getElementById('app')! });\n",
+        "// SPDX-License-Identifier: Apache-2.0\nimport { mount } from 'svelte';\nimport './style.css';\nimport App from './App.svelte';\n\nmount(App, { target: document.getElementById('app')! });\n",
       'style.css':
         ':root {\n  font-family: system-ui, sans-serif;\n  color-scheme: light dark;\n}\n\nmain {\n  max-width: 40rem;\n  margin: 4rem auto;\n  text-align: center;\n}\n',
     },
     'svelte.config.js':
-      "import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';\n\nexport default {\n  preprocess: vitePreprocess(),\n};\n",
+      "// SPDX-License-Identifier: Apache-2.0\nimport { vitePreprocess } from '@sveltejs/vite-plugin-svelte';\n\nexport default {\n  preprocess: vitePreprocess(),\n};\n",
     'tsconfig.json':
       '{\n  "extends": "@tsconfig/svelte/tsconfig.json",\n  "compilerOptions": {\n    "target": "ES2022",\n    "module": "ESNext",\n    "moduleResolution": "bundler",\n    "strict": true,\n    "noEmit": true,\n    "skipLibCheck": true,\n    "isolatedModules": true,\n    "types": ["svelte", "vite/client"]\n  },\n  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]\n}\n',
     'vite.config.ts':
-      "import { defineConfig } from 'vite';\nimport { svelte } from '@sveltejs/vite-plugin-svelte';\n\nexport default defineConfig({\n  plugins: [svelte()],\n  // Previews arrive on the sandbox's own Host, which Vite's DNS-rebinding check rejects.\n  // The dev server is a ClientVM virtual port only that origin can reach.\n  server: { allowedHosts: true },\n});\n",
+      "// SPDX-License-Identifier: Apache-2.0\nimport { defineConfig } from 'vite';\nimport { svelte } from '@sveltejs/vite-plugin-svelte';\n\nexport default defineConfig({\n  plugins: [svelte()],\n  // Previews arrive on the sandbox's own Host, which Vite's DNS-rebinding check rejects.\n  // The dev server is a ClientVM virtual port only that origin can reach.\n  server: { allowedHosts: true },\n});\n",
   },
 };

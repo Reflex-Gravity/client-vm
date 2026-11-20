@@ -4,7 +4,7 @@
 import type { PresetTemplate } from '../presets.ts';
 
 export const template: PresetTemplate = {
-  version: '26889649986c221d',
+  version: '2b8b72d87a834688',
   files: {
     'index.html':
       '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>TanStack Router + React</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.tsx"></script>\n  </body>\n</html>\n',
@@ -23,6 +23,6 @@ export const template: PresetTemplate = {
     'tsconfig.json':
       '{\n  "compilerOptions": {\n    "target": "ES2022",\n    "lib": ["ES2022", "DOM", "DOM.Iterable"],\n    "module": "ESNext",\n    "moduleResolution": "bundler",\n    "jsx": "react-jsx",\n    "strict": true,\n    "noEmit": true,\n    "skipLibCheck": true,\n    "isolatedModules": true,\n    "allowImportingTsExtensions": true,\n    "types": ["vite/client"]\n  },\n  "include": ["src", "vite.config.ts"]\n}\n',
     'vite.config.ts':
-      "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\nexport default defineConfig({\n  plugins: [react()],\n  // Previews arrive with the sandbox's own Host (<id>-p5173.<sandbox-domain>), which\n  // Vite's DNS-rebinding check rejects with a 403 outside localhost. The server is a\n  // ClientVM virtual port that only that origin can reach, so the check guards nothing.\n  server: { allowedHosts: true },\n});\n",
+      "// SPDX-License-Identifier: Apache-2.0\nimport { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\nexport default defineConfig({\n  plugins: [react()],\n  // Previews arrive with the sandbox's own Host (<id>-p5173.<sandbox-domain>), which\n  // Vite's DNS-rebinding check rejects with a 403 outside localhost. The server is a\n  // ClientVM virtual port that only that origin can reach, so the check guards nothing.\n  server: { allowedHosts: true },\n});\n",
   },
 };

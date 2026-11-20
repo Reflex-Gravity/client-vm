@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import './style.css';
 
 const app = document.querySelector<HTMLElement>('#app')!;

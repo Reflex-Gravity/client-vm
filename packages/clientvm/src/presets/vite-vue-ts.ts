@@ -4,7 +4,7 @@
 import type { PresetTemplate } from '../presets.ts';
 
 export const template: PresetTemplate = {
-  version: '8b037a250aaab427',
+  version: '1948402449e20bb0',
   files: {
     'index.html':
       '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>Vite + Vue + TS</title>\n  </head>\n  <body>\n    <div id="app"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n',
@@ -16,15 +16,15 @@ export const template: PresetTemplate = {
       'App.vue':
         '<script setup lang="ts">\nimport { ref } from \'vue\';\n\nconst count = ref(0);\n</script>\n\n<template>\n  <main>\n    <h1>Vite + Vue + TS</h1>\n    <button type="button" @click="count++">count is {{ count }}</button>\n    <p>Edit <code>src/App.vue</code> and save to test HMR.</p>\n  </main>\n</template>\n',
       'env.d.ts':
-        "/// <reference types=\"vite/client\" />\n\ndeclare module '*.vue' {\n  import type { DefineComponent } from 'vue';\n  const component: DefineComponent<object, object, unknown>;\n  export default component;\n}\n",
+        "// SPDX-License-Identifier: Apache-2.0\n/// <reference types=\"vite/client\" />\n\ndeclare module '*.vue' {\n  import type { DefineComponent } from 'vue';\n  const component: DefineComponent<object, object, unknown>;\n  export default component;\n}\n",
       'main.ts':
-        "import { createApp } from 'vue';\nimport './style.css';\nimport App from './App.vue';\n\ncreateApp(App).mount('#app');\n",
+        "// SPDX-License-Identifier: Apache-2.0\nimport { createApp } from 'vue';\nimport './style.css';\nimport App from './App.vue';\n\ncreateApp(App).mount('#app');\n",
       'style.css':
         ':root {\n  font-family: system-ui, sans-serif;\n  color-scheme: light dark;\n}\n\nmain {\n  max-width: 40rem;\n  margin: 4rem auto;\n  text-align: center;\n}\n',
     },
     'tsconfig.json':
       '{\n  "compilerOptions": {\n    "target": "ES2022",\n    "lib": ["ES2022", "DOM", "DOM.Iterable"],\n    "module": "ESNext",\n    "moduleResolution": "bundler",\n    "jsx": "preserve",\n    "strict": true,\n    "noEmit": true,\n    "skipLibCheck": true,\n    "isolatedModules": true,\n    "allowImportingTsExtensions": true,\n    "types": ["vite/client"]\n  },\n  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"]\n}\n',
     'vite.config.ts':
-      "import { defineConfig } from 'vite';\nimport vue from '@vitejs/plugin-vue';\n\nexport default defineConfig({\n  plugins: [vue()],\n  // Previews arrive on the sandbox's own Host, which Vite's DNS-rebinding check rejects.\n  // The dev server is a ClientVM virtual port only that origin can reach.\n  server: { allowedHosts: true },\n});\n",
+      "// SPDX-License-Identifier: Apache-2.0\nimport { defineConfig } from 'vite';\nimport vue from '@vitejs/plugin-vue';\n\nexport default defineConfig({\n  plugins: [vue()],\n  // Previews arrive on the sandbox's own Host, which Vite's DNS-rebinding check rejects.\n  // The dev server is a ClientVM virtual port only that origin can reach.\n  server: { allowedHosts: true },\n});\n",
   },
 };
