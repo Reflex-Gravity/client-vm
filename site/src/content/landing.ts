@@ -17,7 +17,7 @@ export const docUrl = (slug: string, hash?: string): string => SITE + doc(slug, 
 /** The page's markdown source, served next to it for agents. */
 export const docMd = (slug: string): string => `${SITE}/docs/${slug}.md`;
 /** The current release; landing.test.ts checks it against @clientvm/clientvm. */
-export const version = '0.2.0';
+export const version = '0.3.0';
 
 export const hero = {
   eyebrow: 'no server-side compute · chromium',
