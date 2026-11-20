@@ -79,7 +79,7 @@ describe('presets', () => {
         Record<string, string>
       >;
       const lock = JSON.parse(files['package-lock.json'] as string) as {
-        packages: Record<string, { version?: string; integrity?: string; inBundle?: boolean }>;
+        packages: Record<string, { version?: string; integrity?: string }>;
       };
       for (const [dep, version] of Object.entries({
         ...pkg['dependencies'],
@@ -89,8 +89,7 @@ describe('presets', () => {
         expect(lock.packages[`node_modules/${dep}`]?.version, dep).toBe(version);
       }
       for (const [path, entry] of Object.entries(lock.packages)) {
-        // Bundled dependencies ship inside their parent's tarball.
-        if (path && !entry.inBundle) expect(entry.integrity, path).toMatch(/^sha512-/);
+        if (path) expect(entry.integrity, path).toMatch(/^sha512-/);
       }
     },
   );

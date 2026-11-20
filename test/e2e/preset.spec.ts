@@ -67,14 +67,6 @@ const OTHERS: {
     heading: 'Node + Express',
     installed: 'node_modules/express/package.json',
   },
-  {
-    preset: 'nuxt',
-    port: 3000,
-    args: ['--port', '3000', '--host', '0.0.0.0'],
-    env: { NUXT_TELEMETRY_DISABLED: '1' },
-    heading: 'Nuxt',
-    installed: '.nuxt/tsconfig.json node_modules/nuxt/package.json',
-  },
 ];
 
 test.describe('presets', () => {

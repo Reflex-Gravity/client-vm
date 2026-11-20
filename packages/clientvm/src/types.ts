@@ -127,8 +127,7 @@ export interface InstanceOptions {
  * `vite-react-ts`, `vite-vanilla-ts`, `vite-vue-ts`, `vite-svelte-ts`: Vite 8
  * with TypeScript and React 19, no framework, Vue 3 or Svelte 5.
  * `tanstack-router-react`: Vite 8, React 19 and TanStack Router.
- * `node-express`: an Express 4 server. `nuxt`: Nuxt 4 (run `nuxt dev` with
- * `NITRO_NO_UNIX_SOCKET=1`, as its `dev` script does).
+ * `node-express`: an Express 4 server.
  */
 export type PresetName =
   | 'vite-react-ts'
@@ -136,8 +135,7 @@ export type PresetName =
   | 'vite-vue-ts'
   | 'vite-svelte-ts'
   | 'tanstack-router-react'
-  | 'node-express'
-  | 'nuxt';
+  | 'node-express';
 
 export interface InstanceInfo {
   id: InstanceId;

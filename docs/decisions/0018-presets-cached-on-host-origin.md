@@ -68,16 +68,12 @@
 
 ## Amendment (2026-11-20): one preset per common starter
 
-- Six more presets, built and keyed the same way: `vite-vanilla-ts`, `vite-vue-ts`,
+- Five more presets, built and keyed the same way: `vite-vanilla-ts`, `vite-vue-ts`,
   `vite-svelte-ts`, `tanstack-router-react` (setup as `vite-react-ts`: `npm ci`, a throwaway
-  `vite build`), `node-express` (`npm ci` only, nothing native to warm up) and `nuxt` (`npm ci`,
-  whose postinstall runs `nuxt prepare`, then a throwaway `nuxt build` to reach rolldown,
-  lightningcss, rollup and esbuild, then `nuxt prepare` again for a dev `.nuxt`).
+  `vite build`) and `node-express` (`npm ci` only, nothing native to warm up).
 - `scripts/build-presets.mjs` now embeds every directory under `packages/clientvm/presets/`.
-  The lockfile test covers every preset; bundled dependencies (`inBundle`) have no integrity of
-  their own and are skipped.
+  The lockfile test covers every preset.
 - Measured (`test/e2e/preset.spec.ts`, Chromium, warm HTTP cache), whole test including cold
-  build, dev server and a cached boot: about 12–17 s for the Vite presets, 36 s for Express and
-  44 s for Nuxt.
-- The `nuxt` image is the largest (its installed tree is about 190 MB), so it costs the most
-  host-origin quota. Eviction still only costs a rebuild.
+  build, dev server and a cached boot: about 12–17 s for the Vite presets and 36 s for Express.
+- **No Nuxt preset.** Its installed tree is about 190 MB, too much host-origin quota for one
+  image. Nuxt projects install in the instance instead (`test/e2e/nuxt.spec.ts`).

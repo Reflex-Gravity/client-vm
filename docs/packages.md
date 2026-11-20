@@ -350,7 +350,7 @@ The host can grant anything (`ClientVM.grant`, or `InstanceOptions.capabilities`
 - `fork()` exports a filesystem image, transfers it to a new instance on a new origin, and imports it there. It needs `spawn-instance`, whose limits bound the child.
 - `createChild(opts)` makes a child with a fresh filesystem, under the same capability rule.
 
-**Presets** (ADR 0018). `createInstance({ preset: 'vite-react-ts' })` boots a ready project in `/home/user/app`, with `node_modules` and the WASM stand-ins already installed. The template lives in `packages/clientvm/presets/<name>/` with a pinned lockfile; `scripts/build-presets.mjs` embeds every directory there with a content hash. Presets: `vite-react-ts`, `vite-vanilla-ts`, `vite-vue-ts`, `vite-svelte-ts`, `tanstack-router-react`, `node-express`, `nuxt`. Vite presets warm up with `vite build`, `nuxt` with `nuxt build` (then `nuxt prepare`), `node-express` needs only `npm ci`.
+**Presets** (ADR 0018). `createInstance({ preset: 'vite-react-ts' })` boots a ready project in `/home/user/app`, with `node_modules` and the WASM stand-ins already installed. The template lives in `packages/clientvm/presets/<name>/` with a pinned lockfile; `scripts/build-presets.mjs` embeds every directory there with a content hash. Presets: `vite-react-ts`, `vite-vanilla-ts`, `vite-vue-ts`, `vite-svelte-ts`, `tanstack-router-react`, `node-express`. Vite presets warm up with `vite build`; `node-express` needs only `npm ci`.
 
 1. The first request starts a hidden *builder* instance. It runs `npm ci`, then a throwaway `vite build` to fetch the stand-ins (~27 MB), then cleanup.
 2. The controller exports the builder's image and destroys the builder. Concurrent requests share one build.

@@ -6,7 +6,6 @@
 // store; they boot from a copy of the image.
 
 import { template as nodeExpress } from './presets/node-express.ts';
-import { template as nuxt } from './presets/nuxt.ts';
 import { template as tanstackRouterReact } from './presets/tanstack-router-react.ts';
 import { template as viteReactTs } from './presets/vite-react-ts.ts';
 import { template as viteSvelteTs } from './presets/vite-svelte-ts.ts';
@@ -48,16 +47,6 @@ export const PRESETS: Readonly<Record<PresetName, PresetDefinition>> = {
   'tanstack-router-react': { template: tanstackRouterReact, setup: VITE_SETUP },
   // Plain Node: nothing native to warm up.
   'node-express': { template: nodeExpress, setup: `${NPM_CI} && ${DROP_NPM_CACHE}` },
-  // npm ci runs `nuxt prepare` (postinstall). A throwaway `nuxt build` reaches
-  // every stand-in Nuxt uses: rolldown and lightningcss (Vite), rollup and
-  // esbuild (Nitro). Its output goes, and `nuxt prepare` regenerates the
-  // .nuxt types a fresh install leaves.
-  nuxt: {
-    template: nuxt,
-    setup:
-      `export NUXT_TELEMETRY_DISABLED=1 && ${NPM_CI} && npx nuxt build && ` +
-      `rm -rf .output .nuxt && npx nuxt prepare && ${DROP_NPM_CACHE}`,
-  },
 };
 
 export function isPresetName(name: unknown): name is PresetName {
