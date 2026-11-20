@@ -135,7 +135,9 @@ const instance = await vm.createInstance({
 const app = await vm.createInstance({ preset: 'vite-react-ts' });
 ```
 
-- **`preset`** builds the project once, which takes about 10 s in a hidden instance. The result
+- **`preset`** is one of `vite-react-ts`, `vite-vanilla-ts`, `vite-vue-ts`, `vite-svelte-ts`,
+  `tanstack-router-react`, `node-express` or `nuxt`.
+  It builds the project once, which takes about 10 s in a hidden instance. The result
   is kept in your origin's Cache Storage, and every later instance boots from it in about 0.2 s
   with no downloads. To keep it somewhere else, pass `presetStore` to `createClientVM`
   ([ADR 0018](docs/decisions/0018-presets-cached-on-host-origin.md)).
@@ -249,7 +251,8 @@ More: [architecture](docs/architecture.md) · [security model](docs/security.md)
   isomorphic-git, with output and commit ids matching real git. Remotes need a CORS proxy.
 - **Vite + React with HMR.** Stock Vite 6 and Vite 8 projects run their dev server and production
   build. esbuild, rollup, rolldown and lightningcss run as their official WebAssembly builds. The
-  `vite-react-ts` preset boots a ready project from a cache that all instances share.
+  Presets (Vite with React, vanilla TS, Vue or Svelte, TanStack Router, Express, Nuxt) boot a
+  ready project from a cache that all instances share.
 - **Previews:** each port gets its own origin, with WebSockets and HMR. A driveable preview
   provides DOM outlines, clicks, typing, screenshots, and console capture.
 - **Multiple instances:** capabilities, a mailbox, HTTP between instances

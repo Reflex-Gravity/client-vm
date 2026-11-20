@@ -5,7 +5,13 @@
 // PresetStore on the host page's origin. Agent instances never write to the
 // store; they boot from a copy of the image.
 
+import { template as nodeExpress } from './presets/node-express.ts';
+import { template as nuxt } from './presets/nuxt.ts';
+import { template as tanstackRouterReact } from './presets/tanstack-router-react.ts';
 import { template as viteReactTs } from './presets/vite-react-ts.ts';
+import { template as viteSvelteTs } from './presets/vite-svelte-ts.ts';
+import { template as viteVanillaTs } from './presets/vite-vanilla-ts.ts';
+import { template as viteVueTs } from './presets/vite-vue-ts.ts';
 import type { FileTree, PresetName } from './types.ts';
 
 /** A template's files and a hash of them (see scripts/build-presets.mjs). */
@@ -26,15 +32,31 @@ export const PRESET_DIR = '/home/user/app';
 /** Bump when a setup command or the image contents change without the template changing. */
 const PRESET_FORMAT = 1;
 
+const NPM_CI = 'npm ci --no-audit --no-fund';
+/** npm's download cache would only double the image. */
+const DROP_NPM_CACHE = 'rm -rf ~/.npm/_cacache';
+// npm ci installs the pinned lockfile. A throwaway build makes Vite reach for
+// rolldown and lightningcss, so their WebAssembly stand-ins (ADR 0013) are
+// fetched now instead of on the first dev server start.
+const VITE_SETUP = `${NPM_CI} && npx vite build --logLevel error && rm -rf dist && ${DROP_NPM_CACHE}`;
+
 export const PRESETS: Readonly<Record<PresetName, PresetDefinition>> = {
-  'vite-react-ts': {
-    template: viteReactTs,
-    // npm ci installs the pinned lockfile. A throwaway build makes Vite reach
-    // for rolldown and lightningcss, so their WebAssembly stand-ins (ADR 0013)
-    // are fetched now instead of on the first dev server start. npm's download
-    // cache would only double the image.
+  'vite-react-ts': { template: viteReactTs, setup: VITE_SETUP },
+  'vite-vanilla-ts': { template: viteVanillaTs, setup: VITE_SETUP },
+  'vite-vue-ts': { template: viteVueTs, setup: VITE_SETUP },
+  'vite-svelte-ts': { template: viteSvelteTs, setup: VITE_SETUP },
+  'tanstack-router-react': { template: tanstackRouterReact, setup: VITE_SETUP },
+  // Plain Node: nothing native to warm up.
+  'node-express': { template: nodeExpress, setup: `${NPM_CI} && ${DROP_NPM_CACHE}` },
+  // npm ci runs `nuxt prepare` (postinstall). A throwaway `nuxt build` reaches
+  // every stand-in Nuxt uses: rolldown and lightningcss (Vite), rollup and
+  // esbuild (Nitro). Its output goes, and `nuxt prepare` regenerates the
+  // .nuxt types a fresh install leaves.
+  nuxt: {
+    template: nuxt,
     setup:
-      'npm ci --no-audit --no-fund && npx vite build --logLevel error && rm -rf dist ~/.npm/_cacache',
+      `export NUXT_TELEMETRY_DISABLED=1 && ${NPM_CI} && npx nuxt build && ` +
+      `rm -rf .output .nuxt && npx nuxt prepare && ${DROP_NPM_CACHE}`,
   },
 };
 

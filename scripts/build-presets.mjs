@@ -9,8 +9,11 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 
-const PRESETS = ['vite-react-ts'];
 const ROOT = new URL('../packages/clientvm/', import.meta.url).pathname;
+const PRESETS = readdirSync(join(ROOT, 'presets'), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
 
 function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>

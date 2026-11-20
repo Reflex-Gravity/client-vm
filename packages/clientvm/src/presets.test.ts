@@ -48,7 +48,7 @@ describe('memoryPresetStore', () => {
 
 describe('presets', () => {
   it('accepts only known names', () => {
-    expect(isPresetName('vite-react-ts')).toBe(true);
+    for (const name of Object.keys(PRESETS)) expect(isPresetName(name)).toBe(true);
     for (const name of ['', 'toString', '__proto__', 'vite', 1, null]) {
       expect(isPresetName(name)).toBe(false);
     }
@@ -70,26 +70,30 @@ describe('presets', () => {
     expect(version).toBe(presetVersion(files as [string, string][]));
   });
 
-  it('pins every dependency of vite-react-ts in its lockfile', () => {
-    const { files } = PRESETS['vite-react-ts'].template;
-    const pkg = JSON.parse(files['package.json'] as string) as Record<
-      string,
-      Record<string, string>
-    >;
-    const lock = JSON.parse(files['package-lock.json'] as string) as {
-      packages: Record<string, { version?: string; integrity?: string }>;
-    };
-    for (const [dep, version] of Object.entries({
-      ...pkg['dependencies'],
-      ...pkg['devDependencies'],
-    })) {
-      expect(version, dep).toMatch(/^\d+\.\d+\.\d+$/);
-      expect(lock.packages[`node_modules/${dep}`]?.version, dep).toBe(version);
-    }
-    for (const [path, entry] of Object.entries(lock.packages)) {
-      if (path) expect(entry.integrity, path).toMatch(/^sha512-/);
-    }
-  });
+  it.each(Object.keys(PRESETS) as PresetName[])(
+    '%s pins every dependency in its lockfile',
+    (name) => {
+      const { files } = PRESETS[name].template;
+      const pkg = JSON.parse(files['package.json'] as string) as Record<
+        string,
+        Record<string, string>
+      >;
+      const lock = JSON.parse(files['package-lock.json'] as string) as {
+        packages: Record<string, { version?: string; integrity?: string; inBundle?: boolean }>;
+      };
+      for (const [dep, version] of Object.entries({
+        ...pkg['dependencies'],
+        ...pkg['devDependencies'],
+      })) {
+        expect(version, dep).toMatch(/^\d+\.\d+\.\d+$/);
+        expect(lock.packages[`node_modules/${dep}`]?.version, dep).toBe(version);
+      }
+      for (const [path, entry] of Object.entries(lock.packages)) {
+        // Bundled dependencies ship inside their parent's tarball.
+        if (path && !entry.inBundle) expect(entry.integrity, path).toMatch(/^sha512-/);
+      }
+    },
+  );
 });
 
 /** Same scheme as `version` in scripts/build-presets.mjs. */

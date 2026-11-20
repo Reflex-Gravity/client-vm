@@ -1,0 +1,17 @@
+{
+  "name": "app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "4.22.3"
+  },
+  "devDependencies": {
+    "@types/express": "4.17.25",
+    "@types/node": "24.19.2"
+  }
+}

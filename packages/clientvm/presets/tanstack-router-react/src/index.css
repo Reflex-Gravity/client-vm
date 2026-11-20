@@ -1,0 +1,21 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+nav {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  padding: 1rem;
+}
+
+nav a.active {
+  font-weight: 700;
+}
+
+main {
+  max-width: 40rem;
+  margin: 3rem auto;
+  text-align: center;
+}

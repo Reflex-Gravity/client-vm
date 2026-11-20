@@ -65,3 +65,19 @@
     `FileTree` plus setup, keyed by its hash) but are not part of this change.
   - The open question about a shared package cache (`docs/open-questions.md`) is answered for
     preset projects only. Arbitrary `npm install`s in an instance still download per instance.
+
+## Amendment (2026-11-20): one preset per common starter
+
+- Six more presets, built and keyed the same way: `vite-vanilla-ts`, `vite-vue-ts`,
+  `vite-svelte-ts`, `tanstack-router-react` (setup as `vite-react-ts`: `npm ci`, a throwaway
+  `vite build`), `node-express` (`npm ci` only, nothing native to warm up) and `nuxt` (`npm ci`,
+  whose postinstall runs `nuxt prepare`, then a throwaway `nuxt build` to reach rolldown,
+  lightningcss, rollup and esbuild, then `nuxt prepare` again for a dev `.nuxt`).
+- `scripts/build-presets.mjs` now embeds every directory under `packages/clientvm/presets/`.
+  The lockfile test covers every preset; bundled dependencies (`inBundle`) have no integrity of
+  their own and are skipped.
+- Measured (`test/e2e/preset.spec.ts`, Chromium, warm HTTP cache), whole test including cold
+  build, dev server and a cached boot: about 12–17 s for the Vite presets, 36 s for Express and
+  44 s for Nuxt.
+- The `nuxt` image is the largest (its installed tree is about 190 MB), so it costs the most
+  host-origin quota. Eviction still only costs a rebuild.

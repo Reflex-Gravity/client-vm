@@ -2,15 +2,16 @@
 // Presets (ADR 0018): `createInstance({ preset: 'vite-react-ts' })` builds
 // the project once in a hidden instance (npm ci, stand-ins), keeps the image
 // in the host origin's Cache Storage, and boots later instances from it with
-// no network.
+// no network. vite-react-ts is tested in depth; every other preset gets the
+// same build, dev server and cached-boot check.
 import { expect, test } from '@playwright/test';
 import { host, openHost } from './sandbox.ts';
 
 const APP = '/home/user/app';
 
 /** Creates a preset instance in the page, summarising what `onPresetBuild` reported. */
-function createWithProgress(page: import('@playwright/test').Page) {
-  return page.evaluate(async () => {
+function createWithProgress(page: import('@playwright/test').Page, preset = 'vite-react-ts') {
+  return page.evaluate(async (preset) => {
     const events: string[] = [];
     let bytes = 0;
     const api = (
@@ -19,7 +20,7 @@ function createWithProgress(page: import('@playwright/test').Page) {
       }
     ).__clientvm;
     const id = await api.createInstance({
-      preset: 'vite-react-ts',
+      preset,
       onPresetBuild: (e: {
         type: string;
         process?: { argv: string[] };
@@ -32,8 +33,49 @@ function createWithProgress(page: import('@playwright/test').Page) {
       },
     });
     return { id, events, bytes };
-  });
+  }, preset);
 }
+
+/** How each other preset's `npm run dev` is reached, and the heading its page shows. */
+const OTHERS: {
+  preset: string;
+  port: number;
+  args: string[];
+  env?: Record<string, string>;
+  heading: string;
+  installed: string;
+}[] = [
+  ...(['vite-vanilla-ts', 'vite-vue-ts', 'vite-svelte-ts', 'tanstack-router-react'] as const).map(
+    (preset) => ({
+      preset,
+      port: 5173,
+      args: ['--port', '5173'],
+      heading: {
+        'vite-vanilla-ts': 'Vite + TypeScript',
+        'vite-vue-ts': 'Vite + Vue + TS',
+        'vite-svelte-ts': 'Vite + Svelte + TS',
+        'tanstack-router-react': 'TanStack Router + React',
+      }[preset],
+      installed: 'node_modules/vite/package.json',
+    }),
+  ),
+  {
+    preset: 'node-express',
+    port: 3000,
+    args: [],
+    env: { PORT: '3000' },
+    heading: 'Node + Express',
+    installed: 'node_modules/express/package.json',
+  },
+  {
+    preset: 'nuxt',
+    port: 3000,
+    args: ['--port', '3000', '--host', '0.0.0.0'],
+    env: { NUXT_TELEMETRY_DISABLED: '1' },
+    heading: 'Nuxt',
+    installed: '.nuxt/tsconfig.json node_modules/nuxt/package.json',
+  },
+];
 
 test.describe('presets', () => {
   test.setTimeout(400_000);
@@ -100,6 +142,56 @@ test.describe('presets', () => {
     expect(registry).toEqual([]);
     expect(bootMs).toBeLessThan(10_000);
   });
+
+  for (const p of OTHERS) {
+    test(`${p.preset}: builds, runs npm run dev, boots cached`, async ({ page }) => {
+      await openHost(page);
+      const built = Date.now();
+      const cold = await createWithProgress(page, p.preset);
+      expect(cold.events.at(-1)).toBe('exit 0');
+      test
+        .info()
+        .annotations.push({ type: 'cold build ms', description: String(Date.now() - built) });
+      // The warm-up build's output is gone.
+      const clean = await host(page, 'exec', cold.id, `ls ${p.installed} && ! ls dist .output`, {
+        cwd: APP,
+      });
+      expect(clean.code, clean.stdout + clean.stderr).toBe(0);
+      expect(await host(page, 'list')).toEqual([cold.id]);
+
+      const { pid, url } = await host(
+        page,
+        'startServer',
+        cold.id,
+        'npm',
+        ['run', 'dev', ...(p.args.length ? ['--', ...p.args] : [])],
+        { cwd: APP, env: p.env ?? {} },
+        p.port,
+      );
+      try {
+        await host(page, 'openPreview', url);
+        const frame = page.frames().find((f) => f.url() === url)!;
+        await expect(frame.locator('h1')).toHaveText(p.heading, { timeout: 120_000 });
+      } catch (err) {
+        console.log(`--- npm run dev output\n${await host(page, 'output', pid)}`);
+        throw err;
+      }
+
+      const registry: string[] = [];
+      page.on('request', (req) => {
+        if (req.url().startsWith('https://registry.npmjs.org/')) registry.push(req.url());
+      });
+      await openHost(page);
+      const started = Date.now();
+      const cached = await createWithProgress(page, p.preset);
+      const bootMs = Date.now() - started;
+      expect(cached.events).toEqual([]);
+      test.info().annotations.push({ type: 'cached boot ms', description: String(bootMs) });
+      const again = await host(page, 'exec', cached.id, `ls ${p.installed}`, { cwd: APP });
+      expect(again.code, again.stderr).toBe(0);
+      expect(registry).toEqual([]);
+    });
+  }
 
   test('rejects unknown presets and fs.from with a preset', async ({ page }) => {
     await openHost(page);

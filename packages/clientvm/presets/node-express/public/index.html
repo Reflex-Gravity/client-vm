@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Express</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <h1>Node + Express</h1>
+    <p id="out">Calling <code>/api/hello</code>…</p>
+    <script>
+      fetch('/api/hello?name=Novem')
+        .then((r) => r.json())
+        .then((d) => (document.getElementById('out').textContent = d.message));
+    </script>
+  </body>
+</html>
